@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
@@ -73,7 +73,7 @@ export class AppStore {
       mkdirSync(path.dirname(this.dbPath), { recursive: true });
     }
 
-    this.db = new Database(this.dbPath);
+    this.db = this.openDatabaseWithRecovery();
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
 
@@ -90,6 +90,87 @@ export class AppStore {
     };
 
     this.load(defaultMode);
+  }
+
+  private openDatabaseWithRecovery(): Database.Database {
+    if (this.dbPath === ':memory:') {
+      return new Database(this.dbPath);
+    }
+
+    try {
+      const db = new Database(this.dbPath);
+      const integrity = this.readIntegrityCheck(db);
+      if (integrity !== 'ok') {
+        db.close();
+        this.quarantineCorruptDatabase(`integrity_check=${integrity}`);
+        return new Database(this.dbPath);
+      }
+
+      return db;
+    } catch (error) {
+      if (!this.isCorruptionError(error)) {
+        throw error;
+      }
+
+      this.quarantineCorruptDatabase(error instanceof Error ? error.message : String(error));
+      return new Database(this.dbPath);
+    }
+  }
+
+  private readIntegrityCheck(db: Database.Database): string {
+    try {
+      const result = db.prepare('PRAGMA integrity_check').pluck().get() as string | undefined;
+      return String(result ?? 'unknown').toLowerCase();
+    } catch (error) {
+      if (this.isCorruptionError(error)) {
+        return 'corrupt';
+      }
+
+      throw error;
+    }
+  }
+
+  private isCorruptionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    return /SQLITE_CORRUPT|database disk image is malformed|file is not a database|malformed/i.test(message);
+  }
+
+  private quarantineCorruptDatabase(reason: string): void {
+    if (this.dbPath === ':memory:') {
+      return;
+    }
+
+    const dbExists = existsSync(this.dbPath);
+    const walPath = `${this.dbPath}-wal`;
+    const shmPath = `${this.dbPath}-shm`;
+
+    if (!dbExists && !existsSync(walPath) && !existsSync(shmPath)) {
+      return;
+    }
+
+    const backupDir = path.join(path.dirname(this.dbPath), 'corrupt-backups');
+    mkdirSync(backupDir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const baseName = path.basename(this.dbPath);
+    const backupBase = path.join(backupDir, `${baseName}.${stamp}`);
+
+    const variants = [
+      { from: this.dbPath, to: backupBase },
+      { from: walPath, to: `${backupBase}-wal` },
+      { from: shmPath, to: `${backupBase}-shm` }
+    ];
+
+    variants.forEach((entry) => {
+      if (!existsSync(entry.from)) {
+        return;
+      }
+
+      renameSync(entry.from, entry.to);
+    });
+
+    // eslint-disable-next-line no-console
+    console.warn(`[store] Corrupt SQLite database quarantined (${reason}) -> ${backupBase}`);
   }
 
   public close(): void {
