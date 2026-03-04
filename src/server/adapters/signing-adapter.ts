@@ -167,6 +167,7 @@ export class RealSigningAdapter implements SigningAdapter {
       let selectedIdentity: SigningIdentityCandidate | undefined;
       let resolution: ProvisionResolution | undefined;
       let provisioningError: AppError | undefined;
+      let preferredProvisioningError: AppError | undefined;
 
       for (const candidate of identityCandidates) {
         try {
@@ -192,6 +193,9 @@ export class RealSigningAdapter implements SigningAdapter {
         } catch (error) {
           if (error instanceof AppError && (error.code === 'REAL_PROVISION_PROFILE_NOT_FOUND' || error.code === 'REAL_PROVISION_PROFILE_MISMATCH')) {
             provisioningError = error;
+            if (candidate.preferred) {
+              preferredProvisioningError = error;
+            }
             continue;
           }
 
@@ -201,7 +205,8 @@ export class RealSigningAdapter implements SigningAdapter {
 
       if (!selectedIdentity || !resolution) {
         const attemptedTeams = Array.from(new Set(identityCandidates.map((candidate) => candidate.teamId))).join(', ');
-        const detail = provisioningError ? ` Last resolver error: ${provisioningError.message}` : '';
+        const resolverError = preferredProvisioningError ?? provisioningError;
+        const detail = resolverError ? ` Last resolver error: ${resolverError.message}` : '';
 
         throw new AppError(
           'REAL_PROVISION_PROFILE_NOT_FOUND',
