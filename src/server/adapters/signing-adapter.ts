@@ -51,9 +51,12 @@ interface SigningIdentityCandidate {
   preferred: boolean;
 }
 
+type BundleIdStrategy = 'per-app' | 'stable';
 
 const REAL_PROVISION_PROFILE_ENV_KEYS = ['SIDELINK_REAL_PROVISION_PROFILE', 'ALTSTORE_REAL_PROVISION_PROFILE'];
 const REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_OVERRIDE', 'ALTSTORE_REAL_BUNDLE_ID_OVERRIDE'];
+const REAL_BUNDLE_ID_STRATEGY_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_STRATEGY', 'ALTSTORE_REAL_BUNDLE_ID_STRATEGY'];
+const REAL_STABLE_BUNDLE_ID_ENV_KEYS = ['SIDELINK_REAL_STABLE_BUNDLE_ID', 'ALTSTORE_REAL_STABLE_BUNDLE_ID'];
 const HELPER_PROJECT_DIR_ENV_KEYS = ['SIDELINK_HELPER_PROJECT_DIR', 'ALTSTORE_HELPER_PROJECT_DIR'];
 const PROVISION_PROFILE_DIRECTORIES = [
   path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles'),
@@ -484,6 +487,12 @@ export class RealSigningAdapter implements SigningAdapter {
     audit?: CommandAuditWriter;
   }): Promise<ProvisionResolution> {
     const requestedBundleOverride = this.normalizeBundleId(readEnv(...REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS));
+    const strategy = this.resolveBundleIdStrategy();
+    const bootstrapBundleTargets = this.buildBootstrapBundleTargets({
+      originalBundleId: params.bundleId,
+      requestedBundleOverride,
+      strategy
+    });
 
     const explicitProfilePath = readEnv(...REAL_PROVISION_PROFILE_ENV_KEYS);
     const explicitCandidate = explicitProfilePath
@@ -522,16 +531,22 @@ export class RealSigningAdapter implements SigningAdapter {
     let initialBootstrapReason: string | undefined;
 
     if (!usable.length) {
-      const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-      const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
-      initialBootstrapReason = bootstrapAttempt.reason;
+      for (const bootstrapBundleId of bootstrapBundleTargets) {
+        const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
+        if (!bootstrapAttempt.success) {
+          initialBootstrapReason = bootstrapAttempt.reason;
+          continue;
+        }
 
-      if (bootstrapAttempt.success) {
         candidates = await this.collectProvisionProfileCandidates(params.appPath);
         if (explicitCandidate) {
           candidates = [explicitCandidate, ...candidates.filter((candidate) => candidate.path !== explicitCandidate.path)];
         }
+
         usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
+        if (usable.length) {
+          break;
+        }
       }
     }
 
@@ -539,16 +554,17 @@ export class RealSigningAdapter implements SigningAdapter {
       const bootstrapHint = initialBootstrapReason ? ` Last auto-bootstrap error: ${initialBootstrapReason}` : '';
       throw new AppError(
         'REAL_PROVISION_PROFILE_NOT_FOUND',
-        `No usable provisioning profiles found for team ${params.teamId}.${bootstrapHint}`,
+        `No usable provisioning profiles found for team ${params.teamId}. Bundle strategy=${strategy}.${bootstrapHint}`,
         400,
         'Open Xcode once with your Apple ID to generate/update local provisioning profiles. Sidelink can attempt automatic provisioning, but Xcode account access/signing setup must be valid.'
       );
     }
 
-    const directTargets = [params.bundleId];
-    if (requestedBundleOverride && requestedBundleOverride !== params.bundleId) {
-      directTargets.unshift(requestedBundleOverride);
-    }
+    const directTargets = Array.from(new Set([
+      ...(requestedBundleOverride && requestedBundleOverride !== params.bundleId ? [requestedBundleOverride] : []),
+      params.bundleId,
+      ...bootstrapBundleTargets
+    ]));
 
     for (const targetBundleId of directTargets) {
       const direct = this.selectBestMatchingProfile(usable, targetBundleId, params.teamId);
@@ -566,9 +582,15 @@ export class RealSigningAdapter implements SigningAdapter {
       return fallback;
     }
 
-    const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-    const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
-    if (bootstrapAttempt.success) {
+    let finalBootstrapReason: string | undefined;
+
+    for (const bootstrapBundleId of bootstrapBundleTargets) {
+      const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
+      if (!bootstrapAttempt.success) {
+        finalBootstrapReason = bootstrapAttempt.reason;
+        continue;
+      }
+
       const refreshed = await this.collectProvisionProfileCandidates(params.appPath);
       const refreshedUsable = refreshed.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
 
@@ -589,11 +611,11 @@ export class RealSigningAdapter implements SigningAdapter {
       }
     }
 
-    const bootstrapHint = bootstrapAttempt.reason ? ` Last auto-bootstrap error: ${bootstrapAttempt.reason}` : '';
+    const bootstrapHint = finalBootstrapReason ? ` Last auto-bootstrap error: ${finalBootstrapReason}` : '';
 
     throw new AppError(
       'REAL_PROVISION_PROFILE_NOT_FOUND',
-      `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).${bootstrapHint}`,
+      `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}). Bundle strategy=${strategy}.${bootstrapHint}`,
       400,
       'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then optionally set SIDELINK_REAL_PROVISION_PROFILE (or SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
     );
@@ -673,6 +695,40 @@ export class RealSigningAdapter implements SigningAdapter {
     }
 
     return { success: false, reason: this.summarizeCommandFailure(bootstrapResult) };
+  }
+
+  private resolveBundleIdStrategy(): BundleIdStrategy {
+    const raw = String(readEnv(...REAL_BUNDLE_ID_STRATEGY_ENV_KEYS) ?? '').trim().toLowerCase();
+
+    if (raw === 'stable' || raw === 'single' || raw === 'global') {
+      return 'stable';
+    }
+
+    if (raw === 'per-app' || raw === 'perapp' || raw === 'app') {
+      return 'per-app';
+    }
+
+    return 'per-app';
+  }
+
+  private buildBootstrapBundleTargets(params: {
+    originalBundleId: string;
+    requestedBundleOverride?: string;
+    strategy: BundleIdStrategy;
+  }): string[] {
+    if (params.requestedBundleOverride) {
+      return [params.requestedBundleOverride];
+    }
+
+    const perApp = this.makeGeneratedBundleId('com.sidelink.autogen', params.originalBundleId);
+    const stable = this.makeStableBundleId();
+    const ordered = params.strategy === 'stable' ? [stable, perApp] : [perApp, stable];
+
+    return Array.from(new Set(ordered.filter(Boolean)));
+  }
+
+  private makeStableBundleId(): string {
+    return this.normalizeBundleId(readEnv(...REAL_STABLE_BUNDLE_ID_ENV_KEYS)) ?? 'com.sidelink.client';
   }
 
   private summarizeCommandFailure(result: { code: number; stdout: string; stderr: string }): string {

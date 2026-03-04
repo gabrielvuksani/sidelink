@@ -167,8 +167,18 @@ Optional bundle-id override for real signing (use when your available profile do
 SIDELINK_REAL_BUNDLE_ID_OVERRIDE='com.yourteam.sidelink.youtube'
 ```
 
-When no direct profile match exists, Sidelink now attempts automatic fallback remap using eligible team profiles.
-If no usable profile exists for a team, Sidelink also attempts automatic provisioning bootstrap via Xcode (`xcodebuild -allowProvisioningUpdates`) and targets the selected device UDID when available before failing.
+Optional bundle-id strategy when no direct profile match exists:
+
+```bash
+SIDELINK_REAL_BUNDLE_ID_STRATEGY='stable'  # stable | per-app (default)
+SIDELINK_REAL_STABLE_BUNDLE_ID='com.yourteam.sidelink.client'  # optional custom stable id
+```
+
+- `per-app` prefers generated per-IPA remapped IDs (current behavior) and then falls back to a stable ID bootstrap attempt.
+- `stable` prefers a single reusable bundle ID first (better for profile reuse), then falls back to per-app.
+
+When no direct profile match exists, Sidelink attempts automatic fallback remap using eligible team profiles.
+If no usable profile exists for a team, Sidelink also attempts automatic provisioning bootstrap via Xcode (`xcodebuild -allowProvisioningUpdates`) across strategy targets and uses the selected device UDID when available before failing.
 
 ---
 
@@ -256,6 +266,8 @@ Scheduler controls are available via API/UI (pause/resume/manual time advance fo
 - `SIDELINK_REAL_SIGNING_IDENTITY`
 - `SIDELINK_REAL_PROVISION_PROFILE`
 - `SIDELINK_REAL_BUNDLE_ID_OVERRIDE`
+- `SIDELINK_REAL_BUNDLE_ID_STRATEGY`
+- `SIDELINK_REAL_STABLE_BUNDLE_ID`
 - `SIDELINK_HELPER_API_TOKEN`
 - `SIDELINK_HELPER_PROJECT_DIR`
 - `SIDELINK_HELPER_IPA_PATH`
