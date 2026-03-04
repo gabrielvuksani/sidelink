@@ -19,6 +19,8 @@ export interface SigningExecutionResult {
   signedIpaPath: string;
   workingDir: string;
   effectiveBundleId?: string;
+  effectiveSigningIdentity?: string;
+  effectiveTeamId?: string;
   cleanup: () => Promise<void>;
 }
 
@@ -41,6 +43,13 @@ interface ProvisionResolution {
   effectiveBundleId: string;
   reason: string;
 }
+
+interface SigningIdentityCandidate {
+  label: string;
+  teamId: string;
+  preferred: boolean;
+}
+
 
 const REAL_PROVISION_PROFILE_ENV_KEYS = ['SIDELINK_REAL_PROVISION_PROFILE', 'ALTSTORE_REAL_PROVISION_PROFILE'];
 const REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_OVERRIDE', 'ALTSTORE_REAL_BUNDLE_ID_OVERRIDE'];
@@ -102,22 +111,14 @@ export class RealSigningAdapter implements SigningAdapter {
       );
     }
 
-    if (!identityList.stdout.toLowerCase().includes(params.signingIdentity.toLowerCase())) {
+    const identityCandidates = this.resolveIdentityCandidates(identityList.stdout, params.signingIdentity);
+
+    if (!identityCandidates.length) {
       throw new AppError(
         'SIGNING_IDENTITY_NOT_FOUND',
-        `Signing identity "${params.signingIdentity}" was not found in local keychain.`,
+        'No usable Apple Development signing identities were found in local keychain.',
         400,
-        'Set SIDELINK_REAL_SIGNING_IDENTITY (or legacy ALTSTORE_REAL_SIGNING_IDENTITY) to an exact Apple Development identity from `security find-identity -v -p codesigning`.'
-      );
-    }
-
-    const teamId = this.extractTeamId(params.signingIdentity);
-    if (!teamId) {
-      throw new AppError(
-        'SIGNING_IDENTITY_TEAM_ID_MISSING',
-        `Could not extract a Team ID from identity "${params.signingIdentity}".`,
-        400,
-        'Use an identity string that includes your Team ID, for example: Apple Development: Name (TEAMID).'
+        'Open Xcode → Settings → Accounts and ensure at least one Apple Development signing identity exists.'
       );
     }
 
@@ -161,11 +162,47 @@ export class RealSigningAdapter implements SigningAdapter {
       const appPath = path.join(payloadDir, appDir.name);
       const originalBundleId = await this.readBundleIdentifier(appPath);
 
-      const resolution = await this.resolveProvisioningProfile({
-        appPath,
-        bundleId: originalBundleId,
-        teamId
-      });
+      let selectedIdentity: SigningIdentityCandidate | undefined;
+      let resolution: ProvisionResolution | undefined;
+      let provisioningError: AppError | undefined;
+
+      for (const candidate of identityCandidates) {
+        try {
+          const candidateResolution = await this.resolveProvisioningProfile({
+            appPath,
+            bundleId: originalBundleId,
+            teamId: candidate.teamId
+          });
+
+          selectedIdentity = candidate;
+          resolution = candidateResolution;
+
+          if (!candidate.preferred) {
+            await this.recordNote(
+              audit,
+              `Auto-selected signing identity ${candidate.label} because it has a usable provisioning profile for team ${candidate.teamId}.`
+            );
+          }
+
+          break;
+        } catch (error) {
+          if (error instanceof AppError && (error.code === 'REAL_PROVISION_PROFILE_NOT_FOUND' || error.code === 'REAL_PROVISION_PROFILE_MISMATCH')) {
+            provisioningError = error;
+            continue;
+          }
+
+          throw error;
+        }
+      }
+
+      if (!selectedIdentity || !resolution) {
+        throw provisioningError ?? new AppError(
+          'REAL_PROVISION_PROFILE_NOT_FOUND',
+          `No matching provisioning profile found for ${originalBundleId}.`,
+          400,
+          'Open Xcode once with your Apple ID to generate/update local provisioning profiles, or set SIDELINK_REAL_PROVISION_PROFILE to a matching .mobileprovision path.'
+        );
+      }
 
       if (resolution.effectiveBundleId !== originalBundleId) {
         await this.rewriteBundleIdentifiers(appPath, originalBundleId, resolution.effectiveBundleId);
@@ -185,7 +222,7 @@ export class RealSigningAdapter implements SigningAdapter {
 
       const entitlements = this.buildSigningEntitlements({
         bundleId: resolution.effectiveBundleId,
-        teamId,
+        teamId: selectedIdentity.teamId,
         profileEntitlements: resolution.profile.entitlements
       });
       const entitlementsPath = path.join(workingDir, 'entitlements.plist');
@@ -194,7 +231,7 @@ export class RealSigningAdapter implements SigningAdapter {
       const signResult = await this.runAudited(
         {
           command: 'codesign',
-          args: ['-f', '--deep', '--generate-entitlement-der', '-s', params.signingIdentity, '--entitlements', entitlementsPath, appPath],
+          args: ['-f', '--deep', '--generate-entitlement-der', '-s', selectedIdentity.label, '--entitlements', entitlementsPath, appPath],
           timeoutMs: timeoutMs * 2
         },
         audit
@@ -251,6 +288,8 @@ export class RealSigningAdapter implements SigningAdapter {
         signedIpaPath,
         workingDir,
         effectiveBundleId: resolution.effectiveBundleId,
+        effectiveSigningIdentity: selectedIdentity.label,
+        effectiveTeamId: selectedIdentity.teamId,
         cleanup: async () => {
           await rm(workingDir, { recursive: true, force: true });
         }
@@ -259,6 +298,66 @@ export class RealSigningAdapter implements SigningAdapter {
       await rm(workingDir, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }
+  }
+
+  private resolveIdentityCandidates(identityOutput: string, preferredIdentity: string): SigningIdentityCandidate[] {
+    const normalizedPreferred = preferredIdentity.trim().toLowerCase();
+    const parsed = this.parseSigningIdentities(identityOutput);
+
+    const preferred = parsed.find((candidate) => candidate.label.toLowerCase() === normalizedPreferred);
+    if (!preferred) {
+      throw new AppError(
+        'SIGNING_IDENTITY_NOT_FOUND',
+        `Signing identity "${preferredIdentity}" was not found in local keychain.`,
+        400,
+        'Set SIDELINK_REAL_SIGNING_IDENTITY (or legacy ALTSTORE_REAL_SIGNING_IDENTITY) to an exact Apple Development identity from `security find-identity -v -p codesigning`.'
+      );
+    }
+
+    return [
+      { ...preferred, preferred: true },
+      ...parsed
+        .filter((candidate) => candidate.label.toLowerCase() !== normalizedPreferred)
+        .map((candidate) => ({ ...candidate, preferred: false }))
+    ];
+  }
+
+  private parseSigningIdentities(identityOutput: string): Omit<SigningIdentityCandidate, 'preferred'>[] {
+    const dedupe = new Set<string>();
+    const out: Omit<SigningIdentityCandidate, 'preferred'>[] = [];
+
+    for (const line of identityOutput.split('\n')) {
+      const match = line.match(/"([^"]+)"/);
+      if (!match) {
+        continue;
+      }
+
+      const label = match[1].trim();
+      if (!label) {
+        continue;
+      }
+
+      try {
+        this.assertIdentityCompliance(label);
+      } catch {
+        continue;
+      }
+
+      const teamId = this.extractTeamId(label)?.toUpperCase();
+      if (!teamId) {
+        continue;
+      }
+
+      const key = label.toLowerCase();
+      if (dedupe.has(key)) {
+        continue;
+      }
+
+      dedupe.add(key);
+      out.push({ label, teamId });
+    }
+
+    return out;
   }
 
   private async readBundleIdentifier(appPath: string): Promise<string> {

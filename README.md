@@ -153,6 +153,7 @@ SIDELINK_REAL_SIGNING_IDENTITY='Apple Development: Your Name (TEAMID)'
 ```
 
 Only Apple Development identities are accepted. Enterprise/distribution patterns are blocked.
+If your preferred identity has no usable profile, Sidelink now auto-tries other local Apple Development identities and picks one that has a compatible profile.
 
 Optional explicit provisioning profile override (otherwise Sidelink auto-discovers a local matching profile):
 

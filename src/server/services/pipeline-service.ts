@@ -384,11 +384,14 @@ export class PipelineService {
           (entry) => this.recordCommand(job.id, 'prepare-signing', entry)
         );
 
+        const effectiveIdentity = signedArtifact.effectiveSigningIdentity || signingIdentity;
+        const identityAutoSwitched = effectiveIdentity !== signingIdentity;
+
         if (signedArtifact.effectiveBundleId && signedArtifact.effectiveBundleId !== ipa.bundleId) {
-          return `Real signing completed using ${signingIdentity}; bundle remapped to ${signedArtifact.effectiveBundleId}.`;
+          return `Real signing completed using ${effectiveIdentity}${identityAutoSwitched ? ' (auto-selected)' : ''}; bundle remapped to ${signedArtifact.effectiveBundleId}.`;
         }
 
-        return `Real signing completed using ${signingIdentity}.`;
+        return `Real signing completed using ${effectiveIdentity}${identityAutoSwitched ? ' (auto-selected)' : ''}.`;
       });
 
       await this.runStep(job, 'install-app', async () => {
