@@ -35,12 +35,10 @@ export class RealInstallAdapter implements InstallAdapter {
   public async preflightDevice(deviceId: string, audit?: CommandAuditWriter): Promise<void> {
     await this.ensureAvailable();
 
-    const result = await this.runAudited(
-      {
-        command: 'ideviceinstaller',
-        args: ['-u', deviceId, '-l'],
-        timeoutMs: 12_000
-      },
+    const result = await this.runWithInstallerCompat(
+      ['-u', deviceId, 'list'],
+      ['-u', deviceId, '-l'],
+      12_000,
       audit
     );
 
@@ -66,12 +64,10 @@ export class RealInstallAdapter implements InstallAdapter {
       );
     });
 
-    const result = await this.runAudited(
-      {
-        command: 'ideviceinstaller',
-        args: ['-u', params.deviceId, '-i', params.signedIpaPath],
-        timeoutMs: params.timeoutMs ?? 40_000
-      },
+    const result = await this.runWithInstallerCompat(
+      ['-u', params.deviceId, 'install', params.signedIpaPath],
+      ['-u', params.deviceId, '-i', params.signedIpaPath],
+      params.timeoutMs ?? 40_000,
       audit
     );
 
@@ -83,6 +79,43 @@ export class RealInstallAdapter implements InstallAdapter {
         'Check signing identity/provisioning compatibility and confirm the device remains connected + trusted.'
       );
     }
+  }
+
+  private async runWithInstallerCompat(
+    modernArgs: string[],
+    legacyArgs: string[],
+    timeoutMs: number,
+    audit?: CommandAuditWriter
+  ) {
+    const modernResult = await this.runAudited(
+      {
+        command: 'ideviceinstaller',
+        args: modernArgs,
+        timeoutMs
+      },
+      audit
+    );
+
+    if (modernResult.code === 0 || !this.isCliSyntaxError(modernResult)) {
+      return modernResult;
+    }
+
+    return this.runAudited(
+      {
+        command: 'ideviceinstaller',
+        args: legacyArgs,
+        timeoutMs
+      },
+      audit
+    );
+  }
+
+  private isCliSyntaxError(result: { stdout: string; stderr: string }): boolean {
+    const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+    return output.includes('usage: ideviceinstaller options')
+      || output.includes('invalid option')
+      || output.includes('unknown option')
+      || output.includes('unknown command');
   }
 
   private async runAudited(
