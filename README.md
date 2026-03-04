@@ -155,7 +155,7 @@ SIDELINK_REAL_SIGNING_IDENTITY='Apple Development: Your Name (TEAMID)'
 Only Apple Development identities are accepted. Enterprise/distribution patterns are blocked.
 If your preferred identity has no usable profile, Sidelink now auto-tries other local Apple Development identities and picks one that has a compatible profile.
 
-Optional explicit provisioning profile override (otherwise Sidelink auto-discovers a local matching profile):
+Optional explicit provisioning profile override (otherwise Sidelink auto-discovers a local matching profile). If the pinned profile is incompatible, Sidelink now auto-falls back to discovered compatible profiles/identities:
 
 ```bash
 SIDELINK_REAL_PROVISION_PROFILE='/Users/you/Library/MobileDevice/Provisioning Profiles/<profile>.mobileprovision'

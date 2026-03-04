@@ -472,37 +472,37 @@ export class RealSigningAdapter implements SigningAdapter {
     const requestedBundleOverride = this.normalizeBundleId(readEnv(...REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS));
 
     const explicitProfilePath = readEnv(...REAL_PROVISION_PROFILE_ENV_KEYS);
-    if (explicitProfilePath) {
-      const explicit = await this.readProvisionProfileCandidate(explicitProfilePath, 'env');
-      this.assertProfileTeamMatch(explicit, params.teamId, explicitProfilePath);
+    const explicitCandidate = explicitProfilePath
+      ? await this.readProvisionProfileCandidate(explicitProfilePath, 'env').catch(() => undefined)
+      : undefined;
 
+    if (explicitCandidate) {
       const explicitTarget = requestedBundleOverride ?? params.bundleId;
-      if (this.matchesProfileBundle(explicit, explicitTarget, params.teamId)) {
-        return {
-          profile: explicit,
-          effectiveBundleId: explicitTarget,
-          reason: requestedBundleOverride ? 'explicit profile + bundle override' : 'explicit profile match'
-        };
-      }
+      if (this.profileMatchesTeam(explicitCandidate, params.teamId)) {
+        if (this.matchesProfileBundle(explicitCandidate, explicitTarget, params.teamId)) {
+          return {
+            profile: explicitCandidate,
+            effectiveBundleId: explicitTarget,
+            reason: requestedBundleOverride ? 'explicit profile + bundle override' : 'explicit profile match'
+          };
+        }
 
-      const remapped = this.deriveFallbackBundleId(explicit, params.bundleId, params.teamId);
-      if (remapped && this.matchesProfileBundle(explicit, remapped, params.teamId)) {
-        return {
-          profile: explicit,
-          effectiveBundleId: remapped,
-          reason: 'explicit profile fallback remap'
-        };
+        const remapped = this.deriveFallbackBundleId(explicitCandidate, params.bundleId, params.teamId);
+        if (remapped && this.matchesProfileBundle(explicitCandidate, remapped, params.teamId)) {
+          return {
+            profile: explicitCandidate,
+            effectiveBundleId: remapped,
+            reason: 'explicit profile fallback remap'
+          };
+        }
       }
-
-      throw new AppError(
-        'REAL_PROVISION_PROFILE_MISMATCH',
-        `Provisioning profile ${explicitProfilePath} does not match team ${params.teamId} and bundle ${explicitTarget}.`,
-        400,
-        'Set SIDELINK_REAL_PROVISION_PROFILE to a profile that matches your Team ID and bundle identifier (or set SIDELINK_REAL_BUNDLE_ID_OVERRIDE to a bundle ID allowed by that profile).'
-      );
     }
 
-    const candidates = await this.collectProvisionProfileCandidates(params.appPath);
+    const discovered = await this.collectProvisionProfileCandidates(params.appPath);
+    const candidates = explicitCandidate
+      ? [explicitCandidate, ...discovered.filter((candidate) => candidate.path !== explicitCandidate.path)]
+      : discovered;
+
     const usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
 
     if (!usable.length) {
@@ -510,7 +510,7 @@ export class RealSigningAdapter implements SigningAdapter {
         'REAL_PROVISION_PROFILE_NOT_FOUND',
         `No usable provisioning profiles found for team ${params.teamId}.`,
         400,
-        'Open Xcode once with your Apple ID to generate/update local provisioning profiles, or set SIDELINK_REAL_PROVISION_PROFILE to a matching .mobileprovision path.'
+        'Open Xcode once with your Apple ID to generate/update local provisioning profiles. You can optionally set SIDELINK_REAL_PROVISION_PROFILE to prefer a specific profile, but Sidelink will now auto-fallback when that profile does not match.'
       );
     }
 
@@ -539,7 +539,7 @@ export class RealSigningAdapter implements SigningAdapter {
       'REAL_PROVISION_PROFILE_NOT_FOUND',
       `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).`,
       400,
-      'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then set SIDELINK_REAL_PROVISION_PROFILE (optional: SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
+      'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then optionally set SIDELINK_REAL_PROVISION_PROFILE (or SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
     );
   }
 
@@ -815,6 +815,11 @@ export class RealSigningAdapter implements SigningAdapter {
     }
 
     return Array.from(out);
+  }
+
+  private profileMatchesTeam(profile: ProvisionProfileCandidate, teamId: string): boolean {
+    const normalizedTeamId = teamId.toUpperCase();
+    return !profile.teamIds.length || profile.teamIds.includes(normalizedTeamId);
   }
 
   private isUsableProfile(profile: ProvisionProfileCandidate, teamId: string): boolean {
