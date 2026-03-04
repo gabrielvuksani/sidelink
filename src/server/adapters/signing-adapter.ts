@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { access, copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +18,7 @@ export interface SigningExecutionParams {
 export interface SigningExecutionResult {
   signedIpaPath: string;
   workingDir: string;
+  effectiveBundleId?: string;
   cleanup: () => Promise<void>;
 }
 
@@ -34,7 +36,14 @@ interface ProvisionProfileCandidate {
   source: 'env' | 'embedded' | 'library';
 }
 
+interface ProvisionResolution {
+  profile: ProvisionProfileCandidate;
+  effectiveBundleId: string;
+  reason: string;
+}
+
 const REAL_PROVISION_PROFILE_ENV_KEYS = ['SIDELINK_REAL_PROVISION_PROFILE', 'ALTSTORE_REAL_PROVISION_PROFILE'];
+const REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_OVERRIDE', 'ALTSTORE_REAL_BUNDLE_ID_OVERRIDE'];
 
 const complianceError =
   'This demo intentionally blocks enterprise/distribution/jailbreak-style flows. Use a personal Apple Development identity only.';
@@ -146,21 +155,34 @@ export class RealSigningAdapter implements SigningAdapter {
       }
 
       const appPath = path.join(payloadDir, appDir.name);
-      const bundleId = await this.readBundleIdentifier(appPath);
+      const originalBundleId = await this.readBundleIdentifier(appPath);
 
-      const profile = await this.resolveProvisioningProfile({ appPath, bundleId, teamId, audit });
+      const resolution = await this.resolveProvisioningProfile({
+        appPath,
+        bundleId: originalBundleId,
+        teamId
+      });
+
+      if (resolution.effectiveBundleId !== originalBundleId) {
+        await this.rewriteBundleIdentifiers(appPath, originalBundleId, resolution.effectiveBundleId);
+        await this.recordNote(
+          audit,
+          `Bundle identifier remapped ${originalBundleId} -> ${resolution.effectiveBundleId} (${resolution.reason}).`
+        );
+      }
+
       const embeddedProfilePath = path.join(appPath, 'embedded.mobileprovision');
-      await copyFile(profile.path, embeddedProfilePath);
+      await copyFile(resolution.profile.path, embeddedProfilePath);
 
       await this.recordNote(
         audit,
-        `Using provisioning profile (${profile.source}) ${path.basename(profile.path)} for ${bundleId}.`
+        `Using provisioning profile (${resolution.profile.source}) ${path.basename(resolution.profile.path)} for ${resolution.effectiveBundleId}.`
       );
 
       const entitlements = this.buildSigningEntitlements({
-        bundleId,
+        bundleId: resolution.effectiveBundleId,
         teamId,
-        profileEntitlements: profile.entitlements
+        profileEntitlements: resolution.profile.entitlements
       });
       const entitlementsPath = path.join(workingDir, 'entitlements.plist');
       await writeFile(entitlementsPath, plist.build(entitlements as any), 'utf8');
@@ -224,6 +246,7 @@ export class RealSigningAdapter implements SigningAdapter {
       return {
         signedIpaPath,
         workingDir,
+        effectiveBundleId: resolution.effectiveBundleId,
         cleanup: async () => {
           await rm(workingDir, { recursive: true, force: true });
         }
@@ -270,65 +293,166 @@ export class RealSigningAdapter implements SigningAdapter {
     return bundleId;
   }
 
+  private async rewriteBundleIdentifiers(appPath: string, fromBundleId: string, toBundleId: string): Promise<void> {
+    const plistPaths = await this.collectInfoPlists(appPath);
+
+    for (const plistPath of plistPaths) {
+      const buffer = await readFile(plistPath).catch(() => undefined);
+      if (!buffer) {
+        continue;
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parsePlistBuffer(buffer);
+      } catch {
+        continue;
+      }
+
+      const currentBundleId = typeof parsed.CFBundleIdentifier === 'string'
+        ? String(parsed.CFBundleIdentifier)
+        : undefined;
+
+      if (!currentBundleId) {
+        continue;
+      }
+
+      const remapped = this.remapBundleIdentifier(currentBundleId, fromBundleId, toBundleId);
+      if (remapped === currentBundleId) {
+        continue;
+      }
+
+      parsed.CFBundleIdentifier = remapped;
+      await writeFile(plistPath, plist.build(parsed as any), 'utf8');
+    }
+  }
+
+  private remapBundleIdentifier(currentBundleId: string, fromBundleId: string, toBundleId: string): string {
+    if (currentBundleId === fromBundleId) {
+      return toBundleId;
+    }
+
+    if (currentBundleId.startsWith(`${fromBundleId}.`)) {
+      return `${toBundleId}${currentBundleId.slice(fromBundleId.length)}`;
+    }
+
+    return currentBundleId;
+  }
+
+  private async collectInfoPlists(root: string): Promise<string[]> {
+    const output: string[] = [];
+
+    const walk = async (dir: string): Promise<void> => {
+      const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        const absolute = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(absolute);
+          continue;
+        }
+
+        if (entry.isFile() && entry.name === 'Info.plist') {
+          output.push(absolute);
+        }
+      }
+    };
+
+    await walk(root);
+    return output;
+  }
+
   private async resolveProvisioningProfile(params: {
     appPath: string;
     bundleId: string;
     teamId: string;
-    audit?: CommandAuditWriter;
-  }): Promise<ProvisionProfileCandidate> {
+  }): Promise<ProvisionResolution> {
+    const requestedBundleOverride = this.normalizeBundleId(readEnv(...REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS));
+
     const explicitProfilePath = readEnv(...REAL_PROVISION_PROFILE_ENV_KEYS);
     if (explicitProfilePath) {
       const explicit = await this.readProvisionProfileCandidate(explicitProfilePath, 'env');
-      if (!this.matchesProfile(explicit, params.bundleId, params.teamId)) {
-        throw new AppError(
-          'REAL_PROVISION_PROFILE_MISMATCH',
-          `Provisioning profile ${explicitProfilePath} does not match team ${params.teamId} and bundle ${params.bundleId}.`,
-          400,
-          'Set SIDELINK_REAL_PROVISION_PROFILE to a profile that matches your Team ID and app bundle identifier (or wildcard app-id).'
-        );
+      this.assertProfileTeamMatch(explicit, params.teamId, explicitProfilePath);
+
+      const explicitTarget = requestedBundleOverride ?? params.bundleId;
+      if (this.matchesProfileBundle(explicit, explicitTarget, params.teamId)) {
+        return {
+          profile: explicit,
+          effectiveBundleId: explicitTarget,
+          reason: requestedBundleOverride ? 'explicit profile + bundle override' : 'explicit profile match'
+        };
       }
 
-      return explicit;
+      const remapped = this.deriveFallbackBundleId(explicit, params.bundleId, params.teamId);
+      if (remapped && this.matchesProfileBundle(explicit, remapped, params.teamId)) {
+        return {
+          profile: explicit,
+          effectiveBundleId: remapped,
+          reason: 'explicit profile fallback remap'
+        };
+      }
+
+      throw new AppError(
+        'REAL_PROVISION_PROFILE_MISMATCH',
+        `Provisioning profile ${explicitProfilePath} does not match team ${params.teamId} and bundle ${explicitTarget}.`,
+        400,
+        'Set SIDELINK_REAL_PROVISION_PROFILE to a profile that matches your Team ID and bundle identifier (or set SIDELINK_REAL_BUNDLE_ID_OVERRIDE to a bundle ID allowed by that profile).'
+      );
     }
 
-    const embeddedPath = path.join(params.appPath, 'embedded.mobileprovision');
-    const embedded = await this.readProvisionProfileCandidate(embeddedPath, 'embedded').catch(() => undefined);
-    if (embedded && this.matchesProfile(embedded, params.bundleId, params.teamId)) {
-      return embedded;
-    }
+    const candidates = await this.collectProvisionProfileCandidates(params.appPath);
+    const usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
 
-    const profileRoot = path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles');
-    const entries = await readdir(profileRoot, { withFileTypes: true }).catch(() => []);
-
-    const candidates: ProvisionProfileCandidate[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.mobileprovision')) {
-        continue;
-      }
-
-      const profilePath = path.join(profileRoot, entry.name);
-      const parsed = await this.readProvisionProfileCandidate(profilePath, 'library').catch(() => undefined);
-      if (!parsed) {
-        continue;
-      }
-
-      if (this.matchesProfile(parsed, params.bundleId, params.teamId)) {
-        candidates.push(parsed);
-      }
-    }
-
-    if (!candidates.length) {
+    if (!usable.length) {
       throw new AppError(
         'REAL_PROVISION_PROFILE_NOT_FOUND',
-        `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).`,
+        `No usable provisioning profiles found for team ${params.teamId}.`,
         400,
         'Open Xcode once with your Apple ID to generate/update local provisioning profiles, or set SIDELINK_REAL_PROVISION_PROFILE to a matching .mobileprovision path.'
       );
     }
 
-    candidates.sort((a, b) => {
-      const aScore = this.matchSpecificityScore(a.appIdentifier, params.bundleId, params.teamId);
-      const bScore = this.matchSpecificityScore(b.appIdentifier, params.bundleId, params.teamId);
+    const directTargets = [params.bundleId];
+    if (requestedBundleOverride && requestedBundleOverride !== params.bundleId) {
+      directTargets.unshift(requestedBundleOverride);
+    }
+
+    for (const targetBundleId of directTargets) {
+      const direct = this.selectBestMatchingProfile(usable, targetBundleId, params.teamId);
+      if (direct) {
+        return {
+          profile: direct,
+          effectiveBundleId: targetBundleId,
+          reason: targetBundleId === params.bundleId ? 'direct profile match' : 'bundle override profile match'
+        };
+      }
+    }
+
+    const fallback = this.selectFallbackProfile(usable, params.bundleId, params.teamId);
+    if (fallback) {
+      return fallback;
+    }
+
+    throw new AppError(
+      'REAL_PROVISION_PROFILE_NOT_FOUND',
+      `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).`,
+      400,
+      'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then set SIDELINK_REAL_PROVISION_PROFILE (optional: SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
+    );
+  }
+
+  private selectBestMatchingProfile(
+    candidates: ProvisionProfileCandidate[],
+    bundleId: string,
+    teamId: string
+  ): ProvisionProfileCandidate | undefined {
+    const matches = candidates.filter((candidate) => this.matchesProfileBundle(candidate, bundleId, teamId));
+    if (!matches.length) {
+      return undefined;
+    }
+
+    matches.sort((a, b) => {
+      const aScore = this.matchSpecificityScore(a.appIdentifier, bundleId, teamId);
+      const bScore = this.matchSpecificityScore(b.appIdentifier, bundleId, teamId);
       if (aScore !== bScore) {
         return bScore - aScore;
       }
@@ -338,7 +462,179 @@ export class RealSigningAdapter implements SigningAdapter {
       return bExpiry - aExpiry;
     });
 
-    return candidates[0];
+    return matches[0];
+  }
+
+  private selectFallbackProfile(
+    candidates: ProvisionProfileCandidate[],
+    originalBundleId: string,
+    teamId: string
+  ): ProvisionResolution | undefined {
+    const fallbackOptions = candidates
+      .map((profile) => {
+        const effectiveBundleId = this.deriveFallbackBundleId(profile, originalBundleId, teamId);
+        if (!effectiveBundleId) {
+          return undefined;
+        }
+
+        if (!this.matchesProfileBundle(profile, effectiveBundleId, teamId)) {
+          return undefined;
+        }
+
+        return {
+          profile,
+          effectiveBundleId,
+          score: this.fallbackSpecificityScore(profile, teamId),
+          reason: 'automatic fallback remap'
+        };
+      })
+      .filter((entry): entry is { profile: ProvisionProfileCandidate; effectiveBundleId: string; score: number; reason: string } => Boolean(entry));
+
+    if (!fallbackOptions.length) {
+      return undefined;
+    }
+
+    fallbackOptions.sort((a, b) => {
+      if (a.score !== b.score) {
+        return b.score - a.score;
+      }
+
+      const aExpiry = a.profile.expiresAt?.getTime() ?? 0;
+      const bExpiry = b.profile.expiresAt?.getTime() ?? 0;
+      return bExpiry - aExpiry;
+    });
+
+    const chosen = fallbackOptions[0];
+    return {
+      profile: chosen.profile,
+      effectiveBundleId: chosen.effectiveBundleId,
+      reason: chosen.reason
+    };
+  }
+
+  private fallbackSpecificityScore(profile: ProvisionProfileCandidate, teamId: string): number {
+    const suffix = this.extractProfileBundleSuffix(profile, teamId);
+    if (!suffix) {
+      return 0;
+    }
+
+    if (suffix === '*') {
+      return 400;
+    }
+
+    if (suffix.endsWith('.*')) {
+      return 300 + suffix.length;
+    }
+
+    if (suffix.includes('.helper')) {
+      return 50;
+    }
+
+    return 100;
+  }
+
+  private deriveFallbackBundleId(profile: ProvisionProfileCandidate, originalBundleId: string, teamId: string): string | undefined {
+    const suffix = this.extractProfileBundleSuffix(profile, teamId);
+    if (!suffix) {
+      return undefined;
+    }
+
+    if (suffix === '*') {
+      return this.makeGeneratedBundleId('sidelink', originalBundleId);
+    }
+
+    if (suffix.endsWith('.*')) {
+      const prefix = suffix.slice(0, -2);
+      const leaf = this.generateBundleLeaf(originalBundleId);
+      return `${prefix}.${leaf}`;
+    }
+
+    return suffix;
+  }
+
+  private extractProfileBundleSuffix(profile: ProvisionProfileCandidate, teamId: string): string | undefined {
+    const appIdentifier = profile.appIdentifier;
+    if (!appIdentifier || !appIdentifier.startsWith(`${teamId}.`)) {
+      return undefined;
+    }
+
+    const suffix = appIdentifier.slice(teamId.length + 1).trim();
+    return suffix || undefined;
+  }
+
+  private makeGeneratedBundleId(prefix: string, originalBundleId: string): string {
+    const normalizedPrefix = this.normalizeBundleId(prefix) ?? 'sidelink';
+    const leaf = this.generateBundleLeaf(originalBundleId);
+    return `${normalizedPrefix}.${leaf}`;
+  }
+
+  private generateBundleLeaf(originalBundleId: string): string {
+    const normalized = this.normalizeBundleId(originalBundleId) ?? 'app';
+    const tail = normalized
+      .split('.')
+      .slice(-2)
+      .join('-')
+      .replace(/[^a-z0-9-]/g, '')
+      .slice(0, 24);
+
+    const hash = createHash('sha1').update(originalBundleId).digest('hex').slice(0, 8);
+    const base = tail || 'app';
+    const leaf = `${base}-${hash}`.replace(/^-+/, 'a-');
+    return /^[a-z]/.test(leaf) ? leaf : `a-${leaf}`;
+  }
+
+  private normalizeBundleId(input?: string): string | undefined {
+    if (!input) {
+      return undefined;
+    }
+
+    const rawParts = input
+      .toLowerCase()
+      .replace(/[^a-z0-9.\-]/g, '.')
+      .split('.')
+      .map((part) => part.replace(/[^a-z0-9\-]/g, '').replace(/^-+/, '').replace(/-+$/, ''))
+      .filter(Boolean);
+
+    if (!rawParts.length) {
+      return undefined;
+    }
+
+    const parts = rawParts.map((part, index) => {
+      if (index === 0 && /^[0-9]/.test(part)) {
+        return `app-${part}`;
+      }
+
+      return part;
+    });
+
+    return parts.join('.');
+  }
+
+  private async collectProvisionProfileCandidates(appPath: string): Promise<ProvisionProfileCandidate[]> {
+    const candidates: ProvisionProfileCandidate[] = [];
+
+    const embeddedPath = path.join(appPath, 'embedded.mobileprovision');
+    const embedded = await this.readProvisionProfileCandidate(embeddedPath, 'embedded').catch(() => undefined);
+    if (embedded) {
+      candidates.push(embedded);
+    }
+
+    const profileRoot = path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles');
+    const entries = await readdir(profileRoot, { withFileTypes: true }).catch(() => []);
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.mobileprovision')) {
+        continue;
+      }
+
+      const profilePath = path.join(profileRoot, entry.name);
+      const parsed = await this.readProvisionProfileCandidate(profilePath, 'library').catch(() => undefined);
+      if (parsed) {
+        candidates.push(parsed);
+      }
+    }
+
+    return candidates;
   }
 
   private async readProvisionProfileCandidate(profilePath: string, source: ProvisionProfileCandidate['source']): Promise<ProvisionProfileCandidate> {
@@ -375,7 +671,7 @@ export class RealSigningAdapter implements SigningAdapter {
     };
   }
 
-  private matchesProfile(profile: ProvisionProfileCandidate, bundleId: string, teamId: string): boolean {
+  private isUsableProfile(profile: ProvisionProfileCandidate, teamId: string): boolean {
     if (profile.expiresAt && profile.expiresAt.getTime() < Date.now()) {
       return false;
     }
@@ -384,29 +680,40 @@ export class RealSigningAdapter implements SigningAdapter {
       return false;
     }
 
+    return typeof profile.appIdentifier === 'string' && profile.appIdentifier.length > 0;
+  }
+
+  private assertProfileTeamMatch(profile: ProvisionProfileCandidate, teamId: string, profilePath: string): void {
+    if (profile.teamIds.length && !profile.teamIds.includes(teamId)) {
+      throw new AppError(
+        'REAL_PROVISION_PROFILE_MISMATCH',
+        `Provisioning profile ${profilePath} is not for team ${teamId}.`,
+        400,
+        'Use a provisioning profile for the same Team ID as your selected signing identity.'
+      );
+    }
+  }
+
+  private matchesProfileBundle(profile: ProvisionProfileCandidate, bundleId: string, teamId: string): boolean {
     if (!profile.appIdentifier) {
       return false;
     }
 
-    return this.matchesAppIdentifier(profile.appIdentifier, bundleId, teamId);
-  }
-
-  private matchesAppIdentifier(appIdentifier: string, bundleId: string, teamId: string): boolean {
-    if (!appIdentifier.startsWith(`${teamId}.`)) {
+    if (!profile.appIdentifier.startsWith(`${teamId}.`)) {
       return false;
     }
 
-    const appIdSuffix = appIdentifier.slice(teamId.length + 1);
-    if (appIdSuffix === '*') {
+    const suffix = profile.appIdentifier.slice(teamId.length + 1);
+    if (suffix === '*') {
       return true;
     }
 
-    if (appIdSuffix.endsWith('.*')) {
-      const prefix = appIdSuffix.slice(0, -2);
+    if (suffix.endsWith('.*')) {
+      const prefix = suffix.slice(0, -2);
       return bundleId === prefix || bundleId.startsWith(`${prefix}.`);
     }
 
-    return appIdSuffix === bundleId;
+    return suffix === bundleId;
   }
 
   private matchSpecificityScore(appIdentifier: string | undefined, bundleId: string, teamId: string): number {

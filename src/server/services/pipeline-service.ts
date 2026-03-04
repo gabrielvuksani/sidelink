@@ -384,6 +384,10 @@ export class PipelineService {
           (entry) => this.recordCommand(job.id, 'prepare-signing', entry)
         );
 
+        if (signedArtifact.effectiveBundleId && signedArtifact.effectiveBundleId !== ipa.bundleId) {
+          return `Real signing completed using ${signingIdentity}; bundle remapped to ${signedArtifact.effectiveBundleId}.`;
+        }
+
         return `Real signing completed using ${signingIdentity}.`;
       });
 
@@ -428,6 +432,8 @@ export class PipelineService {
       });
 
       await this.runStep(job, 'register-refresh', async () => {
+        const installedBundleId = signedArtifact?.effectiveBundleId || ipa.bundleId;
+
         this.scheduler.registerInstall({
           jobId: job.id,
           ipaId: job.ipaId,
@@ -435,9 +441,14 @@ export class PipelineService {
           mode: job.mode,
           kind: 'primary',
           label: ipa.displayName,
-          bundleId: ipa.bundleId,
+          bundleId: installedBundleId,
           preferredTransport: 'wifi'
         });
+
+        if (installedBundleId !== ipa.bundleId) {
+          return `Lifecycle registration complete (installed bundle: ${installedBundleId}).`;
+        }
+
         return 'Lifecycle registration complete.';
       });
 

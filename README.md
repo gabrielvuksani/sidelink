@@ -160,6 +160,14 @@ Optional explicit provisioning profile override (otherwise Sidelink auto-discove
 SIDELINK_REAL_PROVISION_PROFILE='/Users/you/Library/MobileDevice/Provisioning Profiles/<profile>.mobileprovision'
 ```
 
+Optional bundle-id override for real signing (use when your available profile does not match the source app bundle ID):
+
+```bash
+SIDELINK_REAL_BUNDLE_ID_OVERRIDE='com.yourteam.sidelink.youtube'
+```
+
+When no direct profile match exists, Sidelink now attempts automatic fallback remap using eligible team profiles.
+
 ---
 
 ## Helper app integration (SwiftUI)
@@ -245,6 +253,7 @@ Scheduler controls are available via API/UI (pause/resume/manual time advance fo
 - `SIDELINK_ENABLE_REAL_WORKER`
 - `SIDELINK_REAL_SIGNING_IDENTITY`
 - `SIDELINK_REAL_PROVISION_PROFILE`
+- `SIDELINK_REAL_BUNDLE_ID_OVERRIDE`
 - `SIDELINK_HELPER_API_TOKEN`
 - `SIDELINK_HELPER_PROJECT_DIR`
 - `SIDELINK_HELPER_IPA_PATH`
