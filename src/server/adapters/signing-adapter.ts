@@ -754,12 +754,20 @@ export class RealSigningAdapter implements SigningAdapter {
   private async readProvisionProfileCandidate(profilePath: string, source: ProvisionProfileCandidate['source']): Promise<ProvisionProfileCandidate> {
     await access(profilePath);
     const raw = await readFile(profilePath);
-    const profile = parseMobileProvision(raw);
-    const entitlements = parseMobileProvisionEntitlements(raw);
+
+    const decodedProfile = await this.decodeProvisionProfile(profilePath);
+    const fallbackProfile = parseMobileProvision(raw);
+
+    const profile = Object.keys(decodedProfile).length ? decodedProfile : fallbackProfile;
+
+    const decodedEntitlements = profile.Entitlements;
+    const entitlements = decodedEntitlements && typeof decodedEntitlements === 'object'
+      ? (decodedEntitlements as Record<string, unknown>)
+      : parseMobileProvisionEntitlements(raw);
 
     const appIdentifierRaw = entitlements['application-identifier'] ?? entitlements['com.apple.application-identifier'];
     const appIdentifier = typeof appIdentifierRaw === 'string'
-      ? String(appIdentifierRaw)
+      ? String(appIdentifierRaw).trim()
       : undefined;
 
     const rawTeam = profile.TeamIdentifier;
@@ -795,6 +803,29 @@ export class RealSigningAdapter implements SigningAdapter {
       expiresAt: expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt : undefined,
       source
     };
+  }
+
+  private async decodeProvisionProfile(profilePath: string): Promise<Record<string, unknown>> {
+    const decoded = await this.runner.execute({
+      command: 'security',
+      args: ['cms', '-D', '-i', profilePath],
+      timeoutMs: 15_000
+    }).catch(() => undefined);
+
+    if (!decoded || decoded.code !== 0 || !decoded.stdout.trim()) {
+      return {};
+    }
+
+    try {
+      const parsed = plist.parse(decoded.stdout);
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+
+    return {};
   }
 
   private normalizeTeamIds(values: unknown[]): string[] {
