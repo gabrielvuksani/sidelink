@@ -200,9 +200,12 @@ export class RealSigningAdapter implements SigningAdapter {
       }
 
       if (!selectedIdentity || !resolution) {
-        throw provisioningError ?? new AppError(
+        const attemptedTeams = Array.from(new Set(identityCandidates.map((candidate) => candidate.teamId))).join(', ');
+        const detail = provisioningError ? ` Last resolver error: ${provisioningError.message}` : '';
+
+        throw new AppError(
           'REAL_PROVISION_PROFILE_NOT_FOUND',
-          `No matching provisioning profile found for ${originalBundleId}.`,
+          `No matching provisioning profile found for ${originalBundleId}. Attempted team(s): ${attemptedTeams}.${detail}`,
           400,
           'Open Xcode once with your Apple ID to generate/update local provisioning profiles, or set SIDELINK_REAL_PROVISION_PROFILE to a matching .mobileprovision path.'
         );
@@ -511,11 +514,14 @@ export class RealSigningAdapter implements SigningAdapter {
 
     let usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
 
+    let initialBootstrapReason: string | undefined;
+
     if (!usable.length) {
       const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-      const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
+      const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
+      initialBootstrapReason = bootstrapAttempt.reason;
 
-      if (bootstrapped) {
+      if (bootstrapAttempt.success) {
         candidates = await this.collectProvisionProfileCandidates(params.appPath);
         if (explicitCandidate) {
           candidates = [explicitCandidate, ...candidates.filter((candidate) => candidate.path !== explicitCandidate.path)];
@@ -525,9 +531,10 @@ export class RealSigningAdapter implements SigningAdapter {
     }
 
     if (!usable.length) {
+      const bootstrapHint = initialBootstrapReason ? ` Last auto-bootstrap error: ${initialBootstrapReason}` : '';
       throw new AppError(
         'REAL_PROVISION_PROFILE_NOT_FOUND',
-        `No usable provisioning profiles found for team ${params.teamId}.`,
+        `No usable provisioning profiles found for team ${params.teamId}.${bootstrapHint}`,
         400,
         'Open Xcode once with your Apple ID to generate/update local provisioning profiles. Sidelink can attempt automatic provisioning, but Xcode account access/signing setup must be valid.'
       );
@@ -555,8 +562,8 @@ export class RealSigningAdapter implements SigningAdapter {
     }
 
     const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-    const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
-    if (bootstrapped) {
+    const bootstrapAttempt = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
+    if (bootstrapAttempt.success) {
       const refreshed = await this.collectProvisionProfileCandidates(params.appPath);
       const refreshedUsable = refreshed.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
 
@@ -577,18 +584,25 @@ export class RealSigningAdapter implements SigningAdapter {
       }
     }
 
+    const bootstrapHint = bootstrapAttempt.reason ? ` Last auto-bootstrap error: ${bootstrapAttempt.reason}` : '';
+
     throw new AppError(
       'REAL_PROVISION_PROFILE_NOT_FOUND',
-      `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).`,
+      `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).${bootstrapHint}`,
       400,
       'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then optionally set SIDELINK_REAL_PROVISION_PROFILE (or SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
     );
   }
 
-  private async bootstrapProvisioningProfile(teamId: string, bundleId: string, deviceId: string | undefined, audit?: CommandAuditWriter): Promise<boolean> {
+  private async bootstrapProvisioningProfile(
+    teamId: string,
+    bundleId: string,
+    deviceId: string | undefined,
+    audit?: CommandAuditWriter
+  ): Promise<{ success: boolean; reason?: string }> {
     const hasXcodebuild = await this.runner.exists('xcodebuild');
     if (!hasXcodebuild) {
-      return false;
+      return { success: false, reason: 'xcodebuild is not installed or unavailable in PATH.' };
     }
 
     const helperProjectDir = readEnv(...HELPER_PROJECT_DIR_ENV_KEYS)
@@ -602,7 +616,7 @@ export class RealSigningAdapter implements SigningAdapter {
       const hasSpec = await access(projectSpec).then(() => true).catch(() => false);
 
       if (!hasXcodegen || !hasSpec) {
-        return false;
+        return { success: false, reason: `Helper project missing at ${projectFile} and xcodegen bootstrap is unavailable.` };
       }
 
       const generated = await this.runAudited(
@@ -616,7 +630,7 @@ export class RealSigningAdapter implements SigningAdapter {
       );
 
       if (generated.code !== 0) {
-        return false;
+        return { success: false, reason: this.summarizeCommandFailure(generated) };
       }
     }
 
@@ -649,7 +663,28 @@ export class RealSigningAdapter implements SigningAdapter {
       audit
     );
 
-    return bootstrapResult.code === 0;
+    if (bootstrapResult.code === 0) {
+      return { success: true };
+    }
+
+    return { success: false, reason: this.summarizeCommandFailure(bootstrapResult) };
+  }
+
+  private summarizeCommandFailure(result: { code: number; stdout: string; stderr: string }): string {
+    const lines = `${result.stderr}\n${result.stdout}`
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) {
+      return `Command failed with exit code ${result.code}.`;
+    }
+
+    const preferred = [...lines]
+      .reverse()
+      .find((line) => /\berror\b|invalid credentials|unable to|failed|not found|no accounts?/i.test(line));
+
+    return (preferred ?? lines[lines.length - 1]).slice(0, 320);
   }
 
   private selectBestMatchingProfile(
