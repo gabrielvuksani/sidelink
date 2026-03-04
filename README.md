@@ -168,7 +168,7 @@ SIDELINK_REAL_BUNDLE_ID_OVERRIDE='com.yourteam.sidelink.youtube'
 ```
 
 When no direct profile match exists, Sidelink now attempts automatic fallback remap using eligible team profiles.
-If no usable profile exists for a team, Sidelink also attempts automatic provisioning bootstrap via Xcode (`xcodebuild -allowProvisioningUpdates`) before failing.
+If no usable profile exists for a team, Sidelink also attempts automatic provisioning bootstrap via Xcode (`xcodebuild -allowProvisioningUpdates`) and targets the selected device UDID when available before failing.
 
 ---
 

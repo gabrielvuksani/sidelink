@@ -379,7 +379,8 @@ export class PipelineService {
         signedArtifact = await this.signingAdapter.sign(
           {
             ipaPath: ipa.absolutePath,
-            signingIdentity
+            signingIdentity,
+            deviceId: job.deviceId
           },
           (entry) => this.recordCommand(job.id, 'prepare-signing', entry)
         );

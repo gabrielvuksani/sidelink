@@ -12,6 +12,7 @@ import { CommandAuditWriter } from './toolchain-types';
 export interface SigningExecutionParams {
   ipaPath: string;
   signingIdentity: string;
+  deviceId?: string;
   timeoutMs?: number;
 }
 
@@ -173,6 +174,7 @@ export class RealSigningAdapter implements SigningAdapter {
             appPath,
             bundleId: originalBundleId,
             teamId: candidate.teamId,
+            deviceId: params.deviceId,
             audit
           });
 
@@ -470,6 +472,7 @@ export class RealSigningAdapter implements SigningAdapter {
     appPath: string;
     bundleId: string;
     teamId: string;
+    deviceId?: string;
     audit?: CommandAuditWriter;
   }): Promise<ProvisionResolution> {
     const requestedBundleOverride = this.normalizeBundleId(readEnv(...REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS));
@@ -510,7 +513,7 @@ export class RealSigningAdapter implements SigningAdapter {
 
     if (!usable.length) {
       const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-      const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.audit);
+      const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
 
       if (bootstrapped) {
         candidates = await this.collectProvisionProfileCandidates(params.appPath);
@@ -552,7 +555,7 @@ export class RealSigningAdapter implements SigningAdapter {
     }
 
     const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
-    const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.audit);
+    const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.deviceId, params.audit);
     if (bootstrapped) {
       const refreshed = await this.collectProvisionProfileCandidates(params.appPath);
       const refreshedUsable = refreshed.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
@@ -582,7 +585,7 @@ export class RealSigningAdapter implements SigningAdapter {
     );
   }
 
-  private async bootstrapProvisioningProfile(teamId: string, bundleId: string, audit?: CommandAuditWriter): Promise<boolean> {
+  private async bootstrapProvisioningProfile(teamId: string, bundleId: string, deviceId: string | undefined, audit?: CommandAuditWriter): Promise<boolean> {
     const hasXcodebuild = await this.runner.exists('xcodebuild');
     if (!hasXcodebuild) {
       return false;
@@ -617,9 +620,13 @@ export class RealSigningAdapter implements SigningAdapter {
       }
     }
 
+    const destination = deviceId
+      ? `id=${deviceId}`
+      : 'generic/platform=iOS';
+
     await this.recordNote(
       audit,
-      `Attempting automatic provisioning bootstrap for team ${teamId} and bundle ${bundleId}.`
+      `Attempting automatic provisioning bootstrap for team ${teamId}, bundle ${bundleId}, destination ${destination}.`
     );
 
     const bootstrapResult = await this.runAudited(
@@ -629,7 +636,7 @@ export class RealSigningAdapter implements SigningAdapter {
           '-project', projectFile,
           '-scheme', 'SidelinkHelper',
           '-configuration', 'Release',
-          '-destination', 'generic/platform=iOS',
+          '-destination', destination,
           '-allowProvisioningUpdates',
           '-allowProvisioningDeviceRegistration',
           'CODE_SIGN_STYLE=Automatic',
