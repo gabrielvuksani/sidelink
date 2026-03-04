@@ -53,6 +53,7 @@ interface SigningIdentityCandidate {
 
 const REAL_PROVISION_PROFILE_ENV_KEYS = ['SIDELINK_REAL_PROVISION_PROFILE', 'ALTSTORE_REAL_PROVISION_PROFILE'];
 const REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_OVERRIDE', 'ALTSTORE_REAL_BUNDLE_ID_OVERRIDE'];
+const HELPER_PROJECT_DIR_ENV_KEYS = ['SIDELINK_HELPER_PROJECT_DIR', 'ALTSTORE_HELPER_PROJECT_DIR'];
 const PROVISION_PROFILE_DIRECTORIES = [
   path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles'),
   path.join(os.homedir(), 'Library', 'Developer', 'Xcode', 'UserData', 'Provisioning Profiles')
@@ -171,7 +172,8 @@ export class RealSigningAdapter implements SigningAdapter {
           const candidateResolution = await this.resolveProvisioningProfile({
             appPath,
             bundleId: originalBundleId,
-            teamId: candidate.teamId
+            teamId: candidate.teamId,
+            audit
           });
 
           selectedIdentity = candidate;
@@ -468,6 +470,7 @@ export class RealSigningAdapter implements SigningAdapter {
     appPath: string;
     bundleId: string;
     teamId: string;
+    audit?: CommandAuditWriter;
   }): Promise<ProvisionResolution> {
     const requestedBundleOverride = this.normalizeBundleId(readEnv(...REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS));
 
@@ -498,19 +501,32 @@ export class RealSigningAdapter implements SigningAdapter {
       }
     }
 
-    const discovered = await this.collectProvisionProfileCandidates(params.appPath);
-    const candidates = explicitCandidate
-      ? [explicitCandidate, ...discovered.filter((candidate) => candidate.path !== explicitCandidate.path)]
-      : discovered;
+    let candidates = await this.collectProvisionProfileCandidates(params.appPath);
+    if (explicitCandidate) {
+      candidates = [explicitCandidate, ...candidates.filter((candidate) => candidate.path !== explicitCandidate.path)];
+    }
 
-    const usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
+    let usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
+
+    if (!usable.length) {
+      const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
+      const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.audit);
+
+      if (bootstrapped) {
+        candidates = await this.collectProvisionProfileCandidates(params.appPath);
+        if (explicitCandidate) {
+          candidates = [explicitCandidate, ...candidates.filter((candidate) => candidate.path !== explicitCandidate.path)];
+        }
+        usable = candidates.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
+      }
+    }
 
     if (!usable.length) {
       throw new AppError(
         'REAL_PROVISION_PROFILE_NOT_FOUND',
         `No usable provisioning profiles found for team ${params.teamId}.`,
         400,
-        'Open Xcode once with your Apple ID to generate/update local provisioning profiles. You can optionally set SIDELINK_REAL_PROVISION_PROFILE to prefer a specific profile, but Sidelink will now auto-fallback when that profile does not match.'
+        'Open Xcode once with your Apple ID to generate/update local provisioning profiles. Sidelink can attempt automatic provisioning, but Xcode account access/signing setup must be valid.'
       );
     }
 
@@ -535,12 +551,98 @@ export class RealSigningAdapter implements SigningAdapter {
       return fallback;
     }
 
+    const bootstrapBundleId = requestedBundleOverride ?? this.makeGeneratedBundleId('com.sidelink.autogen', params.bundleId);
+    const bootstrapped = await this.bootstrapProvisioningProfile(params.teamId, bootstrapBundleId, params.audit);
+    if (bootstrapped) {
+      const refreshed = await this.collectProvisionProfileCandidates(params.appPath);
+      const refreshedUsable = refreshed.filter((candidate) => this.isUsableProfile(candidate, params.teamId));
+
+      for (const targetBundleId of [bootstrapBundleId, ...directTargets]) {
+        const direct = this.selectBestMatchingProfile(refreshedUsable, targetBundleId, params.teamId);
+        if (direct) {
+          return {
+            profile: direct,
+            effectiveBundleId: targetBundleId,
+            reason: targetBundleId === bootstrapBundleId ? 'post-bootstrap profile match' : 'post-bootstrap direct match'
+          };
+        }
+      }
+
+      const refreshedFallback = this.selectFallbackProfile(refreshedUsable, params.bundleId, params.teamId);
+      if (refreshedFallback) {
+        return refreshedFallback;
+      }
+    }
+
     throw new AppError(
       'REAL_PROVISION_PROFILE_NOT_FOUND',
       `No matching provisioning profile found for ${params.bundleId} (team ${params.teamId}).`,
       400,
       'Create or download a provisioning profile for a sideloadable bundle ID under this Team ID, then optionally set SIDELINK_REAL_PROVISION_PROFILE (or SIDELINK_REAL_BUNDLE_ID_OVERRIDE).'
     );
+  }
+
+  private async bootstrapProvisioningProfile(teamId: string, bundleId: string, audit?: CommandAuditWriter): Promise<boolean> {
+    const hasXcodebuild = await this.runner.exists('xcodebuild');
+    if (!hasXcodebuild) {
+      return false;
+    }
+
+    const helperProjectDir = readEnv(...HELPER_PROJECT_DIR_ENV_KEYS)
+      || path.resolve(process.cwd(), 'ios-helper', 'SidelinkHelper');
+    const projectFile = path.join(helperProjectDir, 'SidelinkHelper.xcodeproj');
+
+    const hasProject = await access(projectFile).then(() => true).catch(() => false);
+    if (!hasProject) {
+      const hasXcodegen = await this.runner.exists('xcodegen');
+      const projectSpec = path.join(helperProjectDir, 'project.yml');
+      const hasSpec = await access(projectSpec).then(() => true).catch(() => false);
+
+      if (!hasXcodegen || !hasSpec) {
+        return false;
+      }
+
+      const generated = await this.runAudited(
+        {
+          command: 'xcodegen',
+          args: ['generate'],
+          cwd: helperProjectDir,
+          timeoutMs: 30_000
+        },
+        audit
+      );
+
+      if (generated.code !== 0) {
+        return false;
+      }
+    }
+
+    await this.recordNote(
+      audit,
+      `Attempting automatic provisioning bootstrap for team ${teamId} and bundle ${bundleId}.`
+    );
+
+    const bootstrapResult = await this.runAudited(
+      {
+        command: 'xcodebuild',
+        args: [
+          '-project', projectFile,
+          '-scheme', 'SidelinkHelper',
+          '-configuration', 'Release',
+          '-destination', 'generic/platform=iOS',
+          '-allowProvisioningUpdates',
+          '-allowProvisioningDeviceRegistration',
+          'CODE_SIGN_STYLE=Automatic',
+          `DEVELOPMENT_TEAM=${teamId}`,
+          `PRODUCT_BUNDLE_IDENTIFIER=${bundleId}`,
+          'build'
+        ],
+        timeoutMs: 180_000
+      },
+      audit
+    );
+
+    return bootstrapResult.code === 0;
   }
 
   private selectBestMatchingProfile(
