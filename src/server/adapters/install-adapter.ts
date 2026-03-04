@@ -36,7 +36,11 @@ export class RealInstallAdapter implements InstallAdapter {
     await this.ensureAvailable();
 
     const result = await this.runWithInstallerCompat(
-      ['-u', deviceId, 'list'],
+      [
+        ['-u', deviceId, 'list'],
+        ['list', '-u', deviceId],
+        ['list', '--udid', deviceId]
+      ],
       ['-u', deviceId, '-l'],
       12_000,
       audit
@@ -65,7 +69,11 @@ export class RealInstallAdapter implements InstallAdapter {
     });
 
     const result = await this.runWithInstallerCompat(
-      ['-u', params.deviceId, 'install', params.signedIpaPath],
+      [
+        ['-u', params.deviceId, 'install', params.signedIpaPath],
+        ['install', params.signedIpaPath, '-u', params.deviceId],
+        ['install', params.signedIpaPath, '--udid', params.deviceId]
+      ],
       ['-u', params.deviceId, '-i', params.signedIpaPath],
       params.timeoutMs ?? 40_000,
       audit
@@ -82,25 +90,35 @@ export class RealInstallAdapter implements InstallAdapter {
   }
 
   private async runWithInstallerCompat(
-    modernArgs: string[],
+    modernArgVariants: string[][],
     legacyArgs: string[],
     timeoutMs: number,
     audit?: CommandAuditWriter
   ) {
-    const modernResult = await this.runAudited(
-      {
-        command: 'ideviceinstaller',
-        args: modernArgs,
-        timeoutMs
-      },
-      audit
-    );
+    let lastModernResult: Awaited<ReturnType<RealInstallAdapter['runAudited']>> | undefined;
 
-    if (modernResult.code === 0 || !this.isCliSyntaxError(modernResult)) {
-      return modernResult;
+    for (const modernArgs of modernArgVariants) {
+      const modernResult = await this.runAudited(
+        {
+          command: 'ideviceinstaller',
+          args: modernArgs,
+          timeoutMs
+        },
+        audit
+      );
+
+      if (modernResult.code === 0) {
+        return modernResult;
+      }
+
+      if (!this.isCliSyntaxError(modernResult)) {
+        return modernResult;
+      }
+
+      lastModernResult = modernResult;
     }
 
-    return this.runAudited(
+    const legacyResult = await this.runAudited(
       {
         command: 'ideviceinstaller',
         args: legacyArgs,
@@ -108,6 +126,16 @@ export class RealInstallAdapter implements InstallAdapter {
       },
       audit
     );
+
+    if (legacyResult.code === 0) {
+      return legacyResult;
+    }
+
+    if (this.isCliSyntaxError(legacyResult) && lastModernResult) {
+      return lastModernResult;
+    }
+
+    return legacyResult;
   }
 
   private isCliSyntaxError(result: { stdout: string; stderr: string }): boolean {
