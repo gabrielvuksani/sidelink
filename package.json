@@ -1,0 +1,80 @@
+{
+  "name": "sidelink",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sidelink — compliant personal iOS sideload manager with premium control center, helper orchestration, and auto-refresh.",
+  "author": "Gabriel Vuksani",
+  "main": "dist/desktop/main.js",
+  "scripts": {
+    "demo": "npm run web",
+    "start": "npm run web",
+    "preweb": "npm run node:preflight",
+    "web": "tsx src/server/index.ts",
+    "predev": "npm run node:preflight",
+    "dev": "tsx watch src/server/index.ts",
+    "clean": "rm -rf dist",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build:assets": "mkdir -p dist/client && cp -R src/client/. dist/client/",
+    "build": "npm run clean && npm run build:ts && npm run build:assets",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run node:preflight",
+    "test": "vitest run",
+    "pretest:watch": "npm run node:preflight",
+    "test:watch": "vitest",
+    "node:preflight": "node scripts/node-native-preflight.cjs",
+    "predb:migrate": "npm run node:preflight",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "predb:bootstrap": "npm run node:preflight",
+    "db:bootstrap": "tsx scripts/db-bootstrap-admin.ts",
+    "helper:build": "bash scripts/helper-build.sh",
+    "helper:export": "bash scripts/helper-export.sh",
+    "icon:generate": "python3 scripts/generate-icon-assets.py",
+    "desktop:preflight": "node scripts/desktop-native-preflight.cjs",
+    "desktop:easy": "node scripts/desktop-easy-launch.cjs",
+    "desktop:dev": "npm run build && npm run desktop:preflight && electron dist/desktop/main.js",
+    "desktop:deps": "electron-builder install-app-deps",
+    "desktop:package": "npm run build && npm run desktop:preflight && electron-builder --mac --dir"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^11.8.1",
+    "bplist-parser": "^0.3.2",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "plist": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.13.10",
+    "@types/plist": "^3.0.5",
+    "@types/supertest": "^6.0.2",
+    "electron": "^36.1.0",
+    "electron-builder": "^26.0.12",
+    "supertest": "^7.1.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  },
+  "build": {
+    "appId": "com.gabriel.sidelink",
+    "productName": "Sidelink",
+    "files": [
+      "dist/**/*",
+      "src/client/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icons/icon.icns"
+    }
+  }
+}

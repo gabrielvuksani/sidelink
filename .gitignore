@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.tmp/
+tmp/uploads/*
+!tmp/uploads/.gitkeep
+tmp/helper/*
+!tmp/helper/.gitkeep
+ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj/
