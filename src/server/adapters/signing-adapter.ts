@@ -549,6 +549,10 @@ export class RealSigningAdapter implements SigningAdapter {
       return `${prefix}.${leaf}`;
     }
 
+    if (suffix.includes('.helper')) {
+      return undefined;
+    }
+
     return suffix;
   }
 
