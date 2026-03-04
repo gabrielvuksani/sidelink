@@ -44,6 +44,10 @@ interface ProvisionResolution {
 
 const REAL_PROVISION_PROFILE_ENV_KEYS = ['SIDELINK_REAL_PROVISION_PROFILE', 'ALTSTORE_REAL_PROVISION_PROFILE'];
 const REAL_BUNDLE_ID_OVERRIDE_ENV_KEYS = ['SIDELINK_REAL_BUNDLE_ID_OVERRIDE', 'ALTSTORE_REAL_BUNDLE_ID_OVERRIDE'];
+const PROVISION_PROFILE_DIRECTORIES = [
+  path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles'),
+  path.join(os.homedir(), 'Library', 'Developer', 'Xcode', 'UserData', 'Provisioning Profiles')
+];
 
 const complianceError =
   'This demo intentionally blocks enterprise/distribution/jailbreak-style flows. Use a personal Apple Development identity only.';
@@ -557,12 +561,13 @@ export class RealSigningAdapter implements SigningAdapter {
   }
 
   private extractProfileBundleSuffix(profile: ProvisionProfileCandidate, teamId: string): string | undefined {
-    const appIdentifier = profile.appIdentifier;
-    if (!appIdentifier || !appIdentifier.startsWith(`${teamId}.`)) {
+    const appIdentifier = profile.appIdentifier?.trim();
+    const normalizedTeamId = teamId.toUpperCase();
+    if (!appIdentifier || !appIdentifier.toUpperCase().startsWith(`${normalizedTeamId}.`)) {
       return undefined;
     }
 
-    const suffix = appIdentifier.slice(teamId.length + 1).trim();
+    const suffix = appIdentifier.slice(normalizedTeamId.length + 1).trim().toLowerCase();
     return suffix || undefined;
   }
 
@@ -623,22 +628,28 @@ export class RealSigningAdapter implements SigningAdapter {
       candidates.push(embedded);
     }
 
-    const profileRoot = path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles');
-    const entries = await readdir(profileRoot, { withFileTypes: true }).catch(() => []);
+    for (const profileRoot of PROVISION_PROFILE_DIRECTORIES) {
+      const entries = await readdir(profileRoot, { withFileTypes: true }).catch(() => []);
 
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.mobileprovision')) {
-        continue;
-      }
+      for (const entry of entries) {
+        if (!entry.isFile() || !this.isProvisionProfileFilename(entry.name)) {
+          continue;
+        }
 
-      const profilePath = path.join(profileRoot, entry.name);
-      const parsed = await this.readProvisionProfileCandidate(profilePath, 'library').catch(() => undefined);
-      if (parsed) {
-        candidates.push(parsed);
+        const profilePath = path.join(profileRoot, entry.name);
+        const parsed = await this.readProvisionProfileCandidate(profilePath, 'library').catch(() => undefined);
+        if (parsed) {
+          candidates.push(parsed);
+        }
       }
     }
 
     return candidates;
+  }
+
+  private isProvisionProfileFilename(name: string): boolean {
+    const lower = name.toLowerCase();
+    return lower.endsWith('.mobileprovision') || lower.endsWith('.provisionprofile');
   }
 
   private async readProvisionProfileCandidate(profilePath: string, source: ProvisionProfileCandidate['source']): Promise<ProvisionProfileCandidate> {
@@ -647,16 +658,28 @@ export class RealSigningAdapter implements SigningAdapter {
     const profile = parseMobileProvision(raw);
     const entitlements = parseMobileProvisionEntitlements(raw);
 
+    const appIdentifierRaw = entitlements['application-identifier'] ?? entitlements['com.apple.application-identifier'];
+    const appIdentifier = typeof appIdentifierRaw === 'string'
+      ? String(appIdentifierRaw)
+      : undefined;
+
     const rawTeam = profile.TeamIdentifier;
-    const teamIds = Array.isArray(rawTeam)
-      ? rawTeam.map((value) => String(value)).filter(Boolean)
-      : rawTeam
-        ? [String(rawTeam)]
+    const teamCandidates = Array.isArray(rawTeam)
+      ? rawTeam
+      : rawTeam !== undefined && rawTeam !== null
+        ? [rawTeam]
         : [];
 
-    const appIdentifier = typeof entitlements['application-identifier'] === 'string'
-      ? String(entitlements['application-identifier'])
-      : undefined;
+    const entitlementTeam = entitlements['com.apple.developer.team-identifier'];
+    if (entitlementTeam !== undefined && entitlementTeam !== null) {
+      teamCandidates.push(entitlementTeam);
+    }
+
+    if (appIdentifier && appIdentifier.includes('.')) {
+      teamCandidates.push(appIdentifier.split('.')[0]);
+    }
+
+    const teamIds = this.normalizeTeamIds(teamCandidates);
 
     const expirationRaw = profile.ExpirationDate;
     const expiresAt = expirationRaw instanceof Date
@@ -675,12 +698,34 @@ export class RealSigningAdapter implements SigningAdapter {
     };
   }
 
+  private normalizeTeamIds(values: unknown[]): string[] {
+    const out = new Set<string>();
+
+    for (const value of values) {
+      const asString = String(value ?? '').trim();
+      if (!asString) {
+        continue;
+      }
+
+      const matches = asString.toUpperCase().match(/[A-Z0-9]{10}/g);
+      if (matches?.length) {
+        matches.forEach((match) => out.add(match));
+      } else {
+        out.add(asString.toUpperCase());
+      }
+    }
+
+    return Array.from(out);
+  }
+
   private isUsableProfile(profile: ProvisionProfileCandidate, teamId: string): boolean {
     if (profile.expiresAt && profile.expiresAt.getTime() < Date.now()) {
       return false;
     }
 
-    if (profile.teamIds.length && !profile.teamIds.includes(teamId)) {
+    const normalizedTeamId = teamId.toUpperCase();
+
+    if (profile.teamIds.length && !profile.teamIds.includes(normalizedTeamId)) {
       return false;
     }
 
@@ -688,7 +733,9 @@ export class RealSigningAdapter implements SigningAdapter {
   }
 
   private assertProfileTeamMatch(profile: ProvisionProfileCandidate, teamId: string, profilePath: string): void {
-    if (profile.teamIds.length && !profile.teamIds.includes(teamId)) {
+    const normalizedTeamId = teamId.toUpperCase();
+
+    if (profile.teamIds.length && !profile.teamIds.includes(normalizedTeamId)) {
       throw new AppError(
         'REAL_PROVISION_PROFILE_MISMATCH',
         `Provisioning profile ${profilePath} is not for team ${teamId}.`,
@@ -703,21 +750,25 @@ export class RealSigningAdapter implements SigningAdapter {
       return false;
     }
 
-    if (!profile.appIdentifier.startsWith(`${teamId}.`)) {
+    const normalizedTeamId = teamId.toUpperCase();
+    const normalizedAppIdentifier = profile.appIdentifier.trim();
+    const normalizedBundleId = bundleId.trim().toLowerCase();
+
+    if (!normalizedAppIdentifier.toUpperCase().startsWith(`${normalizedTeamId}.`)) {
       return false;
     }
 
-    const suffix = profile.appIdentifier.slice(teamId.length + 1);
+    const suffix = normalizedAppIdentifier.slice(normalizedTeamId.length + 1).toLowerCase();
     if (suffix === '*') {
       return true;
     }
 
     if (suffix.endsWith('.*')) {
       const prefix = suffix.slice(0, -2);
-      return bundleId === prefix || bundleId.startsWith(`${prefix}.`);
+      return normalizedBundleId === prefix || normalizedBundleId.startsWith(`${prefix}.`);
     }
 
-    return suffix === bundleId;
+    return suffix === normalizedBundleId;
   }
 
   private matchSpecificityScore(appIdentifier: string | undefined, bundleId: string, teamId: string): number {
@@ -725,15 +776,19 @@ export class RealSigningAdapter implements SigningAdapter {
       return 0;
     }
 
-    if (appIdentifier === `${teamId}.${bundleId}`) {
+    const normalizedIdentifier = appIdentifier.trim().toLowerCase();
+    const normalizedTeamId = teamId.toLowerCase();
+    const normalizedBundleId = bundleId.trim().toLowerCase();
+
+    if (normalizedIdentifier === `${normalizedTeamId}.${normalizedBundleId}`) {
       return 3;
     }
 
-    if (appIdentifier.endsWith('.*')) {
+    if (normalizedIdentifier.endsWith('.*')) {
       return 2;
     }
 
-    if (appIdentifier.endsWith('*')) {
+    if (normalizedIdentifier.endsWith('*')) {
       return 1;
     }
 
