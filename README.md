@@ -154,6 +154,12 @@ SIDELINK_REAL_SIGNING_IDENTITY='Apple Development: Your Name (TEAMID)'
 
 Only Apple Development identities are accepted. Enterprise/distribution patterns are blocked.
 
+Optional explicit provisioning profile override (otherwise Sidelink auto-discovers a local matching profile):
+
+```bash
+SIDELINK_REAL_PROVISION_PROFILE='/Users/you/Library/MobileDevice/Provisioning Profiles/<profile>.mobileprovision'
+```
+
 ---
 
 ## Helper app integration (SwiftUI)
@@ -238,6 +244,7 @@ Scheduler controls are available via API/UI (pause/resume/manual time advance fo
 - `SIDELINK_SESSION_TTL_HOURS`
 - `SIDELINK_ENABLE_REAL_WORKER`
 - `SIDELINK_REAL_SIGNING_IDENTITY`
+- `SIDELINK_REAL_PROVISION_PROFILE`
 - `SIDELINK_HELPER_API_TOKEN`
 - `SIDELINK_HELPER_PROJECT_DIR`
 - `SIDELINK_HELPER_IPA_PATH`

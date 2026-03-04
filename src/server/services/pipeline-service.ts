@@ -640,10 +640,10 @@ export class PipelineService {
     const signingIdentity = readEnv(...REAL_SIGNING_IDENTITY_ENV_KEYS) || '<set SIDELINK_REAL_SIGNING_IDENTITY>';
     const helperIpa = readEnv('SIDELINK_HELPER_IPA_PATH', 'ALTSTORE_HELPER_IPA_PATH') || 'tmp/helper/SidelinkHelper.ipa';
     const previews = [
-      `ideviceinstaller -u ${job.deviceId} -i ${helperIpa}`,
+      `ideviceinstaller -u ${job.deviceId} install ${helperIpa}`,
       'security find-identity -v -p codesigning',
-      `codesign -f --deep -s "${signingIdentity}" Payload/<App>.app`,
-      `ideviceinstaller -u ${job.deviceId} -i <signed.ipa>`
+      `codesign -f --deep --generate-entitlement-der -s "${signingIdentity}" --entitlements <generated.plist> Payload/<App>.app`,
+      `ideviceinstaller -u ${job.deviceId} install <signed.ipa>`
     ];
 
     previews.forEach((preview) => {
