@@ -16,7 +16,7 @@ export default function InstalledPage() {
   const confirmDialog = useConfirm();
   const { openInstall } = useInstallModal();
 
-  useEffect(() => { document.title = 'Installed — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Installed — SideLink'; }, []);
 
   const reload = useCallback(async () => {
     const [appsRes, statesRes, dashboardRes] = await Promise.all([

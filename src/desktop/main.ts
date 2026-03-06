@@ -150,7 +150,7 @@ async function startBackend(): Promise<string> {
   // Start tray state updates — poll device/job counts every 15s
   startTrayPolling(url, internalToken);
   stopDiscoveryBroadcast = startDiscoveryBroadcaster({
-    name: `Sidelink (${os.hostname()})`,
+    name: `SideLink (${os.hostname()})`,
     port: Number(new URL(url).port),
   });
 

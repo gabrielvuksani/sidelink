@@ -164,7 +164,7 @@ export function createAppMenu(): void {
     label: 'Window',
     submenu: [
       {
-        label: 'Show Sidelink',
+        label: 'Show SideLink',
         accelerator: isMac ? 'CmdOrCtrl+Shift+S' : 'Ctrl+Shift+S',
         click: () => {
           const win = getMainWindow();
@@ -190,7 +190,7 @@ export function createAppMenu(): void {
     role: 'help',
     submenu: [
       {
-        label: 'Sidelink Documentation',
+        label: 'SideLink Documentation',
         click: () => shell.openExternal('https://github.com/gabrielvuksani/sidelink'),
       },
       {

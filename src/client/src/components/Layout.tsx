@@ -71,7 +71,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   useGlobalShortcuts();
 
-  const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'Sidelink', [location.pathname]);
+  const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'SideLink', [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -90,7 +90,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         <div className="flex items-center gap-3 px-2">
           <BrandIcon className="h-9 w-9" />
           <div>
-            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">Sidelink</p>
+            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">SideLink</p>
             <p className="text-[10px] font-medium text-[var(--sl-muted)]">Desktop App</p>
           </div>
         </div>

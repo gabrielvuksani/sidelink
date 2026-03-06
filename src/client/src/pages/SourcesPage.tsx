@@ -23,7 +23,7 @@ export default function SourcesPage() {
   const confirm = useConfirm();
 
   useEffect(() => {
-    document.title = 'Sources - Sidelink';
+    document.title = 'Sources — SideLink';
   }, []);
 
   const reload = async () => {
@@ -362,7 +362,7 @@ export default function SourcesPage() {
 
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Configured Sources</h3>
-        <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Built-in and custom feeds currently tracked by Sidelink.</p>
+        <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Built-in and custom feeds currently tracked by SideLink.</p>
 
         <div className="mt-3">
           {loading ? (
@@ -533,7 +533,7 @@ function getDownloadUrl(app: SourceApp): string | null {
 
 function emptySelfHostedManifest(): SourceManifest {
   return {
-    name: 'Sidelink Self Hosted',
+    name: 'SideLink Self Hosted',
     identifier: 'com.sidelink.self-hosted',
     sourceURL: '/api/sources/self-hosted',
     apps: [],
@@ -564,7 +564,7 @@ interface SelfHostedAppDraft {
 
 function emptySelfHostedFormState(): SelfHostedFormState {
   return {
-    name: 'Sidelink Self Hosted',
+    name: 'SideLink Self Hosted',
     identifier: 'com.sidelink.self-hosted',
     subtitle: '',
     description: '',
@@ -612,7 +612,7 @@ function manifestToFormState(manifest: SourceManifest): SelfHostedFormState {
 
 function formStateToManifestPatch(form: SelfHostedFormState): Omit<SourceManifest, 'apps'> {
   return {
-    name: form.name.trim() || 'Sidelink Self Hosted',
+    name: form.name.trim() || 'SideLink Self Hosted',
     identifier: form.identifier.trim() || undefined,
     subtitle: form.subtitle.trim() || undefined,
     description: form.description.trim() || undefined,

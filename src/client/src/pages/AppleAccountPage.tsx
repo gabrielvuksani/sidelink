@@ -15,7 +15,7 @@ export default function AppleAccountPage() {
   const [loading, setLoading] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
 
-  useEffect(() => { document.title = 'Apple ID — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Apple ID — SideLink'; }, []);
 
   const reload = useCallback(() => {
     Promise.all([

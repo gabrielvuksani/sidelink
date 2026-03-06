@@ -115,7 +115,7 @@
   },
   "build": {
     "appId": "com.gabriel.sidelink",
-    "productName": "Sidelink",
+    "productName": "SideLink",
     "beforePack": "./scripts/beforePack.cjs",
     "afterPack": "./scripts/afterPack.cjs",
     "files": [
@@ -161,7 +161,7 @@
       }
     ],
     "protocols": {
-      "name": "Sidelink",
+      "name": "SideLink",
       "schemes": [
         "sidelink"
       ]

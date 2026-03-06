@@ -59,7 +59,7 @@ struct OnboardingView: View {
                     SidelinkBrandIcon(size: 54)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Sidelink")
+                        Text("SideLink")
                             .font(.system(size: 32, weight: .bold, design: .rounded))
                         Text("iPhone companion")
                             .font(.caption.weight(.semibold))
@@ -154,7 +154,7 @@ struct OnboardingView: View {
                         Text("Install, refresh, and manage apps without leaving your phone.")
                             .font(.system(size: 32, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
-                        Text("Sidelink turns your iPhone into a polished control center for the desktop helper you already trust.")
+                        Text("SideLink turns your iPhone into a polished control center for the desktop helper you already trust.")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.82))
                     }
@@ -180,7 +180,7 @@ struct OnboardingView: View {
                 permissionCard(
                     title: "Notifications",
                     icon: "bell.badge",
-                    description: "Let Sidelink tell you when background refresh succeeds or fails.",
+                    description: "Let SideLink tell you when background refresh succeeds or fails.",
                     actionTitle: notificationsRequested ? "Requested" : "Enable Notifications",
                     tint: .slAccent
                 ) {
@@ -204,7 +204,7 @@ struct OnboardingView: View {
                 permissionCard(
                     title: "Local Network",
                     icon: "dot.radiowaves.left.and.right",
-                    description: "Needed to discover your desktop helper on the same network. iOS prompts when Sidelink first connects or scans.",
+                    description: "Needed to discover your desktop helper on the same network. iOS prompts when SideLink first connects or scans.",
                     actionTitle: "Triggered During Pairing",
                     tint: .slSuccess,
                     action: nil
@@ -230,7 +230,7 @@ struct OnboardingView: View {
 
     private var permissionsIntroCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Only the permissions Sidelink actually uses.")
+            Text("Only the permissions SideLink actually uses.")
                 .font(.system(size: 26, weight: .bold, design: .rounded))
             Text("We request notification access directly here. Camera and local network prompts appear only when you use the pairing tools that need them.")
                 .font(.subheadline)
@@ -388,7 +388,7 @@ struct OnboardingView: View {
         case .pairing:
             return model.isPaired ? "Continue" : "Skip Pairing For Now"
         case .finish:
-            return "Enter Sidelink"
+            return "Enter SideLink"
         }
     }
 

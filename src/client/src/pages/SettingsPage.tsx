@@ -10,7 +10,7 @@ import type { SchedulerSnapshot } from '../../../shared/types';
 
 
 export default function SettingsPage() {
-  useEffect(() => { document.title = 'Settings - Sidelink'; }, []);
+  useEffect(() => { document.title = 'Settings — SideLink'; }, []);
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -277,7 +277,7 @@ function HelperSection() {
 
             {!canBuild && (
               <p className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs text-[var(--sl-muted)]">
-                Helper build/export is macOS + Xcode only. On this OS, Sidelink can still import a bundled/prebuilt helper IPA automatically.
+                Helper build/export is macOS + Xcode only. On this OS, SideLink can still import a bundled/prebuilt helper IPA automatically.
               </p>
             )}
 
@@ -347,7 +347,7 @@ function SystemInfo() {
   return (
     <Panel title="Runtime" subtitle="Cross-platform environment and app diagnostics.">
       <div className="grid gap-2 text-sm sm:grid-cols-2">
-        <InfoRow label="Application" value="Sidelink" />
+        <InfoRow label="Application" value="SideLink" />
         {info.isElectron && <InfoRow label="Version" value={<span className="font-mono text-xs">{info.version}</span>} />}
         <InfoRow label="Platform" value={platformLabel(info.platform)} />
         <InfoRow label="Runtime" value={info.isElectron ? (info.isPackaged ? 'Desktop (packaged)' : 'Desktop (dev)') : 'Browser'} />

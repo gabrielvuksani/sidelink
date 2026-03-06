@@ -21,7 +21,7 @@ export default function AppsPage() {
   const confirm = useConfirm();
   const { openInstall } = useInstallModal();
 
-  useEffect(() => { document.title = 'IPAs — Sidelink'; }, []);
+  useEffect(() => { document.title = 'IPAs — SideLink'; }, []);
 
   const reload = useCallback(() => {
     api.listIpas().then(r => setIpas(r.data ?? [])).finally(() => setLoading(false));

@@ -8,9 +8,9 @@
   },
   {
     "id": "sidelink-official",
-    "name": "Sidelink Official",
+    "name": "SideLink Official",
     "url": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json",
     "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
-    "description": "The default source shipped with Sidelink."
+    "description": "The default source shipped with SideLink."
   }
 ]

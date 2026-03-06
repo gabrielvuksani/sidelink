@@ -12,7 +12,7 @@ export default function DevicesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => { document.title = 'Devices — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Devices — SideLink'; }, []);
 
   const reload = useCallback(() => {
     api.listDevices().then(r => setDevices(r.data ?? [])).finally(() => setLoading(false));

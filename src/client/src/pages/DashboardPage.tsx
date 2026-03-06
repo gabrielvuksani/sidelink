@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const { openInstall } = useInstallModal();
 
-  useEffect(() => { document.title = 'Overview — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Overview — SideLink'; }, []);
 
   const reload = useCallback(async () => {
     setLoadWarning(null);

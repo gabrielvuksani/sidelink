@@ -300,7 +300,7 @@ struct SettingsTab: View {
                 }
 
                 Section("About") {
-                    aboutRow("App", "Sidelink")
+                    aboutRow("App", "SideLink")
                     aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
                     aboutRow("Build", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
                     aboutRow("Platform", UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
@@ -326,7 +326,7 @@ struct SettingsTab: View {
                         SidelinkHaptics.impact(.light)
                         deleteConfirmation = DestructiveConfirmation(
                             title: "Disconnect Helper",
-                            message: "Disconnect from the Sidelink server? You will need to pair again.",
+                            message: "Disconnect from the SideLink server? You will need to pair again.",
                             buttonLabel: "Disconnect"
                         ) {
                             model.clearPairing()
