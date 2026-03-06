@@ -60,7 +60,7 @@ describe('paths utility', () => {
         // Re-import to pick up env var
         // Note: since getDefaultDataDir reads env at call time, this should work
         const dir = pathsMod.getDefaultDataDir();
-        expect(dir).toBe('/tmp/test-sidelink');
+        expect(dir).toBe(path.resolve('/tmp/test-sidelink'));
       } finally {
         if (original !== undefined) process.env.SIDELINK_DATA_DIR = original;
         else delete process.env.SIDELINK_DATA_DIR;
