@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || github.ref }}
 
       - name: Validate tag matches package.json version
         if: env.RELEASE_TAG != ''
@@ -69,7 +71,7 @@ jobs:
             runner: macos-14
           - os: darwin
             arch: x64
-            runner: macos-13
+            runner: macos-15-intel
           - os: win32
             arch: x64
             runner: windows-latest
@@ -80,6 +82,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || github.ref }}
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -88,8 +92,8 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install pyinstaller
-          pip install -r python-bundle/requirements.txt
+          python -m pip install pyinstaller
+          python -m pip install -r python-bundle/requirements.txt
 
       - name: Build Python bundle
         run: python python-bundle/build.py
@@ -129,6 +133,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -194,7 +200,7 @@ jobs:
   release:
     name: Publish Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && github.event.inputs.dry_run != 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != '')
     runs-on: ubuntu-latest
 
     steps:
@@ -209,6 +215,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           draft: true
           generate_release_notes: true
           files: |

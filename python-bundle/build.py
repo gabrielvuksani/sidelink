@@ -25,7 +25,7 @@ import argparse
 
 def get_platform_arch():
     """Get platform-arch identifier matching Node.js conventions."""
-    plat = sys.platform
+    plat = os.environ.get('SIDELINK_PLATFORM') or sys.platform
     if plat == 'linux':
         plat = 'linux'
     elif plat == 'darwin':
@@ -33,15 +33,19 @@ def get_platform_arch():
     elif plat == 'win32':
         plat = 'win32'
 
-    machine = platform.machine().lower()
-    if machine in ('x86_64', 'amd64'):
-        arch = 'x64'
-    elif machine in ('arm64', 'aarch64'):
-        arch = 'arm64'
-    elif machine in ('i386', 'i686', 'x86'):
-        arch = 'ia32'
+    requested_arch = os.environ.get('SIDELINK_ARCH')
+    if requested_arch:
+        arch = requested_arch
     else:
-        arch = machine
+        machine = platform.machine().lower()
+        if machine in ('x86_64', 'amd64'):
+            arch = 'x64'
+        elif machine in ('arm64', 'aarch64'):
+            arch = 'arm64'
+        elif machine in ('i386', 'i686', 'x86'):
+            arch = 'ia32'
+        else:
+            arch = machine
 
     return f'{plat}-{arch}'
 
@@ -101,7 +105,8 @@ def main():
         cmd.append('--onedir')
     else:
         cmd.append('--onefile')
-        cmd.append('--strip')
+        if sys.platform != 'win32':
+            cmd.append('--strip')
 
     # Add hidden imports
     for hi in hidden_imports:
