@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 try:
@@ -129,6 +130,10 @@ def write_pngs(master: Image.Image) -> None:
 
 
 def build_icns() -> None:
+    if sys.platform != "darwin" or shutil.which("iconutil") is None:
+        print("Skipping icon.icns generation: iconutil is unavailable on this platform.")
+        return
+
     cmd = [
         "iconutil",
         "--convert",
