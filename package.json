@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
-  "author": "Gabriel Vuksani",
+  "author": {
+    "name": "Gabriel Vuksani",
+    "email": "gabrielvuksani@users.noreply.github.com"
+  },
   "license": "MIT",
   "homepage": "https://github.com/gabrielvuksani/sidelink",
   "repository": {
