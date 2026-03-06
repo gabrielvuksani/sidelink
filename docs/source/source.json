@@ -1,8 +1,8 @@
 {
-  "name": "SideLink Official",
+  "name": "Sidelink Official",
   "identifier": "com.sidelink.official",
-  "subtitle": "Official SideLink Source",
-  "description": "Official feed for SideLink-compatible IPA releases and curated apps.",
+  "subtitle": "Official Sidelink Source",
+  "description": "Official feed for Sidelink-compatible IPA releases and curated apps.",
   "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
   "headerURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
   "website": "https://github.com/gabrielvuksani/sidelink",
@@ -14,7 +14,7 @@
   "news": [
     {
       "identifier": "official-feed",
-      "title": "SideLink Official Source",
+      "title": "Sidelink Official Source",
       "caption": "The official feed now lives under docs/source so it can grow cleanly without broken assets.",
       "date": "2026-03-06",
       "tintColor": "#1f9fbf",
@@ -24,11 +24,11 @@
   ],
   "apps": [
     {
-      "name": "SideLink",
+      "name": "Sidelink",
       "bundleIdentifier": "com.sidelink.ioshelper",
-      "developerName": "SideLink",
+      "developerName": "Sidelink",
       "subtitle": "Manage sideloaded apps from your iPhone",
-      "localizedDescription": "The official SideLink companion app for iOS. Browse source catalogs, import your own IPAs, install apps, monitor refresh status, and manage AltStore-compatible feeds directly from your device.",
+      "localizedDescription": "The official Sidelink companion app for iOS. Browse source catalogs, import your own IPAs, install apps, monitor refresh status, and manage AltStore-compatible feeds directly from your device.",
       "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
       "tintColor": "#1f9fbf",
       "versions": [
@@ -45,7 +45,7 @@
           "com.apple.security.application-groups"
         ],
         "privacy": [
-          "LocalNetwork: Discover and pair with the SideLink desktop helper on your network",
+          "LocalNetwork: Discover and pair with the Sidelink desktop helper on your network",
           "Notifications: Receive background refresh status updates"
         ]
       }

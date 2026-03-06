@@ -21,10 +21,10 @@ final class HelperViewModel: ObservableObject {
         ),
         TrustedSourceDTO(
             id: "sidelink-official",
-            name: "SideLink Official",
+            name: "Sidelink Official",
             url: officialSourceURL,
             iconURL: "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
-            description: "The default source shipped with SideLink."
+            description: "The default source shipped with Sidelink."
         ),
     ]
 
@@ -144,7 +144,7 @@ final class HelperViewModel: ObservableObject {
 
     var installReadinessMessage: String? {
         if !isPaired {
-            return "Pair with a SideLink server to install or refresh apps"
+            return "Pair with a Sidelink server to install or refresh apps"
         }
         if pendingAppleAuth != nil {
             return "Finish Apple ID verification in Settings before installing apps"
@@ -255,7 +255,7 @@ final class HelperViewModel: ObservableObject {
         do {
             let result = try await api.pair(baseURL: normalized, code: code)
             updateHelperToken(result.token)
-            serverName = result.serverName ?? "SideLink"
+            serverName = result.serverName ?? "Sidelink"
             serverVersion = result.serverVersion ?? ""
             pairingCode = ""
             errorMessage = nil
@@ -852,7 +852,7 @@ final class HelperViewModel: ObservableObject {
 
     func signInAppleAccount(appleId: String, password: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a SideLink server before adding an Apple ID"
+            errorMessage = "Pair with a Sidelink server before adding an Apple ID"
             return
         }
 
@@ -903,7 +903,7 @@ final class HelperViewModel: ObservableObject {
 
     func reauthenticateAppleAccount(accountId: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a SideLink server before re-authenticating Apple IDs"
+            errorMessage = "Pair with a Sidelink server before re-authenticating Apple IDs"
             return
         }
         guard let account = accounts.first(where: { $0.id == accountId }) else {
@@ -946,7 +946,7 @@ final class HelperViewModel: ObservableObject {
 
     func submitPendingAppleAccount2FA(code: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a SideLink server before verifying Apple IDs"
+            errorMessage = "Pair with a Sidelink server before verifying Apple IDs"
             return
         }
         guard let pendingAppleAuth else {
@@ -1000,7 +1000,7 @@ final class HelperViewModel: ObservableObject {
 
     func deleteAppleAccount(_ accountId: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a SideLink server before removing Apple IDs"
+            errorMessage = "Pair with a Sidelink server before removing Apple IDs"
             return
         }
 
@@ -1066,7 +1066,7 @@ final class HelperViewModel: ObservableObject {
 
     private func requirePairing(for action: String) -> Bool {
         guard isPaired else {
-            errorMessage = "Pair with a SideLink server before you \(action)."
+            errorMessage = "Pair with a Sidelink server before you \(action)."
             return false
         }
         return true

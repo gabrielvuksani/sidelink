@@ -10,7 +10,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>SideLink</string>
+	<string>Sidelink</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,9 +42,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>SideLink uses the camera to scan pairing QR codes from your desktop app.</string>
+	<string>Sidelink Helper uses the camera to scan pairing QR codes from your desktop app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>SideLink discovers and connects to your desktop server on your local network.</string>
+	<string>Sidelink Helper discovers and connects to your desktop server on your local network.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

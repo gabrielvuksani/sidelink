@@ -73,7 +73,7 @@ export function createTray(): Tray {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('SideLink — iOS App Manager');
+  tray.setToolTip('Sidelink — iOS App Manager');
 
   updateTrayMenu();
 
@@ -108,7 +108,7 @@ export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: num
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Open SideLink',
+      label: 'Open Sidelink',
       click: focusMainWindow,
     },
     {
@@ -151,7 +151,7 @@ export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: num
     },
     { type: 'separator' },
     {
-      label: 'Quit SideLink',
+      label: 'Quit Sidelink',
       click: () => app.quit(),
     },
   ]);

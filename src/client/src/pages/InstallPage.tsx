@@ -15,7 +15,7 @@ export default function InstallPage() {
   const { toast } = useToast();
   const { openInstall } = useInstallModal();
 
-  useEffect(() => { document.title = 'Install — SideLink'; }, []);
+  useEffect(() => { document.title = 'Install — Sidelink'; }, []);
 
   const reload = useCallback(async () => {
     try {

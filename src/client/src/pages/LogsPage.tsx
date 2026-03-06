@@ -18,7 +18,7 @@ export default function LogsPage() {
   const { toast } = useToast();
   const confirmDialog = useConfirm();
 
-  useEffect(() => { document.title = 'Logs — SideLink'; }, []);
+  useEffect(() => { document.title = 'Logs — Sidelink'; }, []);
 
   const reload = useCallback(() => {
     api.listLogs(filter || undefined).then(r => setLogs((r.data ?? []).slice(-MAX_VISIBLE_LOGS))).finally(() => setLoading(false));

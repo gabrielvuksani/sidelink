@@ -29,63 +29,51 @@ extension Color {
 struct SidelinkBrandIcon: View {
     var size: CGFloat = 56
 
-    private static let sPath: String = "M38.4 17.6c-2.7 0-5.2.8-7 2.4-2.2 1.9-3.4 4.8-3.4 8.2 0 2.4.6 4.2 1.8 5.6 1.1 1.3 2.7 2.3 4.8 3.2l4.2 1.8c1.4.6 2.4 1.2 3 2 .7.8 1 1.9 1 3.2 0 1.8-.6 3.2-1.7 4.2-1.1 1-2.6 1.4-4.5 1.4-1.6 0-3-.4-4.2-1.2-1.2-.8-2-2-2.4-3.4l-3.6 1.2c.6 2.2 1.9 4 3.8 5.2 1.9 1.2 4.1 1.8 6.6 1.8 3.2 0 5.7-.9 7.6-2.8 1.9-1.9 2.8-4.4 2.8-7.4 0-2.4-.6-4.4-1.9-5.8-1.2-1.4-3-2.6-5.2-3.4l-4-1.6c-1.4-.6-2.4-1.2-3-1.8-.6-.7-.9-1.6-.9-2.8 0-1.6.5-2.9 1.6-3.8 1-.9 2.4-1.4 4-1.4 1.3 0 2.4.3 3.4 1 1 .7 1.7 1.6 2.1 2.8l3.4-1.2c-.6-1.9-1.7-3.4-3.3-4.4-1.6-1.1-3.5-1.6-5.6-1.6h-.3Z"
-
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(red: 0.118, green: 0.118, blue: 0.18), Color(red: 0.059, green: 0.059, blue: 0.09)],
+                        colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
 
-            SPathShape()
-                .fill(.white.opacity(0.92))
-                .frame(width: size * 0.6, height: size * 0.6)
+            Ellipse()
+                .fill(.white.opacity(0.18))
+                .frame(width: size * 0.76, height: size * 0.38)
+                .offset(x: 0, y: -size * 0.18)
+                .blur(radius: size * 0.04)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
+                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
+                    .frame(width: size * 0.33, height: size * 0.33)
+                    .offset(x: -size * 0.13, y: -size * 0.01)
+
+                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
+                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
+                    .frame(width: size * 0.33, height: size * 0.33)
+                    .offset(x: size * 0.13, y: size * 0.03)
+
+                RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: size * 0.16, height: size * 0.14)
+                    .offset(x: size * 0.01, y: -size * 0.01)
+            }
+
+            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: max(1, size * 0.01))
         }
         .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.16), radius: size * 0.08, y: size * 0.03)
-    }
-}
-
-private struct SPathShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 64
-        var p = Path()
-        p.move(to: CGPoint(x: 38.4 * s, y: 17.6 * s))
-        p.addCurve(to: CGPoint(x: 31.4 * s, y: 20 * s), control1: CGPoint(x: 35.7 * s, y: 17.6 * s), control2: CGPoint(x: 33.2 * s, y: 18.4 * s))
-        p.addCurve(to: CGPoint(x: 28 * s, y: 28.2 * s), control1: CGPoint(x: 29.2 * s, y: 21.9 * s), control2: CGPoint(x: 28 * s, y: 24.8 * s))
-        p.addCurve(to: CGPoint(x: 29.8 * s, y: 33.8 * s), control1: CGPoint(x: 28 * s, y: 30.6 * s), control2: CGPoint(x: 28.6 * s, y: 32.4 * s))
-        p.addCurve(to: CGPoint(x: 34.6 * s, y: 37 * s), control1: CGPoint(x: 30.9 * s, y: 35.1 * s), control2: CGPoint(x: 32.5 * s, y: 36.1 * s))
-        p.addLine(to: CGPoint(x: 38.8 * s, y: 38.8 * s))
-        p.addCurve(to: CGPoint(x: 41.8 * s, y: 40.8 * s), control1: CGPoint(x: 40.2 * s, y: 39.4 * s), control2: CGPoint(x: 41.2 * s, y: 40 * s))
-        p.addCurve(to: CGPoint(x: 42.8 * s, y: 44 * s), control1: CGPoint(x: 42.5 * s, y: 41.6 * s), control2: CGPoint(x: 42.8 * s, y: 42.7 * s))
-        p.addCurve(to: CGPoint(x: 41.1 * s, y: 48.2 * s), control1: CGPoint(x: 42.8 * s, y: 45.8 * s), control2: CGPoint(x: 42.2 * s, y: 47.2 * s))
-        p.addCurve(to: CGPoint(x: 36.6 * s, y: 49.6 * s), control1: CGPoint(x: 40 * s, y: 49.2 * s), control2: CGPoint(x: 38.5 * s, y: 49.6 * s))
-        p.addCurve(to: CGPoint(x: 32.4 * s, y: 48.4 * s), control1: CGPoint(x: 35 * s, y: 49.6 * s), control2: CGPoint(x: 33.6 * s, y: 49.2 * s))
-        p.addCurve(to: CGPoint(x: 30 * s, y: 45 * s), control1: CGPoint(x: 31.2 * s, y: 47.6 * s), control2: CGPoint(x: 30.4 * s, y: 46.4 * s))
-        p.addLine(to: CGPoint(x: 26.4 * s, y: 46.2 * s))
-        p.addCurve(to: CGPoint(x: 30.2 * s, y: 51.4 * s), control1: CGPoint(x: 27 * s, y: 48.4 * s), control2: CGPoint(x: 28.3 * s, y: 50.2 * s))
-        p.addCurve(to: CGPoint(x: 36.8 * s, y: 53.2 * s), control1: CGPoint(x: 32.1 * s, y: 52.6 * s), control2: CGPoint(x: 34.3 * s, y: 53.2 * s))
-        p.addCurve(to: CGPoint(x: 44.4 * s, y: 50.4 * s), control1: CGPoint(x: 40 * s, y: 53.2 * s), control2: CGPoint(x: 42.5 * s, y: 52.3 * s))
-        p.addCurve(to: CGPoint(x: 47.2 * s, y: 43 * s), control1: CGPoint(x: 46.3 * s, y: 48.5 * s), control2: CGPoint(x: 47.2 * s, y: 46 * s))
-        p.addCurve(to: CGPoint(x: 45.3 * s, y: 37.2 * s), control1: CGPoint(x: 47.2 * s, y: 40.6 * s), control2: CGPoint(x: 46.6 * s, y: 38.6 * s))
-        p.addCurve(to: CGPoint(x: 40.1 * s, y: 33.8 * s), control1: CGPoint(x: 44.1 * s, y: 35.8 * s), control2: CGPoint(x: 42.3 * s, y: 34.6 * s))
-        p.addLine(to: CGPoint(x: 36.1 * s, y: 32.2 * s))
-        p.addCurve(to: CGPoint(x: 33.1 * s, y: 30.4 * s), control1: CGPoint(x: 34.7 * s, y: 31.6 * s), control2: CGPoint(x: 33.7 * s, y: 31 * s))
-        p.addCurve(to: CGPoint(x: 32.2 * s, y: 27.6 * s), control1: CGPoint(x: 32.5 * s, y: 29.7 * s), control2: CGPoint(x: 32.2 * s, y: 28.8 * s))
-        p.addCurve(to: CGPoint(x: 33.8 * s, y: 23.8 * s), control1: CGPoint(x: 32.2 * s, y: 26 * s), control2: CGPoint(x: 32.7 * s, y: 24.7 * s))
-        p.addCurve(to: CGPoint(x: 37.8 * s, y: 22.4 * s), control1: CGPoint(x: 34.8 * s, y: 22.9 * s), control2: CGPoint(x: 36.2 * s, y: 22.4 * s))
-        p.addCurve(to: CGPoint(x: 41.2 * s, y: 23.4 * s), control1: CGPoint(x: 39.1 * s, y: 22.4 * s), control2: CGPoint(x: 40.2 * s, y: 22.7 * s))
-        p.addCurve(to: CGPoint(x: 43.3 * s, y: 26.2 * s), control1: CGPoint(x: 42.2 * s, y: 24.1 * s), control2: CGPoint(x: 42.9 * s, y: 25 * s))
-        p.addLine(to: CGPoint(x: 46.7 * s, y: 25 * s))
-        p.addCurve(to: CGPoint(x: 43.4 * s, y: 20.6 * s), control1: CGPoint(x: 46.1 * s, y: 23.1 * s), control2: CGPoint(x: 45 * s, y: 21.6 * s))
-        p.addCurve(to: CGPoint(x: 37.8 * s, y: 19 * s), control1: CGPoint(x: 41.8 * s, y: 19.5 * s), control2: CGPoint(x: 39.9 * s, y: 19 * s))
-        p.closeSubpath()
-        return p
+        .shadow(color: .black.opacity(0.12), radius: size * 0.1, y: size * 0.04)
     }
 }
 
