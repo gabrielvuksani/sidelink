@@ -53,13 +53,21 @@ const checkElectronNative = () => {
   };
 };
 
+const { installPrebuild } = require('./install-native-prebuild.cjs');
+
+const tryElectronPrebuild = () => {
+  // eslint-disable-next-line no-console
+  console.log('[desktop:preflight] Trying bundled Electron prebuild...');
+  return installPrebuild('electron');
+};
+
 const ensureDesktopDeps = () => {
   run(npmCmd, ['run', 'desktop:deps']);
 };
 
 const hardRebuildBetterSqlite3 = () => {
   // eslint-disable-next-line no-console
-  console.log('[desktop:preflight] Detected Electron ABI mismatch. Rebuilding better-sqlite3 from source...');
+  console.log('[desktop:preflight] No Electron prebuild available. Rebuilding from source (requires C++ compiler)...');
 
   try {
     run(npmCmd, ['rebuild', 'better-sqlite3', '--build-from-source']);
@@ -78,6 +86,17 @@ const main = () => {
     throw new Error('Electron binary not found. Run `npm install` first.');
   }
 
+  // Try bundled prebuild first (no compiler needed)
+  if (tryElectronPrebuild()) {
+    const afterPrebuild = checkElectronNative();
+    if (afterPrebuild.ok) {
+      // eslint-disable-next-line no-console
+      console.log('[desktop:preflight] Electron native check passed via bundled prebuild.');
+      return;
+    }
+  }
+
+  // Prebuild didn't work — try electron-builder install-app-deps
   ensureDesktopDeps();
 
   const first = checkElectronNative();
@@ -93,7 +112,7 @@ const main = () => {
   const second = checkElectronNative();
   if (!second.ok) {
     throw new Error(
-      `Native module mismatch persists after rebuild.\n${second.output || '(no diagnostic output)'}\nRun \`npm run desktop:deps\`, then \`npm run desktop:dev\`. If it still fails, reinstall Xcode Command Line Tools and retry.`
+      `Native module mismatch persists after rebuild.\n${second.output || '(no diagnostic output)'}\nRun \`npm run desktop:deps\`, then \`npm run desktop:dev\`. If it still fails, install Xcode Command Line Tools (xcode-select --install) and retry.`
     );
   }
 

@@ -3,8 +3,10 @@
 
 Outputs:
 - build/icons/icon.icns (used by electron-builder mac package)
+- build/icons/icon.ico (used by electron-builder Windows package)
 - build/icons/icon.iconset/* (Apple iconset source)
 - build/icons/icon-1024.png and icon-512.png (preview/source exports)
+- ios-helper/SidelinkHelper/Sources/App/Assets.xcassets/AppIcon.appiconset/*
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ except Exception as exc:  # pragma: no cover - script runtime dependency guard
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = PROJECT_ROOT / "build" / "icons"
 ICONSET_DIR = BUILD_DIR / "icon.iconset"
+IOS_APPICON_DIR = PROJECT_ROOT / "ios-helper" / "SidelinkHelper" / "Sources" / "App" / "Assets.xcassets" / "AppIcon.appiconset"
 
 
 def draw_master_icon(size: int = 1024) -> Image.Image:
@@ -137,11 +140,74 @@ def build_icns() -> None:
     subprocess.run(cmd, check=True)
 
 
+def build_ico(master: Image.Image) -> None:
+    sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    frames = [master.resize(size, Image.Resampling.LANCZOS) for size in sizes]
+    frames[0].save(
+        BUILD_DIR / "icon.ico",
+        format="ICO",
+        sizes=sizes,
+        append_images=frames[1:],
+    )
+
+
+def write_ios_appiconset(master: Image.Image) -> None:
+    IOS_APPICON_DIR.mkdir(parents=True, exist_ok=True)
+
+    specs = [
+        {"idiom": "iphone", "size": "20x20", "scale": "2x", "px": 40, "filename": "Icon-App-20x20@2x.png"},
+        {"idiom": "iphone", "size": "20x20", "scale": "3x", "px": 60, "filename": "Icon-App-20x20@3x.png"},
+        {"idiom": "iphone", "size": "29x29", "scale": "2x", "px": 58, "filename": "Icon-App-29x29@2x.png"},
+        {"idiom": "iphone", "size": "29x29", "scale": "3x", "px": 87, "filename": "Icon-App-29x29@3x.png"},
+        {"idiom": "iphone", "size": "40x40", "scale": "2x", "px": 80, "filename": "Icon-App-40x40@2x.png"},
+        {"idiom": "iphone", "size": "40x40", "scale": "3x", "px": 120, "filename": "Icon-App-40x40@3x.png"},
+        {"idiom": "iphone", "size": "60x60", "scale": "2x", "px": 120, "filename": "Icon-App-60x60@2x.png"},
+        {"idiom": "iphone", "size": "60x60", "scale": "3x", "px": 180, "filename": "Icon-App-60x60@3x.png"},
+        {"idiom": "ipad", "size": "20x20", "scale": "1x", "px": 20, "filename": "Icon-App-20x20@1x.png"},
+        {"idiom": "ipad", "size": "20x20", "scale": "2x", "px": 40, "filename": "Icon-App-20x20@2x~ipad.png"},
+        {"idiom": "ipad", "size": "29x29", "scale": "1x", "px": 29, "filename": "Icon-App-29x29@1x.png"},
+        {"idiom": "ipad", "size": "29x29", "scale": "2x", "px": 58, "filename": "Icon-App-29x29@2x~ipad.png"},
+        {"idiom": "ipad", "size": "40x40", "scale": "1x", "px": 40, "filename": "Icon-App-40x40@1x.png"},
+        {"idiom": "ipad", "size": "40x40", "scale": "2x", "px": 80, "filename": "Icon-App-40x40@2x~ipad.png"},
+        {"idiom": "ipad", "size": "76x76", "scale": "1x", "px": 76, "filename": "Icon-App-76x76@1x.png"},
+        {"idiom": "ipad", "size": "76x76", "scale": "2x", "px": 152, "filename": "Icon-App-76x76@2x.png"},
+        {"idiom": "ipad", "size": "83.5x83.5", "scale": "2x", "px": 167, "filename": "Icon-App-83.5x83.5@2x.png"},
+        {"idiom": "ios-marketing", "size": "1024x1024", "scale": "1x", "px": 1024, "filename": "Icon-App-1024x1024@1x.png"},
+    ]
+
+    for spec in specs:
+        master.resize((spec["px"], spec["px"]), Image.Resampling.LANCZOS).save(IOS_APPICON_DIR / spec["filename"])
+
+    contents_images = [
+        {
+            "idiom": spec["idiom"],
+            "size": spec["size"],
+            "scale": spec["scale"],
+            "filename": spec["filename"],
+        }
+        for spec in specs
+    ]
+
+    payload = {
+        "images": contents_images,
+        "info": {
+            "version": 1,
+            "author": "xcode",
+        },
+    }
+
+    import json
+    (IOS_APPICON_DIR / "Contents.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     master = draw_master_icon(1024)
     write_pngs(master)
+    write_ios_appiconset(master)
     build_icns()
+    build_ico(master)
     print(f"Generated desktop icon assets in: {BUILD_DIR}")
+    print(f"Generated iOS app icons in: {IOS_APPICON_DIR}")
 
 
 if __name__ == "__main__":

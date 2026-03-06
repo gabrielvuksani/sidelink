@@ -1,128 +1,145 @@
+// ─── Application Errors ─────────────────────────────────────────────
+// Typed error hierarchy for the entire application.
+
 export class AppError extends Error {
-  public readonly code: string;
-  public readonly action?: string;
-  public readonly statusCode: number;
-
-  constructor(code: string, message: string, statusCode = 400, action?: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly statusCode: number = 500,
+    public readonly action?: string,
+  ) {
     super(message);
-    this.code = code;
-    this.action = action;
-    this.statusCode = statusCode;
+    this.name = 'AppError';
   }
 }
 
-interface ErrorLike {
-  name?: string;
-  message?: string;
-  code?: string;
-  type?: string;
-  status?: number;
-  statusCode?: number;
-  field?: string;
+// ─── Apple Auth Errors ──────────────────────────────────────────────
+
+export class AppleAuthError extends AppError {
+  constructor(code: string, message: string, action?: string) {
+    super(code, message, 401, action);
+    this.name = 'AppleAuthError';
+  }
 }
 
-const asErrorLike = (value: unknown): ErrorLike | undefined => {
-  if (!value || typeof value !== 'object') {
-    return undefined;
+export class Apple2FARequiredError extends AppError {
+  /** Partial session for the caller to resume 2FA. */
+  public readonly partialSession: {
+    cookies: string[];
+    sessionToken: string;
+    scnt: string;
+    sessionId: string;
+  };
+  public readonly authType: string;
+
+  constructor(
+    sessionData: { scnt: string; xAppleIdSessionId: string; authType: string },
+    partialSession?: { cookies: string[]; sessionToken: string; scnt: string; sessionId: string },
+  ) {
+    super('APPLE_2FA_REQUIRED', 'Two-factor authentication is required', 409);
+    this.name = 'Apple2FARequiredError';
+    this.authType = sessionData.authType;
+    this.partialSession = partialSession ?? {
+      cookies: [],
+      sessionToken: '',
+      scnt: sessionData.scnt,
+      sessionId: sessionData.xAppleIdSessionId,
+    };
   }
+}
 
-  return value as ErrorLike;
-};
+// ─── Provisioning Errors ────────────────────────────────────────────
 
-const readHttpStatus = (error: ErrorLike | undefined): number | undefined => {
-  const candidate = error?.statusCode ?? error?.status;
-  return Number.isFinite(candidate) ? Number(candidate) : undefined;
-};
-
-const toMulterAppError = (error: ErrorLike): AppError | undefined => {
-  const isMulter = error.name === 'MulterError';
-  if (!isMulter) {
-    return undefined;
+export class ProvisioningError extends AppError {
+  constructor(code: string, message: string, action?: string) {
+    super(code, message, 422, action);
+    this.name = 'ProvisioningError';
   }
+}
 
-  switch (error.code) {
-    case 'LIMIT_FILE_SIZE':
-      return new AppError(
-        'IPA_FILE_TOO_LARGE',
-        'IPA upload exceeds the 600 MB limit.',
-        413,
-        'Choose a smaller IPA file (<= 600 MB) and retry.'
-      );
-    case 'LIMIT_UNEXPECTED_FILE': {
-      const field = typeof error.field === 'string' && error.field.trim() ? error.field.trim() : 'unknown';
-      return new AppError(
-        'IPA_UPLOAD_FIELD_INVALID',
-        `Unexpected upload field \`${field}\`.`,
-        400,
-        'Attach the IPA file using multipart field name `ipa`.'
-      );
-    }
-    case 'LIMIT_FILE_COUNT':
-    case 'LIMIT_PART_COUNT':
-    case 'LIMIT_FIELD_COUNT':
-    case 'LIMIT_FIELD_KEY':
-    case 'LIMIT_FIELD_VALUE':
-      return new AppError(
-        'IPA_UPLOAD_INVALID',
-        'Upload payload is invalid.',
-        400,
-        'Retry upload with a single IPA file field named `ipa`.'
-      );
-    default:
-      return new AppError(
-        'IPA_UPLOAD_FAILED',
-        error.message || 'Failed to process IPA upload.',
-        400,
-        'Retry the upload and confirm payload format.'
-      );
-  }
-};
-
-const toBodyParserAppError = (error: ErrorLike): AppError | undefined => {
-  if (error.type === 'entity.parse.failed') {
-    return new AppError('REQUEST_BODY_INVALID', 'Malformed JSON request body.', 400, 'Fix JSON syntax and retry.');
-  }
-
-  if (error.type === 'entity.too.large') {
-    return new AppError(
-      'REQUEST_BODY_TOO_LARGE',
-      'Request payload exceeds the 5 MB limit.',
-      413,
-      'Reduce payload size and retry.'
+export class AppIdLimitError extends ProvisioningError {
+  constructor(limit: number) {
+    super(
+      'APP_ID_LIMIT_REACHED',
+      `Free account App ID limit reached (${limit} active). Remove an existing app first.`,
+      'Remove an installed app to free up an App ID slot.',
     );
+    this.name = 'AppIdLimitError';
   }
+}
 
-  return undefined;
-};
-
-export const toAppError = (error: unknown, fallbackCode = 'UNKNOWN_ERROR'): AppError => {
-  if (error instanceof AppError) {
-    return error;
+export class WeeklyAppIdLimitError extends ProvisioningError {
+  constructor(limit: number) {
+    super(
+      'APP_ID_WEEKLY_LIMIT_REACHED',
+      `Free account weekly App ID creation limit reached (${limit}/7 days). Try again later.`,
+      'Wait until the 7-day window rolls forward, or reuse existing installed App IDs.',
+    );
+    this.name = 'WeeklyAppIdLimitError';
   }
+}
 
-  const errorLike = asErrorLike(error);
+// ─── Device Errors ──────────────────────────────────────────────────
 
-  if (errorLike) {
-    const multerMapped = toMulterAppError(errorLike);
-    if (multerMapped) {
-      return multerMapped;
-    }
-
-    const bodyMapped = toBodyParserAppError(errorLike);
-    if (bodyMapped) {
-      return bodyMapped;
-    }
-
-    const status = readHttpStatus(errorLike);
-    if (status && status >= 400 && status < 500) {
-      const code = fallbackCode === 'UNKNOWN_ERROR' ? 'REQUEST_INVALID' : fallbackCode;
-      return new AppError(code, errorLike.message || 'Request rejected.', status);
-    }
+export class DeviceError extends AppError {
+  constructor(code: string, message: string, action?: string) {
+    super(code, message, 422, action);
+    this.name = 'DeviceError';
   }
+}
 
-  if (error instanceof Error) {
-    return new AppError(fallbackCode, error.message, 500, 'Open the logs panel and inspect latest stack trace details.');
+// ─── Signing Errors ─────────────────────────────────────────────────
+
+export class SigningError extends AppError {
+  constructor(code: string, message: string, action?: string) {
+    super(code, message, 500, action);
+    this.name = 'SigningError';
   }
+}
 
-  return new AppError(fallbackCode, 'Unexpected error', 500, 'Retry the action. If it repeats, restart demo server.');
-};
+// ─── Pipeline Errors ────────────────────────────────────────────────
+
+export class PipelineError extends AppError {
+  constructor(code: string, message: string, action?: string) {
+    super(code, message, 500, action);
+    this.name = 'PipelineError';
+  }
+}
+
+// ─── Not Found ──────────────────────────────────────────────────────
+
+export class NotFoundError extends AppError {
+  constructor(resource: string, id: string) {
+    super('NOT_FOUND', `${resource} not found: ${id}`, 404);
+    this.name = 'NotFoundError';
+  }
+}
+
+// ─── Validation ─────────────────────────────────────────────────────
+
+export class ValidationError extends AppError {
+  constructor(message: string) {
+    super('VALIDATION_ERROR', message, 400);
+    this.name = 'ValidationError';
+  }
+}
+
+// ─── Auth ───────────────────────────────────────────────────────────
+
+export class AuthError extends AppError {
+  constructor(message: string = 'Authentication required') {
+    super('AUTH_REQUIRED', message, 401);
+    this.name = 'AuthError';
+  }
+}
+
+export class LockoutError extends AppError {
+  constructor(minutesRemaining: number) {
+    super(
+      'ACCOUNT_LOCKED',
+      `Account locked due to too many failed attempts. Try again in ${minutesRemaining} minutes.`,
+      429,
+    );
+    this.name = 'LockoutError';
+  }
+}

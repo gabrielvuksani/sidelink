@@ -7,3 +7,10 @@ tmp/uploads/*
 tmp/helper/*
 !tmp/helper/.gitkeep
 ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj/
+tmp/
+.DS_Store
+.venv/
+resources/helper/
+python-bundle/dist/
+sidelink-clean-impl/
+test-results/

@@ -1,21 +1,42 @@
 {
   "name": "sidelink",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Sidelink — compliant personal iOS sideload manager with premium control center, helper orchestration, and auto-refresh.",
+  "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": "Gabriel Vuksani",
+  "license": "MIT",
+  "homepage": "https://github.com/gabrielvuksani/sidelink",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gabrielvuksani/sidelink.git"
+  },
+  "keywords": [
+    "ios",
+    "sideload",
+    "electron",
+    "signing",
+    "ipa",
+    "apple",
+    "cross-platform"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "main": "dist/desktop/main.js",
   "scripts": {
     "demo": "npm run web",
     "start": "npm run web",
+    "postinstall": "node scripts/system-deps-preflight.cjs",
+    "verify": "npm run lint && npm test && npm run build && npm run docs:build && npm run doctor",
     "preweb": "npm run node:preflight",
     "web": "tsx src/server/index.ts",
-    "predev": "npm run node:preflight",
+    "predev": "npm run node:preflight && npm run build:client",
     "dev": "tsx watch src/server/index.ts",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:ts": "tsc -p tsconfig.build.json",
-    "build:assets": "mkdir -p dist/client && cp -R src/client/. dist/client/",
-    "build": "npm run clean && npm run build:ts && npm run build:assets",
+    "build:client": "npx vite build",
+    "build:assets": "node -e \"const fs=require('fs');const p=require('path');fs.mkdirSync('dist/client',{recursive:true});fs.cpSync('src/client/dist','dist/client',{recursive:true})\"",
+    "build": "npm run clean && npm run build:ts && npm run build:client && npm run build:assets",
     "lint": "tsc -p tsconfig.json --noEmit",
     "pretest": "npm run node:preflight",
     "test": "vitest run",
@@ -26,6 +47,14 @@
     "db:migrate": "tsx scripts/db-migrate.ts",
     "predb:bootstrap": "npm run node:preflight",
     "db:bootstrap": "tsx scripts/db-bootstrap-admin.ts",
+    "release": "bash scripts/release.sh",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "doctor": "node scripts/doctor.cjs",
+    "reset": "node scripts/reset-dev.cjs",
+    "reset:dev": "node scripts/reset-dev.cjs",
+    "logs": "tail -f tmp/desktop/sidelink.log",
     "helper:build": "bash scripts/helper-build.sh",
     "helper:export": "bash scripts/helper-export.sh",
     "icon:generate": "python3 scripts/generate-icon-assets.py",
@@ -33,48 +62,188 @@
     "desktop:easy": "node scripts/desktop-easy-launch.cjs",
     "desktop:dev": "npm run build && npm run desktop:preflight && electron dist/desktop/main.js",
     "desktop:deps": "electron-builder install-app-deps",
-    "desktop:package": "npm run build && npm run desktop:preflight && electron-builder --mac --dir"
-  },
-  "engines": {
-    "node": ">=20"
+    "desktop:package": "npm run build && npm run desktop:preflight && electron-builder --mac --dir",
+    "desktop:package:win": "npm run build && electron-builder --win --dir",
+    "desktop:package:linux": "npm run build && electron-builder --linux --dir",
+    "desktop:package:all": "npm run build && electron-builder -mwl",
+    "setup": "npm install && npm run verify"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.8.1",
     "bplist-parser": "^0.3.2",
+    "cookie-parser": "^1.4.7",
+    "electron-updater": "^6.3.9",
     "express": "^4.21.2",
-    "multer": "^2.0.2",
-    "plist": "^3.1.0"
+    "keytar": "^7.9.0",
+    "multer": "^2.1.1",
+    "node-forge": "^1.3.3",
+    "plist": "^3.1.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^4.17.21",
     "@types/multer": "^2.0.0",
     "@types/node": "^22.13.10",
+    "@types/node-forge": "^1.3.14",
     "@types/plist": "^3.0.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@types/supertest": "^6.0.2",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^5.1.4",
     "electron": "^36.1.0",
     "electron-builder": "^26.0.12",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1",
     "supertest": "^7.1.1",
+    "tailwindcss": "^4.2.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
+    "vite": "^7.3.1",
+    "vitepress": "^1.6.4",
     "vitest": "^3.0.8"
   },
   "build": {
     "appId": "com.gabriel.sidelink",
     "productName": "Sidelink",
+    "beforePack": "./scripts/beforePack.cjs",
+    "afterPack": "./scripts/afterPack.cjs",
     "files": [
       "dist/**/*",
-      "src/client/**/*",
       "package.json",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "python-bundle/dist/${platform}-${arch}/",
+        "to": "python",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/",
+        "to": "scripts",
+        "filter": [
+          "*.py"
+        ]
+      },
+      {
+        "from": ".venv/lib/python3.13/site-packages/",
+        "to": "python-packages",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/pip/**",
+          "!**/pip-*/**",
+          "!**/setuptools/**",
+          "!**/setuptools-*/**"
+        ]
+      },
+      {
+        "from": "resources/helper/",
+        "to": "helper",
+        "filter": [
+          "*.ipa"
+        ]
+      },
+      {
+        "from": "build/icons/",
+        "to": "icons",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "dist/client/",
+        "to": "client",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "protocols": {
+      "name": "Sidelink",
+      "schemes": [
+        "sidelink"
+      ]
+    },
     "mac": {
       "target": [
-        "dir"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
-      "icon": "build/icons/icon.icns"
+      "icon": "build/icons/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icons",
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icons/icon.ico",
+      "uninstallerIcon": "build/icons/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "gabrielvuksani",
+      "repo": "sidelink"
     }
   }
 }

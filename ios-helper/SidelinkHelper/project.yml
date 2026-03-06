@@ -20,8 +20,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sidelink.helper
         PRODUCT_NAME: SidelinkHelper
         INFOPLIST_FILE: Sources/App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: $(SIDELINK_TEAM_ID)
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 1.0.0
     info:
@@ -38,7 +39,14 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Sidelink Helper discovers and connects to your desktop server on your local network.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.sidelink.refresh
+          - com.sidelink.refresh.processing
+        UIBackgroundModes:
+          - fetch
+          - processing
 schemes:
   SidelinkHelper:
     build:

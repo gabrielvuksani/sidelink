@@ -151,7 +151,7 @@ console.log(`[desktop:easy] Admin username: ${username}`);
 // eslint-disable-next-line no-console
 console.log(
   usingDefaultPassword
-    ? `[desktop:easy] Admin password: ${password}`
+    ? `[desktop:easy] Admin password: (default — see README)`
     : `[desktop:easy] Admin password: ${maskSecret(password)} (from SIDELINK_ADMIN_PASSWORD)`
 );
 

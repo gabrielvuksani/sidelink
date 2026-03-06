@@ -1,0 +1,6 @@
+anisette
+srp
+pbkdf2
+requests
+cryptography
+pymobiledevice3

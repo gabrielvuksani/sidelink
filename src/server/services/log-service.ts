@@ -1,128 +1,76 @@
-import { randomUUID } from 'node:crypto';
-import { LogEntry, LogLevel } from '../types';
-import { AppStore } from '../state/store';
+// ─── Log Service ────────────────────────────────────────────────────
 
-interface LogInput {
-  level: LogLevel;
-  code: string;
-  message: string;
-  action?: string;
-  context?: Record<string, unknown>;
-}
+import { v4 as uuid } from 'uuid';
+import type { LogEntry, LogLevel } from '../../shared/types';
+import type { Database } from '../state/database';
 
-export interface LogQueryInput {
-  limit?: number;
-  levels?: LogLevel[];
-  code?: string;
-  search?: string;
-  before?: string;
-  after?: string;
-}
-
-export interface LogQueryResult {
-  items: LogEntry[];
-  totalStored: number;
-  matched: number;
-  hasMore: boolean;
-}
-
-const normalizeNeedle = (value: string | undefined): string | undefined => {
-  const normalized = value?.trim().toLowerCase();
-  return normalized ? normalized : undefined;
-};
-
-const toEpochMs = (iso: string | undefined): number | undefined => {
-  if (!iso) {
-    return undefined;
-  }
-
-  const parsed = new Date(iso).getTime();
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
+type LogListener = (entry: LogEntry) => void;
 
 export class LogService {
-  private readonly maxEntries: number;
+  private listeners: LogListener[] = [];
 
-  constructor(
-    private readonly store: AppStore,
-    maxEntries = 1200
-  ) {
-    this.maxEntries = maxEntries;
+  constructor(private db: Database) {}
+
+  /** Subscribe to new log entries (for SSE streaming). Returns unsubscribe fn. */
+  onLog(listener: LogListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
   }
 
-  public push(input: LogInput): LogEntry {
+  log(level: LogLevel, code: string, message: string, meta?: Record<string, unknown>): LogEntry {
     const entry: LogEntry = {
-      id: `log_${randomUUID()}`,
+      id: uuid(),
+      level,
+      code,
+      message,
+      meta: meta ?? null,
       at: new Date().toISOString(),
-      level: input.level,
-      code: input.code,
-      message: input.message,
-      action: input.action,
-      context: input.context
     };
+    this.db.appendLog(entry);
 
-    this.store.appendLog(entry, this.maxEntries);
+    // Notify SSE listeners
+    for (const listener of this.listeners) {
+      try { listener(entry); } catch (err) {
+        console.warn('[log-service] Listener error:', err);
+      }
+    }
+
+    // Also log to console in development
+    const prefix = `[${level.toUpperCase()}] [${code}]`;
+    if (level === 'error') console.error(prefix, message, meta || '');
+    else if (level === 'warn') console.warn(prefix, message, meta || '');
+    else if (level === 'debug') {
+      if (process.env.SIDELINK_DEBUG) console.debug(prefix, message, meta || '');
+    } else {
+      console.log(prefix, message, meta || '');
+    }
+
     return entry;
   }
 
-  public list(limit = 200): LogEntry[] {
-    const safeLimit = Math.max(1, Math.min(limit, this.maxEntries));
-    return this.store.listLogs(safeLimit);
+  info(code: string, message: string, meta?: Record<string, unknown>): LogEntry {
+    return this.log('info', code, message, meta);
   }
 
-  public query(input: LogQueryInput = {}): LogQueryResult {
-    const requestedLimit = Number(input.limit ?? 200);
-    const normalizedLimit = Number.isFinite(requestedLimit) ? requestedLimit : 200;
-    const safeLimit = Math.max(0, Math.min(Math.floor(normalizedLimit), this.maxEntries));
-    const allLogs = this.store.listLogs(this.maxEntries);
-
-    const levelSet = input.levels?.length ? new Set(input.levels) : undefined;
-    const codeNeedle = normalizeNeedle(input.code);
-    const searchNeedle = normalizeNeedle(input.search);
-    const beforeMs = toEpochMs(input.before);
-    const afterMs = toEpochMs(input.after);
-
-    const filtered = allLogs.filter((entry) => {
-      if (levelSet && !levelSet.has(entry.level)) {
-        return false;
-      }
-
-      if (codeNeedle && !entry.code.toLowerCase().includes(codeNeedle)) {
-        return false;
-      }
-
-      const entryMs = toEpochMs(entry.at);
-
-      if (beforeMs !== undefined && entryMs !== undefined && entryMs > beforeMs) {
-        return false;
-      }
-
-      if (afterMs !== undefined && entryMs !== undefined && entryMs < afterMs) {
-        return false;
-      }
-
-      if (searchNeedle) {
-        const contextText = entry.context ? JSON.stringify(entry.context) : '';
-        const haystack = [entry.code, entry.message, entry.action ?? '', contextText].join(' ').toLowerCase();
-        if (!haystack.includes(searchNeedle)) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    const items = safeLimit > 0 ? filtered.slice(0, safeLimit) : [];
-
-    return {
-      items,
-      totalStored: allLogs.length,
-      matched: filtered.length,
-      hasMore: filtered.length > items.length
-    };
+  warn(code: string, message: string, meta?: Record<string, unknown>): LogEntry {
+    return this.log('warn', code, message, meta);
   }
 
-  public clear(): void {
-    this.store.clearLogs();
+  error(code: string, message: string, meta?: Record<string, unknown>): LogEntry {
+    return this.log('error', code, message, meta);
+  }
+
+  debug(code: string, message: string, meta?: Record<string, unknown>): LogEntry {
+    return this.log('debug', code, message, meta);
+  }
+
+  list(limit = 200): LogEntry[] {
+    return this.db.listLogs(limit);
+  }
+
+  clear(): void {
+    this.db.clearLogs();
   }
 }

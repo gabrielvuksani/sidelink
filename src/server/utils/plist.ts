@@ -1,85 +1,59 @@
-import bplistParser from 'bplist-parser';
+// ─── Plist Utilities ────────────────────────────────────────────────
+// Parse and build Apple XML and binary plists.
+
 import plist from 'plist';
+import bplistParser from 'bplist-parser';
+import { readFile, writeFile } from 'node:fs/promises';
 
-export const parsePlistBuffer = (buffer: Buffer): Record<string, unknown> => {
-  const header = buffer.subarray(0, 8).toString('utf8');
+/**
+ * Parse a plist file (XML or binary).
+ */
+export async function parsePlistFile(filePath: string): Promise<Record<string, unknown>> {
+  const data = await readFile(filePath);
+  return parsePlistBuffer(data);
+}
 
-  if (header === 'bplist00') {
-    const parsed = bplistParser.parseBuffer(buffer);
-    if (!parsed.length || typeof parsed[0] !== 'object' || parsed[0] === null) {
-      throw new Error('Binary plist is empty or malformed');
-    }
-
-    return parsed[0] as Record<string, unknown>;
+/**
+ * Parse plist from a Buffer (XML or binary).
+ */
+export function parsePlistBuffer(data: Buffer): Record<string, unknown> {
+  // Try binary first (starts with 'bplist')
+  if (data[0] === 0x62 && data[1] === 0x70) {
+    const parsed = bplistParser.parseBuffer(data);
+    return (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown>;
   }
+  // XML plist
+  const xml = data.toString('utf8');
+  return plist.parse(xml) as Record<string, unknown>;
+}
 
-  const raw = buffer.toString('utf8').trim();
-  const parsed = plist.parse(raw);
+/**
+ * Build an XML plist string from an object.
+ */
+export function buildPlist(obj: Record<string, unknown>): string {
+  return plist.build(obj as any) as unknown as string;
+}
 
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error('Plist did not parse into an object');
+/**
+ * Write a plist object to a file.
+ */
+export async function writePlistFile(filePath: string, obj: Record<string, unknown>): Promise<void> {
+  const xml = buildPlist(obj);
+  await writeFile(filePath, xml, 'utf8');
+}
+
+/**
+ * Parse a .mobileprovision file.
+ * The provision profile is a CMS-signed plist wrapped in DER.
+ * We extract the plist XML between <?xml and </plist> tags.
+ */
+export function parseMobileProvision(data: Buffer): Record<string, unknown> {
+  const str = data.toString('latin1');
+  const xmlStart = str.indexOf('<?xml');
+  const xmlEnd = str.indexOf('</plist>');
+  if (xmlStart === -1 || xmlEnd === -1) {
+    throw new Error('Invalid mobileprovision: no embedded plist found');
   }
-
-  return parsed as Record<string, unknown>;
-};
-
-const extractMobileProvisionPlistXml = (buffer: Buffer): string | undefined => {
-  const text = buffer.toString('utf8');
-  const start = text.indexOf('<?xml');
-  const end = text.indexOf('</plist>');
-
-  if (start === -1 || end === -1) {
-    return undefined;
-  }
-
-  return text.slice(start, end + '</plist>'.length);
-};
-
-export const parseMobileProvision = (buffer: Buffer): Record<string, unknown> => {
-  const xml = extractMobileProvisionPlistXml(buffer);
-  if (!xml) {
-    return {};
-  }
-
-  const parsed = plist.parse(xml);
-  if (typeof parsed !== 'object' || parsed === null) {
-    return {};
-  }
-
-  return parsed as Record<string, unknown>;
-};
-
-export const parseMobileProvisionEntitlements = (buffer: Buffer): Record<string, unknown> => {
-  const parsed = parseMobileProvision(buffer);
-
-  const entitlements = parsed.Entitlements;
-  if (!entitlements || typeof entitlements !== 'object') {
-    return {};
-  }
-
-  return entitlements as Record<string, unknown>;
-};
-
-export const normalizeEntitlements = (input: Record<string, unknown>): Record<string, unknown> => {
-  const normalized: Record<string, unknown> = {};
-  Object.entries(input).forEach(([key, value]) => {
-    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
-      normalized[key] = value;
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      normalized[key] = value.map((item) => (typeof item === 'object' ? JSON.stringify(item) : item));
-      return;
-    }
-
-    if (typeof value === 'object') {
-      normalized[key] = JSON.stringify(value);
-      return;
-    }
-
-    normalized[key] = String(value);
-  });
-
-  return normalized;
-};
+  const xmlStr = str.slice(xmlStart, xmlEnd + '</plist>'.length);
+  return plist.parse(xmlStr) as Record<string, unknown>;
+}

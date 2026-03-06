@@ -43,9 +43,17 @@ const checkNodeNative = () => {
   };
 };
 
+const { installPrebuild } = require('./install-native-prebuild.cjs');
+
+const tryPrebuild = () => {
+  // eslint-disable-next-line no-console
+  console.log('[node:preflight] Trying bundled prebuild...');
+  return installPrebuild('node');
+};
+
 const rebuildForNode = () => {
   // eslint-disable-next-line no-console
-  console.log('[node:preflight] Detected host Node ABI mismatch. Rebuilding better-sqlite3 for host Node...');
+  console.log('[node:preflight] No prebuild available. Rebuilding better-sqlite3 from source (requires C++ compiler)...');
   fs.rmSync(betterSqliteBuildDir, { recursive: true, force: true });
   run(npmCmd, ['rebuild', 'better-sqlite3', '--build-from-source']);
 };
@@ -58,6 +66,17 @@ const main = () => {
     return;
   }
 
+  // Try bundled prebuild first (no compiler needed)
+  if (tryPrebuild()) {
+    const afterPrebuild = checkNodeNative();
+    if (afterPrebuild.ok) {
+      // eslint-disable-next-line no-console
+      console.log('[node:preflight] Recovered using bundled prebuild.');
+      return;
+    }
+  }
+
+  // Fall back to compiling from source
   rebuildForNode();
 
   const second = checkNodeNative();

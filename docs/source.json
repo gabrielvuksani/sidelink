@@ -1,0 +1,67 @@
+{
+  "name": "Sidelink Official",
+  "identifier": "com.sidelink.official",
+  "subtitle": "Official Sidelink Source",
+  "description": "Official feed for Sidelink-compatible IPA releases and curated onboarding content.",
+  "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon.png",
+  "headerURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/header.png",
+  "website": "https://github.com/gabrielvuksani/sidelink",
+  "tintColor": "#6366f1",
+  "sourceURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source.json",
+  "featuredApps": [
+    "com.sidelink.helper"
+  ],
+  "news": [
+    {
+      "identifier": "launch",
+      "title": "Sidelink Source Is Live",
+      "caption": "Use this feed to install curated builds through Sidelink.",
+      "date": "2026-03-05",
+      "tintColor": "#6366f1",
+      "notify": true,
+      "url": "https://github.com/gabrielvuksani/sidelink"
+    }
+  ],
+  "apps": [
+    {
+      "name": "Sidelink Helper",
+      "bundleIdentifier": "com.sidelink.helper",
+      "developerName": "Sidelink",
+      "subtitle": "Manage sideloaded apps from your iPhone",
+      "localizedDescription": "The official Sidelink companion app for iOS. Browse your IPA library, install apps, monitor refresh status, and manage AltStore-compatible sources — all from your device.",
+      "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon.png",
+      "tintColor": "#6366f1",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "date": "2026-03-05",
+          "localizedDescription": "Initial release with source browsing, one-tap install, background refresh, verbose logging, and pairing code entry.",
+          "downloadURL": "https://github.com/gabrielvuksani/sidelink/releases/download/v0.1.0/SidelinkHelper.ipa",
+          "size": 5242880
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          "com.apple.security.application-groups"
+        ],
+        "privacy": [
+          "LocalNetwork: Discover Sidelink servers on your local network"
+        ]
+      },
+      "screenshots": {
+        "iphone": [
+          {
+            "imageURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/screenshot-browse.png",
+            "width": 390,
+            "height": 844
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/screenshot-installed.png",
+            "width": 390,
+            "height": 844
+          }
+        ]
+      }
+    }
+  ]
+}

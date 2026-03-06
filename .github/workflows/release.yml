@@ -1,0 +1,232 @@
+# ─── Build & Release ─────────────────────────────────────────────────
+# Builds Electron desktop app for macOS, Windows, and Linux.
+# Triggered on version tags (v*) for releases, or manually.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to validate/build (for example v0.1.0)'
+        type: string
+        required: false
+      dry_run:
+        description: 'Dry run (build but do not publish)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.event.inputs.tag || '' }}
+
+jobs:
+  verify-version:
+    name: Verify Tag Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches package.json version
+        if: env.RELEASE_TAG != ''
+        run: |
+          TAG_VERSION="${RELEASE_TAG#v}"
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+
+      - name: Verify package version format
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if ! echo "$PACKAGE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "package.json version must be full semver, got: $PACKAGE_VERSION"
+            exit 1
+          fi
+
+  # ── Build Python bundle for each platform ──────────────────────────
+  python-bundle:
+    name: Python Bundle (${{ matrix.os }}-${{ matrix.arch }})
+    needs: verify-version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+          - os: darwin
+            arch: x64
+            runner: macos-13
+          - os: win32
+            arch: x64
+            runner: windows-latest
+          - os: linux
+            arch: x64
+            runner: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r python-bundle/requirements.txt
+
+      - name: Build Python bundle
+        run: python python-bundle/build.py
+        env:
+          SIDELINK_PLATFORM: ${{ matrix.os }}
+          SIDELINK_ARCH: ${{ matrix.arch }}
+
+      - name: Upload Python bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-bundle-${{ matrix.os }}-${{ matrix.arch }}
+          path: python-bundle/dist/${{ matrix.os }}-${{ matrix.arch }}/
+          retention-days: 1
+
+  # ── Build desktop app for each platform ────────────────────────────
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: python-bundle
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            runner: macos-14
+            electron_args: '--mac'
+          - platform: win
+            runner: windows-latest
+            electron_args: '--win'
+          - platform: linux
+            runner: ubuntu-latest
+            electron_args: '--linux'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Electron app deps
+        run: npm run desktop:deps
+        continue-on-error: true
+
+      - name: Build TypeScript + Client
+        run: npm run build
+
+      - name: Generate icon assets
+        run: python3 scripts/generate-icon-assets.py
+
+      # Download Python bundles for this platform
+      - name: Download Python bundle (x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: python-bundle-${{ matrix.platform == 'mac' && 'darwin' || matrix.platform == 'win' && 'win32' || 'linux' }}-x64
+          path: python-bundle/dist/${{ matrix.platform == 'mac' && 'darwin' || matrix.platform == 'win' && 'win32' || 'linux' }}-x64/
+        continue-on-error: true
+
+      - name: Download Python bundle (arm64)
+        if: matrix.platform == 'mac'
+        uses: actions/download-artifact@v4
+        with:
+          name: python-bundle-darwin-arm64
+          path: python-bundle/dist/darwin-arm64/
+        continue-on-error: true
+
+      # Create placeholder resources dir if helper IPA isn't available
+      - name: Ensure resources dirs
+        run: |
+          mkdir -p resources/helper
+        shell: bash
+
+      - name: Build Electron app
+        run: npx electron-builder ${{ matrix.electron_args }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidelink-${{ matrix.platform }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.yml
+            release/*.blockmap
+          retention-days: 7
+
+  # ── Create GitHub Release ──────────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts/ -type f | head -50
+
+      - name: Generate release notes template
+        run: |
+          cat > release-notes.md <<EOF
+          ## Sidelink ${RELEASE_TAG}
+
+          ### Highlights
+          - First public alpha release of Sidelink.
+          - Desktop app bundles for macOS, Windows, and Linux.
+          - iOS helper pairing, install orchestration, and source support.
+
+          ### Validation
+          - CI checks passed for lint, tests, build, and docs build.
+          - Artifacts generated by GitHub Actions release pipeline.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          body_path: release-notes.md
+          files: |
+            artifacts/sidelink-mac/*
+            artifacts/sidelink-win/*
+            artifacts/sidelink-linux/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

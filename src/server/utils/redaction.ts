@@ -1,81 +1,63 @@
-const REDACTED = '[REDACTED]';
+// ─── Redaction ──────────────────────────────────────────────────────
+// Sanitize sensitive data from logs and error messages.
 
-const SENSITIVE_KEY = /(password|passwd|passphrase|token|secret|api[_-]?key|authorization|cookie|session(?:id)?|credential)/i;
-const CLI_SECRET_FLAG = /(\s--?(?:password|passphrase|token|secret|api[-_]?key|session(?:id)?)(?:=|\s+))([^\s]+)/gi;
-const KV_SECRET = /((?:x-(?:sidelink|altstore)-helper-token|authorization|cookie|password|passphrase|token|secret|api[_-]?key|session(?:id)?)\s*[:=]\s*["']?)([^\s,;"'\]}]+)/gi;
-const BEARER_SECRET = /(\bBearer\s+)([A-Za-z0-9._~+\/-]+=*)/gi;
+const SENSITIVE_PATTERNS = [
+  // Apple session tokens
+  /X-Apple-Session-Token:\s*\S+/gi,
+  // Cookies
+  /cookie:\s*[^\n]+/gi,
+  // Password values (key=value or key: value pairs, NOT the word "password" alone)
+  /password['":\s]*=\s*[^\s,;'"}\]]+/gi,
+  /["']password["']\s*:\s*["'][^"']*["']/gi,
+  // Private keys
+  /-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g,
+  // Bearer tokens
+  /bearer\s+\S+/gi,
+  // Apple ID emails (partial redaction)
+  /([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*@([a-zA-Z0-9.-]+)/g,
+];
 
-const isSensitiveKey = (key: string | undefined): boolean => {
-  if (!key) {
-    return false;
+/**
+ * Redact sensitive information from a string.
+ */
+export function redact(input: string): string {
+  let result = input;
+  for (const pattern of SENSITIVE_PATTERNS) {
+    result = result.replace(pattern, (match) => {
+      // For emails, keep first char and domain
+      if (match.includes('@')) {
+        return match.replace(
+          /([a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]*@/g,
+          '$1***@',
+        );
+      }
+      // For private keys, just indicate presence
+      if (match.includes('PRIVATE KEY')) {
+        return '[REDACTED-PRIVATE-KEY]';
+      }
+      return '[REDACTED]';
+    });
   }
+  return result;
+}
 
-  return SENSITIVE_KEY.test(key.trim());
-};
-
-const isPreviewValue = (value: string): boolean => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return false;
-  }
-
-  return trimmed.includes('••••') || /^\*{4,}$/.test(trimmed);
-};
-
-export const redactSensitiveText = (value: string): string => {
-  if (!value) {
-    return value;
-  }
-
-  return value
-    .replace(BEARER_SECRET, `$1${REDACTED}`)
-    .replace(CLI_SECRET_FLAG, `$1${REDACTED}`)
-    .replace(KV_SECRET, `$1${REDACTED}`);
-};
-
-export const redactUnknown = (value: unknown, keyHint?: string, seen = new WeakSet<object>()): unknown => {
-  if (value === null || value === undefined) {
-    return value;
-  }
-
-  if (isSensitiveKey(keyHint)) {
-    if (typeof value === 'string') {
-      return isPreviewValue(value) ? value : REDACTED;
+/**
+ * Redact an object's string values recursively.
+ */
+export function redactObject<T>(obj: T): T {
+  if (typeof obj === 'string') return redact(obj) as T;
+  if (Array.isArray(obj)) return obj.map(redactObject) as T;
+  if (obj && typeof obj === 'object') {
+    const result = {} as Record<string, unknown>;
+    for (const [key, value] of Object.entries(obj)) {
+      // Fully redact known sensitive keys
+      if (/password|secret|token|key|cookie/i.test(key)) {
+        result[key] = '[REDACTED]';
+      } else {
+        result[key] = redactObject(value);
+      }
     }
-
-    return REDACTED;
+    return result as T;
   }
-
-  if (typeof value === 'string') {
-    return redactSensitiveText(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => redactUnknown(item, keyHint, seen));
-  }
-
-  if (typeof value === 'object') {
-    if (seen.has(value as object)) {
-      return '[Circular]';
-    }
-
-    seen.add(value as object);
-
-    if (value instanceof Date) {
-      seen.delete(value);
-      return value.toISOString();
-    }
-
-    const output: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = redactUnknown(nested, key, seen);
-    }
-
-    seen.delete(value as object);
-    return output;
-  }
-
-  return value;
-};
-
-export { REDACTED };
+  return obj;
+}
