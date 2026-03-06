@@ -62,6 +62,26 @@ if [[ "$DRY_RUN" == "--dry-run" ]]; then
   echo "[release] Dry run mode enabled."
 fi
 
+# ── Pre-release checks ────────────────────────────────────────────────
+
+# Ensure CHANGELOG.md has an entry for this version
+if ! grep -q "\[$VERSION\]" CHANGELOG.md; then
+  echo "Error: CHANGELOG.md has no entry for [$VERSION]."
+  echo "  Add a section like: ## [$VERSION] - $(date +%Y-%m-%d)"
+  exit 1
+fi
+
+# Version monotonicity: new version must be >= current
+LATEST_TAG="$(git tag -l 'v*' --sort=-v:refname | head -1 || true)"
+if [[ -n "$LATEST_TAG" ]]; then
+  LATEST_VERSION="${LATEST_TAG#v}"
+  HIGHER="$(printf '%s\n%s' "$LATEST_VERSION" "$VERSION" | sort -V | tail -1)"
+  if [[ "$HIGHER" != "$VERSION" && "$LATEST_VERSION" != "$VERSION" ]]; then
+    echo "Error: Target version $VERSION is older than latest tag $LATEST_TAG."
+    exit 1
+  fi
+fi
+
 # ── Bump ──────────────────────────────────────────────────────────────
 
 echo "[release] Preparing release $TAG ..."
