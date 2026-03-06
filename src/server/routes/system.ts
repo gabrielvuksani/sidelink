@@ -9,6 +9,7 @@
 
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
@@ -20,6 +21,7 @@ import { commandExists, runCommandStrict } from '../utils/command';
 import { getHelperIpaPath } from '../utils/paths';
 import { createPairingCode } from '../services/helper-pairing-service';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
+import { triggerRefreshAllActiveApps } from '../services/shared-backend';
 
 type TeamResolutionSource =
   | 'request'
@@ -149,6 +151,10 @@ export function systemRoutes(ctx: AppContext): Router {
     }
   });
 
+  router.post('/scheduler/refresh-all', async (_req, res) => {
+    res.json({ ok: true, data: await triggerRefreshAllActiveApps(ctx) });
+  });
+
   router.get('/scheduler/states', (req, res) => {
     res.json({ ok: true, data: ctx.scheduler.getAutoRefreshStates() });
   });
@@ -190,13 +196,78 @@ export function systemRoutes(ctx: AppContext): Router {
 
   router.post('/helper/pairing-code', (req, res) => {
     const pair = createPairingCode(ctx);
-    res.json({ ok: true, data: pair });
+    res.json({
+      ok: true,
+      data: {
+        ...pair,
+        qrPayload: JSON.stringify({
+          code: pair.code,
+          backendUrl: resolveHelperBackendURL(req),
+          serverName: process.env.SIDELINK_SERVER_NAME ?? 'Sidelink',
+        }),
+      },
+    });
   });
 
   router.post('/helper/ensure', ensureHelperIpa);
   router.post('/helper/ensure-ipa', ensureHelperIpa);
 
   return router;
+}
+
+function resolveHelperBackendURL(req: Request): string {
+  const envOverride = process.env.SIDELINK_HELPER_BACKEND_URL?.trim();
+  if (envOverride) {
+    return envOverride;
+  }
+
+  const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol || 'http';
+  const forwardedHost = (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim();
+  const hostHeader = forwardedHost || req.get('host') || `localhost:${process.env.SIDELINK_PORT ?? '4010'}`;
+
+  const [rawHost, rawPort] = splitHostPort(hostHeader);
+  const port = rawPort || process.env.SIDELINK_PORT || '4010';
+  const host = normalizeQrHost(rawHost);
+
+  return `${protocol}://${host}:${port}`;
+}
+
+function splitHostPort(hostHeader: string): [string, string | null] {
+  const trimmed = hostHeader.trim();
+  if (trimmed.startsWith('[')) {
+    const closing = trimmed.indexOf(']');
+    if (closing >= 0) {
+      const host = trimmed.slice(1, closing);
+      const port = trimmed.slice(closing + 1).replace(/^:/, '') || null;
+      return [host, port];
+    }
+  }
+
+  const parts = trimmed.split(':');
+  if (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1] ?? '')) {
+    return [parts.slice(0, -1).join(':'), parts[parts.length - 1] ?? null];
+  }
+
+  return [trimmed, null];
+}
+
+function normalizeQrHost(host: string): string {
+  const trimmed = host.trim().toLowerCase();
+  if (trimmed && trimmed !== 'localhost' && !trimmed.startsWith('127.') && trimmed !== '::1') {
+    return host;
+  }
+
+  const candidates = Object.values(os.networkInterfaces())
+    .flatMap(entries => entries ?? [])
+    .filter(entry => !entry.internal)
+    .map(entry => entry.address);
+
+  const preferred = candidates.find(address => address.includes('.'))
+    ?? candidates[0]
+    ?? 'localhost';
+
+  return preferred.includes(':') ? `[${preferred}]` : preferred;
 }
 
 async function importHelperIpaIntoLibrary(ctx: AppContext, helperIpaPath: string) {

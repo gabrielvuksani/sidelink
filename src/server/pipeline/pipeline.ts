@@ -431,6 +431,7 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
       db.upsertInstalledApp({
         accountId: job.accountId,
         deviceUdid: job.deviceUdid,
+        status: 'active',
         bundleId: provisionResult.effectiveBundleId,
         originalBundleId: ipa!.bundleId,
         appName: ipa!.bundleName,

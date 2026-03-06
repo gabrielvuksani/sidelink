@@ -71,7 +71,8 @@ export default function DashboardPage() {
   if (loading) return <PageLoader message="Loading..." />;
   if (!data) return <p className="text-red-400">Failed to load dashboard</p>;
 
-  const hasAccounts = (data.accounts?.length ?? 0) > 0;
+  const activeAccounts = data.accounts?.filter((account) => account.status === 'active') ?? [];
+  const hasAccounts = activeAccounts.length > 0;
   const hasDevices = (data.devices?.length ?? 0) > 0;
   const hasIpas = (data.ipas?.length ?? 0) > 0;
   const activeJobs = data.jobs?.filter(j => j.status === 'running' || j.status === 'waiting_2fa') ?? [];
@@ -111,11 +112,35 @@ export default function DashboardPage() {
             <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-amber-300">No Apple ID configured</p>
-            <p className="text-[12px] text-amber-400/60 mt-0.5">Add your Apple ID to start signing and installing apps.</p>
+            <p className="text-[13px] font-semibold text-amber-300">No active Apple ID available</p>
+            <p className="text-[12px] text-amber-400/60 mt-0.5">Add or re-authenticate an Apple ID to start signing and installing apps.</p>
           </div>
           <Link to="/apple" className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 shrink-0 text-[12px]">
-            Add Apple ID
+            Open Apple IDs
+          </Link>
+        </div>
+      )}
+
+      {hasAccounts && !hasDevices && (
+        <div className="sl-card flex items-center gap-4 p-4 !border-amber-500/15 !bg-amber-500/[0.04]">
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-amber-300">No device connected</p>
+            <p className="text-[12px] text-amber-400/60 mt-0.5">Connect an iPhone or iPad before using Quick Install.</p>
+          </div>
+          <Link to="/devices" className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 shrink-0 text-[12px]">
+            Open Devices
+          </Link>
+        </div>
+      )}
+
+      {hasAccounts && hasDevices && !hasIpas && (
+        <div className="sl-card flex items-center gap-4 p-4 !border-amber-500/15 !bg-amber-500/[0.04]">
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-amber-300">No IPA available</p>
+            <p className="text-[12px] text-amber-400/60 mt-0.5">Upload or import an IPA before using Quick Install.</p>
+          </div>
+          <Link to="/apps" className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 shrink-0 text-[12px]">
+            Open IPAs
           </Link>
         </div>
       )}

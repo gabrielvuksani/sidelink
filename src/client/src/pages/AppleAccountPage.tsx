@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../lib/api';
+import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord, type AppleCertificateRecord } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
@@ -9,6 +9,9 @@ import type { AppleAccount, DashboardState } from '../../../shared/types';
 export default function AppleAccountPage() {
   const [accounts, setAccounts] = useState<AppleAccount[]>([]);
   const [usageByAccount, setUsageByAccount] = useState<DashboardState['weeklyAppIdUsage']>({});
+  const [appIds, setAppIds] = useState<AppleAppIdRecord[]>([]);
+  const [appIdUsage, setAppIdUsage] = useState<AppleAppIdUsageRecord[]>([]);
+  const [certificates, setCertificates] = useState<AppleCertificateRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
 
@@ -18,10 +21,16 @@ export default function AppleAccountPage() {
     Promise.all([
       api.listAppleAccounts(),
       api.dashboard().catch(() => ({ data: { weeklyAppIdUsage: {} } as DashboardState })),
+      api.listAppleAppIds().catch(() => ({ data: [] as AppleAppIdRecord[] })),
+      api.listAppleAppIdUsage().catch(() => ({ data: [] as AppleAppIdUsageRecord[] })),
+      api.listAppleCertificates().catch(() => ({ data: [] as AppleCertificateRecord[] })),
     ])
-      .then(([accountsResponse, dashboardResponse]) => {
+      .then(([accountsResponse, dashboardResponse, appIdsResponse, appIdUsageResponse, certificatesResponse]) => {
         setAccounts(accountsResponse.data ?? []);
         setUsageByAccount(dashboardResponse.data?.weeklyAppIdUsage ?? {});
+        setAppIds(appIdsResponse.data ?? []);
+        setAppIdUsage(appIdUsageResponse.data ?? []);
+        setCertificates(certificatesResponse.data ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -52,12 +61,105 @@ export default function AppleAccountPage() {
           icon={<svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>}
         />
       ) : (
-        <div className="space-y-2 stagger-children">
-          {accounts.map(a => (
-            <AccountCard key={a.id} account={a} usageByAccount={usageByAccount} onRemove={reload} />
-          ))}
+        <div className="space-y-6 stagger-children">
+          <div className="space-y-2">
+            {accounts.map(a => (
+              <AccountCard key={a.id} account={a} usageByAccount={usageByAccount} onRemove={reload} />
+            ))}
+          </div>
+
+          <section className="sl-card p-5 space-y-4">
+            <div>
+              <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">App IDs</h3>
+              <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Track active identifiers and weekly free-account consumption.</p>
+            </div>
+
+            {appIdUsage.length > 0 && (
+              <div className="grid gap-2 md:grid-cols-2">
+                {appIdUsage.map(entry => (
+                  <div key={entry.accountId} className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs">
+                    <p className="font-semibold text-[var(--sl-text)]">{entry.appleId}</p>
+                    <p className="mt-1 text-[var(--sl-muted)]">Active: {entry.active}/{entry.maxActive}</p>
+                    <p className="text-[var(--sl-muted)]">This week: {entry.weeklyCreated}/{entry.maxWeekly}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {appIds.length === 0 ? (
+                <p className="text-[12px] text-[var(--sl-muted)]">No tracked App IDs yet.</p>
+              ) : appIds.map(appId => (
+                <AppIdRow key={appId.id} appId={appId} onChanged={reload} />
+              ))}
+            </div>
+          </section>
+
+          <section className="sl-card p-5 space-y-4">
+            <div>
+              <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Certificates</h3>
+              <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Current signing certificates tracked for your Apple IDs.</p>
+            </div>
+
+            {certificates.length === 0 ? (
+              <p className="text-[12px] text-[var(--sl-muted)]">No signing certificates tracked yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {certificates.map((certificate) => (
+                  <div key={certificate.id} className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-[var(--sl-text)] truncate">{certificate.commonName}</p>
+                        <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">{certificate.serialNumber}</p>
+                        <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
+                          Expires {new Date(certificate.expiresAt).toLocaleString()}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{certificate.accountAppleId ?? certificate.teamName ?? certificate.teamId}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
+    </div>
+  );
+}
+
+function AppIdRow({ appId, onChanged }: { appId: AppleAppIdRecord; onChanged: () => void }) {
+  const { toast } = useToast();
+  const confirm = useConfirm();
+
+  const remove = async () => {
+    const ok = await confirm({
+      title: 'Delete App ID',
+      message: `Delete ${appId.bundleId}? This will free the identifier for future installs if Apple allows deletion.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      await api.deleteAppleAppId(appId.id);
+      toast('success', 'App ID deleted');
+      onChanged();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to delete App ID'));
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold text-[var(--sl-text)] truncate">{appId.name}</p>
+          <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">{appId.bundleId}</p>
+          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{appId.accountAppleId ?? appId.teamName ?? appId.teamId}</p>
+        </div>
+        <button onClick={remove} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">Delete</button>
+      </div>
     </div>
   );
 }

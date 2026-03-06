@@ -4,8 +4,8 @@ import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
+import { HelperPairingPanel } from '../components/HelperPairingPanel';
 import type { SchedulerSnapshot } from '../../../shared/types';
-import { UI_LIMITS } from '../../../shared/constants';
 
 
 
@@ -166,8 +166,6 @@ function HelperSection() {
   const { info } = useElectron();
   const [teamId, setTeamId] = useState('');
   const [overrideTeamId, setOverrideTeamId] = useState(false);
-  const [pairingCode, setPairingCode] = useState<string | null>(null);
-  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [doctor, setDoctor] = useState<null | {
@@ -198,30 +196,8 @@ function HelperSection() {
     }
   };
 
-  const rotatePairingCode = async (options?: { silent?: boolean }) => {
-    try {
-      const res = await api.createHelperPairingCode();
-      setPairingCode(res.data?.code ?? null);
-      setPairingExpiresAt(res.data?.expiresAt ?? null);
-      if (!options?.silent) {
-        toast('success', 'New helper pairing code generated');
-      }
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Failed to generate helper pairing code'));
-    }
-  };
-
   useEffect(() => {
     void refreshDoctor();
-    void rotatePairingCode({ silent: true });
-
-    const interval = window.setInterval(() => {
-      void rotatePairingCode({ silent: true });
-    }, UI_LIMITS.pairingCodeRefreshMs);
-
-    return () => {
-      window.clearInterval(interval);
-    };
   }, []);
 
   const ensureHelper = async () => {
@@ -321,23 +297,9 @@ function HelperSection() {
               >
                 Refresh
               </button>
-              <button
-                onClick={() => { void rotatePairingCode(); }}
-                className="sl-btn-ghost"
-              >
-                Generate Pair Code
-              </button>
             </div>
 
-            {pairingCode && (
-              <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Helper Pairing Code</p>
-                <p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em] text-[var(--sl-text)]">{pairingCode}</p>
-                {pairingExpiresAt && (
-                  <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Expires at {new Date(pairingExpiresAt).toLocaleTimeString()}</p>
-                )}
-              </div>
-            )}
+            <HelperPairingPanel paired={!!doctor?.helperPaired} />
 
             <div className="flex items-center gap-2 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-2">
               <span className={`inline-block h-2 w-2 rounded-full ${doctor?.helperPaired ? 'bg-green-500' : 'bg-[var(--sl-muted)]'}`} />

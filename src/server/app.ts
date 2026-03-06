@@ -23,7 +23,7 @@ export function createApp(ctx: AppContext): express.Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
-  app.use('/api', csrfProtection({ skipPaths: ['/api/auth/status', '/api/auth/login', '/api/health', '/api/events', '/api/helper', '/api/system/pair'] }));
+  app.use('/api', csrfProtection({ skipPaths: ['/auth/status', '/auth/login', '/health', '/events', '/helper', '/system/pair'] }));
 
   // Security headers
   app.use((req, res, next) => {

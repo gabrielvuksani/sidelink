@@ -9,16 +9,55 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import multer from 'multer';
 import type { AppContext } from '../context';
 import { getHelperToken } from '../services/helper-pairing-service';
 import { getJobLogs, onPipelineJobLog, onPipelineUpdate, startInstallPipeline, submitJobTwoFA } from '../pipeline';
-import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
+import { FREE_ACCOUNT_LIMITS, UI_LIMITS } from '../../shared/constants';
+import { Apple2FARequiredError } from '../utils/errors';
+import { validators } from '../utils/validators';
+import {
+  deactivateInstalledApp,
+  deleteAppleAppId,
+  listAppleAppIdUsage,
+  listAppleCertificates,
+  listDeviceAppInventory,
+  listSafeAppleAccounts,
+  listTrustedSources,
+  reactivateInstalledApp,
+  syncAndListAppleAppIds,
+  startValidatedInstall,
+  toSafeAppleAccount,
+  triggerRefreshAllActiveApps,
+} from '../services/shared-backend';
 
 export function helperRoutes(ctx: AppContext): Router {
   const router = Router();
+  const serializeHelperDevice = (device: ReturnType<AppContext['devices']['list']>[number]) => ({
+    id: device.udid,
+    name: device.name,
+    connection: device.connection,
+    transport: device.transport,
+    networkName: null,
+    iosVersion: device.iosVersion,
+    productType: device.productType,
+    model: device.model,
+  });
+  const upload = multer({
+    dest: ctx.uploadDir,
+    limits: { fileSize: UI_LIMITS.maxIpaFileSizeBytes },
+    fileFilter: (_req, file, cb) => {
+      if (path.extname(file.originalname).toLowerCase() === '.ipa') {
+        cb(null, true);
+      } else {
+        cb(new Error('Only .ipa files are accepted'));
+      }
+    },
+  });
 
   // ── Auth middleware for helper token ────────────────────────────
   router.use((req, res, next) => {
@@ -58,13 +97,7 @@ export function helperRoutes(ctx: AppContext): Router {
       },
     }));
 
-    const devices = ctx.devices.list().map((d) => ({
-      id: d.udid,
-      name: d.name,
-      connection: d.connection,
-      transport: d.transport,
-      networkName: null,
-    }));
+    const devices = ctx.devices.list().map(serializeHelperDevice);
 
     const schedulerState = ctx.scheduler.getSnapshot();
 
@@ -123,7 +156,7 @@ export function helperRoutes(ctx: AppContext): Router {
           certValidityDays: FREE_ACCOUNT_LIMITS.certExpiryDays,
         },
         freeAccountUsage: {
-          activeSlotsUsed: ctx.db.listInstalledApps().length,
+          activeSlotsUsed: ctx.db.countInstalledAppsByStatus('active'),
           weeklyAppIdsUsedByAccount,
         },
         sourceFeeds,
@@ -136,19 +169,77 @@ export function helperRoutes(ctx: AppContext): Router {
   });
 
   router.get('/accounts', (_req, res) => {
-    const safe = ctx.appleAccounts.list().map(({ id, appleId, teamId, teamName, accountType, status }) => ({
-      id,
-      appleId,
-      teamId,
-      teamName,
-      accountType,
-      status,
-    }));
-    res.json({ ok: true, data: safe });
+    res.json({ ok: true, data: listSafeAppleAccounts(ctx) });
+  });
+
+  router.post('/apple/signin', validators.appleSignIn, async (req, res, next) => {
+    try {
+      const { appleId, password } = req.body;
+      const account = await ctx.appleAccounts.signIn(appleId, password);
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
+    } catch (err) {
+      if (err instanceof Apple2FARequiredError) {
+        return res.status(200).json({
+          ok: true,
+          data: {
+            requires2FA: true,
+            authType: err.authType,
+          },
+        });
+      }
+      next(err);
+    }
+  });
+
+  router.post('/apple/2fa', validators.apple2FA, async (req, res, next) => {
+    try {
+      const { appleId, password, code, method } = req.body;
+      const account = await ctx.appleAccounts.submit2FA({
+        appleId,
+        password,
+        code,
+        method: method ?? 'totp',
+      });
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/apple/accounts/:id/reauth', async (req, res, next) => {
+    try {
+      const account = await ctx.appleAccounts.reauthenticate(req.params.id);
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
+    } catch (err) {
+      if (err instanceof Apple2FARequiredError) {
+        return res.status(200).json({
+          ok: true,
+          data: {
+            requires2FA: true,
+            authType: err.authType,
+          },
+        });
+      }
+      next(err);
+    }
+  });
+
+  router.post('/apple/accounts/:id/reauth/2fa', validators.apple2FACode, async (req, res, next) => {
+    try {
+      const account = await ctx.appleAccounts.complete2FAForAccount(req.params.id, String(req.body.code));
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/apple/accounts/:id', (req, res) => {
+    ctx.appleAccounts.remove(req.params.id);
+    res.json({ ok: true });
   });
 
   router.get('/devices', (_req, res) => {
-    res.json({ ok: true, data: ctx.devices.list() });
+    res.json({ ok: true, data: ctx.devices.list().map(serializeHelperDevice) });
   });
 
   router.get('/ipas', (_req, res) => {
@@ -181,6 +272,33 @@ export function helperRoutes(ctx: AppContext): Router {
       ? ctx.db.listInstalledAppsForDevice(deviceUdid)
       : ctx.db.listInstalledApps();
     res.json({ ok: true, data: apps });
+  });
+
+  router.post('/apps/:id/deactivate', async (req, res, next) => {
+    try {
+      const app = await deactivateInstalledApp(ctx, req.params.id);
+      if (!app) {
+        return res.status(404).json({ ok: false, error: 'Installed app not found' });
+      }
+      res.json({ ok: true, data: app });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/apps/:id/reactivate', async (req, res, next) => {
+    try {
+      const result = await reactivateInstalledApp(ctx, req.params.id);
+      if (result.kind === 'missing') {
+        return res.status(404).json({ ok: false, error: 'Installed app not found' });
+      }
+      if (result.kind === 'missing-ipa') {
+        return res.status(409).json({ ok: false, error: 'Original IPA is no longer available for reactivation' });
+      }
+      res.json({ ok: true, data: result.job });
+    } catch (err) {
+      next(err);
+    }
   });
 
   router.delete('/apps/:id', (req, res) => {
@@ -246,37 +364,50 @@ export function helperRoutes(ctx: AppContext): Router {
     }
   });
 
-  router.post('/install', async (req, res, next) => {
+  router.post('/ipas/upload', upload.single('ipa'), async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ ok: false, error: 'No IPA file uploaded' });
+      }
+
+      const imported = await ctx.ipas.processUpload(req.file.path, req.file.originalname);
+      res.json({ ok: true, data: imported });
+    } catch (err) {
+      if (req.file?.path) {
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+      next(err);
+    }
+  });
+
+  router.post('/install', validators.startInstall, async (req, res, next) => {
     try {
       const ipaId = String(req.body?.ipaId ?? '');
       const accountId = String(req.body?.accountId ?? '');
       const deviceUdid = String(req.body?.deviceUdid ?? '');
       const includeExtensions = !!req.body?.includeExtensions;
 
-      if (!ipaId || !accountId || !deviceUdid) {
-        return res.status(400).json({ ok: false, error: 'ipaId, accountId, and deviceUdid are required' });
-      }
-
-      const account = ctx.appleAccounts.get(accountId);
-      if (!account) {
-        return res.status(404).json({ ok: false, error: 'Apple account not found' });
-      }
-      if (account.status !== 'active') {
-        return res.status(400).json({ ok: false, error: 'Apple account is not authenticated' });
-      }
-
-      const device = ctx.devices.get(deviceUdid);
-      if (!device) {
-        return res.status(404).json({ ok: false, error: 'Device not found' });
-      }
-
-      const job = await startInstallPipeline(ctx.pipelineDeps, {
+      const result = await startValidatedInstall(ctx, {
         ipaId,
         accountId,
         deviceUdid,
         includeExtensions,
       });
-      res.json({ ok: true, data: job });
+
+      if (result.kind === 'missing-ipa') {
+        return res.status(404).json({ ok: false, error: 'IPA not found' });
+      }
+      if (result.kind === 'missing-account') {
+        return res.status(404).json({ ok: false, error: 'Apple account not found' });
+      }
+      if (result.kind === 'inactive-account') {
+        return res.status(400).json({ ok: false, error: 'Apple account is not authenticated' });
+      }
+      if (result.kind === 'missing-device') {
+        return res.status(404).json({ ok: false, error: 'Device not found' });
+      }
+
+      res.json({ ok: true, data: result.job });
     } catch (err) {
       next(err);
     }
@@ -323,6 +454,70 @@ export function helperRoutes(ctx: AppContext): Router {
           },
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/refresh-all', async (_req, res) => {
+    res.json({ ok: true, data: await triggerRefreshAllActiveApps(ctx) });
+  });
+
+  router.get('/logs', (req, res) => {
+    const rawLimit = Number.parseInt(String(req.query.limit ?? '200'), 10);
+    const limit = Number.isNaN(rawLimit) ? 200 : Math.min(Math.max(rawLimit, 1), 1000);
+    const level = typeof req.query.level === 'string' ? req.query.level : undefined;
+    const validLevels = new Set(['info', 'warn', 'error', 'debug']);
+    const logs = level && validLevels.has(level)
+      ? ctx.db.listLogs(limit * 5).filter((entry) => entry.level === level).slice(0, limit)
+      : ctx.db.listLogs(limit);
+    res.json({ ok: true, data: logs });
+  });
+
+  router.get('/app-ids', async (req, res, next) => {
+    try {
+      const sync = req.query.sync === 'true';
+      res.json({ ok: true, data: await syncAndListAppleAppIds(ctx, sync) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/app-ids/usage', (_req, res) => {
+    res.json({ ok: true, data: listAppleAppIdUsage(ctx) });
+  });
+
+  router.delete('/app-ids/:id', async (req, res, next) => {
+    try {
+      const deleted = await deleteAppleAppId(ctx, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ ok: false, error: 'App ID not found' });
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/certificates', (_req, res) => {
+    res.json({ ok: true, data: listAppleCertificates(ctx) });
+  });
+
+  router.get('/trusted-sources', (_req, res, next) => {
+    try {
+      res.json({ ok: true, data: listTrustedSources() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/devices/:udid/all-apps', async (req, res, next) => {
+    try {
+      const inventory = await listDeviceAppInventory(ctx, req.params.udid);
+      if (!inventory) {
+        return res.status(404).json({ ok: false, error: 'Device not found' });
+      }
+      res.json({ ok: true, data: inventory });
     } catch (err) {
       next(err);
     }
@@ -391,3 +586,4 @@ function getHealth(expiresAt: string): string {
   if (days <= 4) return 'warning';
   return 'healthy';
 }
+

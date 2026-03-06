@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct KeychainStore {
-    private static let service = "com.sidelink.helper"
+    private static let service = "com.sidelink.ioshelper"
 
     static func get(_ key: String) -> String? {
         let query: [String: Any] = [

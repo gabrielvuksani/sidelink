@@ -304,11 +304,7 @@ struct AppDetailView: View {
     }
 
     private func formatFileSize(_ bytes: Double) -> String {
-        let mb = bytes / (1024 * 1024)
-        if mb >= 1024 {
-            return String(format: "%.1f GB", mb / 1024)
-        }
-        return String(format: "%.1f MB", mb)
+        SidelinkFormatting.fileSize(bytes)
     }
 
     private var screenshotWidth: CGFloat {

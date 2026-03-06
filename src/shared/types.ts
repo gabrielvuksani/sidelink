@@ -177,6 +177,7 @@ export interface InstalledApp {
   deviceUdid: string;
   accountId: string;
   ipaId: string;
+  status: 'active' | 'deactivated';
   bundleId: string;
   originalBundleId: string;
   appName: string;
@@ -299,6 +300,7 @@ export interface InstallRequest {
   ipaId: string;
   deviceUdid: string;
   accountId: string;
+  mode?: 'full' | 'resign-only';
 }
 
 // ─── Sources ─────────────────────────────────────────────────────────

@@ -119,6 +119,14 @@ export class DeviceService {
     await pmd3.installApp(udid, ipaPath);
   }
 
+  async uninstallApp(udid: string, bundleId: string): Promise<void> {
+    await pmd3.uninstallApp(udid, bundleId);
+  }
+
+  async listInstalledApps(udid: string): Promise<string[]> {
+    return pmd3.listInstalledApps(udid);
+  }
+
   /**
    * Subscribe to device list changes.
    */

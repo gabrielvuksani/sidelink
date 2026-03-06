@@ -144,14 +144,18 @@ import crypto from 'node:crypto';
 interface CsrfOptions { skipPaths?: string[] }
 export function csrfProtection(opts: CsrfOptions = {}) {
   if (process.env.NODE_ENV === 'test') return (_req: Request, _res: Response, next: NextFunction) => next();
-  const skip = new Set(opts.skipPaths ?? []);
+  const skip = (opts.skipPaths ?? []).map(path => normalizePath(path));
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.cookies || !req.cookies._csrf) {
       const token = crypto.randomBytes(24).toString('base64url');
       res.cookie('_csrf', token, { sameSite: 'strict', path: '/' });
     }
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-    if (skip.has(req.path)) return next();
+    const requestPaths = [req.path, req.baseUrl + req.path, req.originalUrl]
+      .map(path => normalizePath(path));
+    if (requestPaths.some(path => skip.some(skipPath => path === skipPath || path.startsWith(skipPath + '/')))) {
+      return next();
+    }
     const cookieToken = req.cookies._csrf as string | undefined;
     const headerToken = req.headers['x-csrf-token'] as string | undefined;
     if (!cookieToken || !headerToken ||
@@ -161,4 +165,9 @@ export function csrfProtection(opts: CsrfOptions = {}) {
     }
     next();
   };
+}
+
+function normalizePath(path: string): string {
+  const withoutQuery = path.split('?')[0] ?? path;
+  return withoutQuery.replace(/\/+$/, '') || '/';
 }

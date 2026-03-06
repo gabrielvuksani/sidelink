@@ -3,6 +3,31 @@ import SwiftUI
 
 @MainActor
 final class HelperViewModel: ObservableObject {
+    private static let officialSourceURL = "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json"
+    private static let bundledTrustedSources: [TrustedSourceDTO] = [
+        TrustedSourceDTO(
+            id: "altstore-classic",
+            name: "AltStore Classic",
+            url: "https://cdn.altstore.io/file/altstore/apps.json",
+            iconURL: "https://altstore.io/images/icon.png",
+            description: "The canonical AltStore community source."
+        ),
+        TrustedSourceDTO(
+            id: "cypwn",
+            name: "CyPwn",
+            url: "https://ipa.cypwn.xyz/cypwn_altstore.json",
+            iconURL: nil,
+            description: "CyPwn's AltStore-compatible source feed."
+        ),
+        TrustedSourceDTO(
+            id: "sidelink-official",
+            name: "Sidelink Official",
+            url: officialSourceURL,
+            iconURL: "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
+            description: "The default source shipped with Sidelink."
+        ),
+    ]
+
     @AppStorage("backendURL") var backendURL = ""
     @AppStorage("helperToken") private var legacyHelperToken = ""
     @Published var helperToken = ""
@@ -38,11 +63,23 @@ final class HelperViewModel: ObservableObject {
     @Published var discoveredBackends: [DiscoveredBackend] = []
     @Published var activeInstallJob: InstallJobDetailDTO?
     @Published var activeInstallLogs: [InstallJobLogDTO] = []
+    @Published var pendingAppleAuth: PendingAppleAuthContext?
+    @Published var helperLogs: [HelperLogEntryDTO] = []
+    @Published var localActivityLogs: [HelperLogEntryDTO] = []
+    @Published var appIds: [HelperAppIdDTO] = []
+    @Published var appIdUsage: [HelperAppIdUsageDTO] = []
+    @Published var certificates: [HelperCertificateDTO] = []
+    @Published var trustedSources: [TrustedSourceDTO] = []
+    @Published var unmanagedInstalledApps: [UnmanagedDeviceAppDTO] = []
+    @Published var sseConnected = false
+    @Published var sourceCatalogFailures: [String] = []
 
     private let api = APIClient()
     private let discovery = DiscoveryListener()
     private let sseClient = SSEClient()
     private var activeJobPollingTask: Task<Void, Never>?
+    private var sseReconnectTask: Task<Void, Never>?
+    private var sseReconnectAttempt = 0
 
     init() {
         if let stored = KeychainStore.get("helperToken"), !stored.isEmpty {
@@ -54,6 +91,7 @@ final class HelperViewModel: ObservableObject {
         }
 
         loadCustomSourcesFromStorage()
+        ensureDefaultSourcePresent()
         selectedAccountId = persistedSelectedAccountId
         selectedDeviceUdid = persistedSelectedDeviceUdid
 
@@ -65,7 +103,16 @@ final class HelperViewModel: ObservableObject {
 
         sseClient.onEvent = { [weak self] event, data in
             Task { @MainActor in
+                self?.sseConnected = true
+                self?.sseReconnectAttempt = 0
                 self?.handleSSEEvent(event: event, data: data)
+            }
+        }
+
+        sseClient.onFailure = { [weak self] _ in
+            Task { @MainActor in
+                self?.sseConnected = false
+                self?.scheduleSSEReconnect()
             }
         }
 
@@ -74,6 +121,7 @@ final class HelperViewModel: ObservableObject {
 
     deinit {
         activeJobPollingTask?.cancel()
+        sseReconnectTask?.cancel()
         sseClient.disconnect()
         discovery.stop()
     }
@@ -87,19 +135,108 @@ final class HelperViewModel: ObservableObject {
     }
 
     var activeAppSlotUsage: Int {
-        installedApps.count
+        installedApps.filter { ($0.status ?? "active") != "deactivated" }.count
     }
 
     var isAtFreeSlotLimit: Bool {
         activeAppSlotUsage >= maxActiveAppSlots
     }
 
+    var installReadinessMessage: String? {
+        if !isPaired {
+            return "Pair with a Sidelink server to install or refresh apps"
+        }
+        if pendingAppleAuth != nil {
+            return "Finish Apple ID verification in Settings before installing apps"
+        }
+        if activeAccounts.isEmpty {
+            return "Add an Apple ID before installing apps"
+        }
+        if selectedActiveAccount == nil {
+            return "Select an active Apple ID before installing apps"
+        }
+        if devices.isEmpty {
+            return "Connect a device to the paired server before installing apps"
+        }
+        if selectedDevice == nil {
+            return "Select a target device before installing apps"
+        }
+        if isAtFreeSlotLimit {
+            return "Free Apple accounts can only keep \(maxActiveAppSlots) active apps signed at once"
+        }
+        return nil
+    }
+
+    var installedAttentionCount: Int {
+        let criticalExpirations = installedApps.filter {
+            guard ($0.status ?? "active") != "deactivated",
+                  let expires = ISO8601DateFormatter().date(from: $0.expiresAt)
+            else {
+                return false
+            }
+            return expires.timeIntervalSinceNow <= 86_400
+        }.count
+
+        let installAttention = activeInstallJob == nil ? 0 : 1
+        return criticalExpirations + installAttention
+    }
+
+    var settingsAttentionCount: Int {
+        if pendingAppleAuth != nil {
+            return 1
+        }
+        return isPaired ? 0 : 1
+    }
+
+    var visibleLogs: [HelperLogEntryDTO] {
+        let merged = helperLogs + localActivityLogs
+        var seen = Set<String>()
+        return merged
+            .sorted { $0.at > $1.at }
+            .filter { entry in
+                seen.insert(entry.id).inserted
+            }
+    }
+
     var canStartInstall: Bool {
-        isPaired && !selectedAccountId.isEmpty && !selectedDeviceUdid.isEmpty && !isAtFreeSlotLimit
+        isPaired && selectedActiveAccount != nil && selectedDevice != nil && !isAtFreeSlotLimit
+    }
+
+    var selectedAccount: AccountDTO? {
+        accounts.first(where: { $0.id == selectedAccountId })
+    }
+
+    var activeAccounts: [AccountDTO] {
+        accounts.filter { $0.status == "active" }
+    }
+
+    var selectedActiveAccount: AccountDTO? {
+        activeAccounts.first(where: { $0.id == selectedAccountId })
+    }
+
+    var selectedDevice: DeviceDTO? {
+        devices.first(where: { $0.id == selectedDeviceUdid })
+    }
+
+    var sourceApps: [SourceAppDTO] {
+        sourceCatalogs.flatMap { $0.manifest.apps }
+    }
+
+    var latestUploadedIpa: IpaArtifactDTO? {
+        ipas.max(by: { ($0.uploadedAt ?? "") < ($1.uploadedAt ?? "") }) ?? ipas.first
+    }
+
+    var accountsNeedingAttention: [AccountDTO] {
+        accounts.filter { $0.status != "active" }
+    }
+
+    func accountNeedsAttention(_ account: AccountDTO) -> Bool {
+        account.status != "active"
     }
 
     func pair() async {
         let code = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        errorMessage = nil
         guard code.count == 6, code.allSatisfy(\.isNumber) else {
             errorMessage = "Pairing code must be 6 digits."
             return
@@ -129,6 +266,51 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
+    func pairUsingPayload(_ rawPayload: String) async -> Bool {
+        guard applyPairingPayload(rawPayload) else {
+            return false
+        }
+
+        await pair()
+        return isPaired
+    }
+
+    func applyPairingPayload(_ rawPayload: String) -> Bool {
+        errorMessage = nil
+
+        let trimmedPayload = rawPayload.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPayload.isEmpty else {
+            errorMessage = "Pairing payload is empty."
+            return false
+        }
+
+        guard let data = trimmedPayload.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(HelperPairingPayload.self, from: data)
+        else {
+            errorMessage = "Invalid pairing payload."
+            return false
+        }
+
+        let normalizedCode = payload.code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedCode.count == 6, normalizedCode.allSatisfy(\.isNumber) else {
+            errorMessage = "Pairing payload is missing a valid 6-digit code."
+            return false
+        }
+
+        guard let normalizedURL = normalizedBackendURL(payload.backendUrl) else {
+            errorMessage = "Pairing payload contains an invalid backend URL."
+            return false
+        }
+
+        pairingCode = normalizedCode
+        backendURL = normalizedURL
+        if let discoveredName = payload.serverName, !discoveredName.isEmpty {
+            serverName = discoveredName
+        }
+
+        return true
+    }
+
     private func normalizedBackendURL(_ raw: String) -> String? {
         var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
@@ -153,36 +335,59 @@ final class HelperViewModel: ObservableObject {
     }
 
     func refreshAll() async {
-        guard isPaired else { return }
+        guard isPaired else {
+            await refreshSourceCatalogs()
+            await refreshTrustedSources()
+            return
+        }
 
         isLoading = true
         defer { isLoading = false }
 
         do {
-            async let statusCall = api.fetchStatus(baseURL: backendURL, token: helperToken, deviceId: deviceId.isEmpty ? nil : deviceId)
+            async let statusCall = api.fetchStatus(baseURL: backendURL, token: helperToken, deviceId: selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid)
             async let configCall = api.fetchConfig(baseURL: backendURL, token: helperToken)
             async let accountCall = api.listAccounts(baseURL: backendURL, token: helperToken)
-            async let deviceCall = api.listDevices(baseURL: backendURL, token: helperToken)
             async let ipaCall = api.listIpas(baseURL: backendURL, token: helperToken)
-            async let installedCall = api.listInstalledApps(baseURL: backendURL, token: helperToken, deviceUdid: deviceId.isEmpty ? nil : deviceId)
 
-            status = try await statusCall
-            config = try await configCall
-            let allAccounts = try await accountCall
-            accounts = allAccounts.filter { $0.status == "active" }
-            devices = try await deviceCall
-            ipas = try await ipaCall
-            installedApps = try await installedCall
+            let statusResponse = try await statusCall
+            let configResponse = try await configCall
+            let accountResponse = try await accountCall
+            let ipaResponse = try await ipaCall
+            let deviceResponse = (try? await api.listDevices(baseURL: backendURL, token: helperToken)) ?? statusResponse.devices
 
-            if selectedAccountId.isEmpty || !accounts.contains(where: { $0.id == selectedAccountId }) {
-                selectedAccountId = accounts.first?.id ?? ""
+            status = statusResponse
+            config = configResponse
+            accounts = accountResponse
+            devices = deviceResponse
+            ipas = ipaResponse
+
+            if selectedAccountId.isEmpty || !activeAccounts.contains(where: { $0.id == selectedAccountId }) {
+                selectedAccountId = activeAccounts.first?.id ?? ""
             }
             if selectedDeviceUdid.isEmpty || !devices.contains(where: { $0.id == selectedDeviceUdid }) {
                 selectedDeviceUdid = devices.first?.id ?? ""
             }
 
+            let installedDeviceFilter = selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid
+            do {
+                installedApps = try await api.listInstalledApps(
+                    baseURL: backendURL,
+                    token: helperToken,
+                    deviceUdid: installedDeviceFilter
+                )
+            } catch {
+                recordLocalActivity(
+                    level: "warn",
+                    code: "installed.refresh.partial",
+                    message: "Installed app records could not be refreshed: \(error.localizedDescription)"
+                )
+            }
+
             await refreshLatestInstallJob()
             await refreshSourceCatalogs()
+            await refreshTrustedSources()
+            await refreshDeviceInventory()
             connectSSEIfPossible()
             errorMessage = nil
         } catch {
@@ -191,7 +396,9 @@ final class HelperViewModel: ObservableObject {
     }
 
     func triggerRefresh(installId: String) async {
-        guard isPaired else { return }
+        guard requirePairing(for: "refresh installed apps") else { return }
+
+        errorMessage = nil
 
         isLoading = true
         defer { isLoading = false }
@@ -206,7 +413,9 @@ final class HelperViewModel: ObservableObject {
     }
 
     func importFromURL() async {
-        guard isPaired else { return }
+        guard requirePairing(for: "import IPA URLs") else { return }
+
+        errorMessage = nil
         let raw = importURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else {
             errorMessage = "Enter an IPA URL first"
@@ -240,12 +449,54 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    func startInstall(ipaId: String) async {
-        guard isPaired else { return }
-        guard !selectedAccountId.isEmpty, !selectedDeviceUdid.isEmpty else {
-            errorMessage = "Select an Apple account and device first"
+    func importLocalIpa(fileName: String, fileData: Data) async {
+        guard requirePairing(for: "upload IPA files") else { return }
+
+        errorMessage = nil
+        guard !fileData.isEmpty else {
+            errorMessage = "The selected IPA file is empty"
             return
         }
+
+        let normalizedName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveName = normalizedName.isEmpty ? "Imported.ipa" : normalizedName
+        guard effectiveName.lowercased().hasSuffix(".ipa") else {
+            errorMessage = "Only .ipa files can be imported"
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            if ipas.contains(where: { $0.originalName.caseInsensitiveCompare(effectiveName) == .orderedSame }) {
+                toastMessage = "An IPA with this filename is already in your library"
+                return
+            }
+
+            let imported = try await api.uploadIpa(
+                baseURL: backendURL,
+                token: helperToken,
+                fileName: effectiveName,
+                fileData: fileData
+            )
+
+            let isDuplicateBundle = ipas.contains(where: { $0.bundleId == imported.bundleId && $0.id != imported.id })
+            toastMessage = isDuplicateBundle
+                ? "Uploaded, but bundle ID \(imported.bundleId) already exists in your library"
+                : "IPA uploaded"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func startInstall(ipaId: String) async {
+        guard requireInstallReadiness() else {
+            return
+        }
+
+        errorMessage = nil
 
         isLoading = true
         defer { isLoading = false }
@@ -267,11 +518,11 @@ final class HelperViewModel: ObservableObject {
     }
 
     func installFromSource(_ app: SourceAppDTO) async {
-        guard isPaired else { return }
-        guard !selectedAccountId.isEmpty, !selectedDeviceUdid.isEmpty else {
-            errorMessage = "Select an Apple account and device first"
+        guard requireInstallReadiness() else {
             return
         }
+
+        errorMessage = nil
 
         isLoading = true
         defer { isLoading = false }
@@ -300,48 +551,49 @@ final class HelperViewModel: ObservableObject {
     }
 
     func addSourceFromDeepLink(_ urlString: String) async {
-        guard isPaired else {
-            errorMessage = "Pair with a server before importing a source"
-            return
-        }
-
         let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, isValidRemoteURL(raw) else {
-            errorMessage = "Invalid source URL"
+            recordLocalActivity(level: "warn", code: "source.import.invalid", message: "Rejected an invalid source URL.")
+            toastMessage = "Invalid source URL"
             return
         }
 
         if customSourceURLs.contains(raw) {
+            recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             toastMessage = "Source already configured"
             return
         }
 
         do {
-            _ = try await api.fetchSourceManifest(urlString: raw)
+            let manifest = try await api.fetchSourceManifest(urlString: raw)
             customSourceURLs.append(raw)
             persistCustomSources()
             await refreshSourceCatalogs()
+            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(manifest.name).")
             toastMessage = "Source imported from deep link"
         } catch {
-            errorMessage = error.localizedDescription
+            recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
+            toastMessage = error.localizedDescription
         }
     }
 
     func addCustomSource() async {
-        guard isPaired else { return }
-
+        errorMessage = nil
         let raw = sourceURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else {
+            recordLocalActivity(level: "warn", code: "source.import.empty", message: "Tried to import a source without entering a URL.")
             errorMessage = "Enter a source URL"
             return
         }
 
         guard isValidRemoteURL(raw) else {
+            recordLocalActivity(level: "warn", code: "source.import.invalid", message: "Rejected an invalid source URL.")
             errorMessage = "Invalid source URL"
             return
         }
 
         if customSourceURLs.contains(raw) {
+            recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             errorMessage = "Source already added"
             return
         }
@@ -350,13 +602,15 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            _ = try await api.fetchSourceManifest(urlString: raw)
+            let manifest = try await api.fetchSourceManifest(urlString: raw)
             customSourceURLs.append(raw)
             persistCustomSources()
             sourceURLInput = ""
             await refreshSourceCatalogs()
+            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(manifest.name).")
             toastMessage = "Source added"
         } catch {
+            recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
     }
@@ -370,7 +624,10 @@ final class HelperViewModel: ObservableObject {
     func clearPairing() {
         activeJobPollingTask?.cancel()
         activeJobPollingTask = nil
+        sseReconnectTask?.cancel()
+        sseReconnectTask = nil
         sseClient.disconnect()
+        sseConnected = false
         updateHelperToken("")
         status = nil
         config = nil
@@ -381,17 +638,191 @@ final class HelperViewModel: ObservableObject {
         activeInstallJob = nil
         activeInstallLogs = []
         sourceCatalogs = []
+        trustedSources = []
+        helperLogs = []
+        localActivityLogs = []
+        appIds = []
+        appIdUsage = []
+        certificates = []
+        unmanagedInstalledApps = []
+        sourceCatalogFailures = []
         activeInstall2FACode = ""
         selectedAccountId = ""
         selectedDeviceUdid = ""
     }
 
+    func refreshAllApps() async {
+        guard requirePairing(for: "refresh all installed apps") else { return }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let result = try await api.refreshAll(baseURL: backendURL, token: helperToken)
+            toastMessage = "Triggered refresh for \(result.triggered) app\(result.triggered == 1 ? "" : "s")"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deactivateInstalledApp(_ appId: String) async {
+        guard requirePairing(for: "deactivate installed apps") else { return }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            _ = try await api.deactivateInstalledApp(baseURL: backendURL, token: helperToken, appId: appId)
+            toastMessage = "App deactivated"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func reactivateInstalledApp(_ appId: String) async {
+        guard requirePairing(for: "reactivate installed apps") else { return }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            _ = try await api.reactivateInstalledApp(baseURL: backendURL, token: helperToken, appId: appId)
+            toastMessage = "Reactivation queued"
+            await refreshLatestInstallJob()
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadHelperLogs(level: String? = nil) async {
+        guard requirePairing(for: "view helper logs") else { return }
+
+        errorMessage = nil
+        do {
+            helperLogs = try await api.listLogs(baseURL: backendURL, token: helperToken, level: level)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadAppIds(sync: Bool = false) async {
+        guard requirePairing(for: "view App IDs") else { return }
+
+        errorMessage = nil
+        do {
+            async let idsCall = api.listAppIds(baseURL: backendURL, token: helperToken, sync: sync)
+            async let usageCall = api.getAppIdUsage(baseURL: backendURL, token: helperToken)
+            appIds = try await idsCall
+            appIdUsage = try await usageCall
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteAppId(_ appId: String) async {
+        guard requirePairing(for: "delete App IDs") else { return }
+
+        errorMessage = nil
+        do {
+            try await api.deleteAppId(baseURL: backendURL, token: helperToken, appId: appId)
+            toastMessage = "App ID removed"
+            await loadAppIds()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadCertificates() async {
+        guard requirePairing(for: "view certificates") else { return }
+
+        errorMessage = nil
+        do {
+            certificates = try await api.listCertificates(baseURL: backendURL, token: helperToken)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshTrustedSources() async {
+        guard isPaired else {
+            trustedSources = Self.bundledTrustedSources
+            return
+        }
+        do {
+            let remoteSources = try await api.listTrustedSources(baseURL: backendURL, token: helperToken)
+            trustedSources = mergeTrustedSources(remoteSources)
+        } catch {
+            trustedSources = Self.bundledTrustedSources
+        }
+    }
+
+    func addTrustedSource(_ source: TrustedSourceDTO) async {
+        sourceURLInput = source.url
+        await addCustomSource()
+    }
+
+    private func mergeTrustedSources(_ remoteSources: [TrustedSourceDTO]) -> [TrustedSourceDTO] {
+        var mergedByURL: [String: TrustedSourceDTO] = [:]
+
+        for source in Self.bundledTrustedSources {
+            mergedByURL[source.url.lowercased()] = source
+        }
+
+        for source in remoteSources {
+            mergedByURL[source.url.lowercased()] = source
+        }
+
+        let remoteURLs = Set(remoteSources.map { $0.url.lowercased() })
+        return mergedByURL.values.sorted { lhs, rhs in
+            let lhsRemote = remoteURLs.contains(lhs.url.lowercased())
+            let rhsRemote = remoteURLs.contains(rhs.url.lowercased())
+            if lhsRemote != rhsRemote {
+                return lhsRemote && !rhsRemote
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    func refreshDeviceInventory() async {
+        guard isPaired else {
+            unmanagedInstalledApps = []
+            return
+        }
+
+        let targetDeviceUdid = selectedDeviceUdid.isEmpty ? (devices.first?.id ?? "") : selectedDeviceUdid
+        guard !targetDeviceUdid.isEmpty else {
+            unmanagedInstalledApps = []
+            return
+        }
+
+        do {
+            let inventory = try await api.listAllDeviceApps(baseURL: backendURL, token: helperToken, deviceUdid: targetDeviceUdid)
+            if !inventory.managed.isEmpty {
+                installedApps = inventory.managed
+            }
+            unmanagedInstalledApps = inventory.unmanaged
+        } catch {
+            unmanagedInstalledApps = []
+        }
+    }
+
     func submitActiveInstall2FA() async {
-        guard isPaired else { return }
+        guard requirePairing(for: "verify install jobs") else { return }
         guard let job = activeInstallJob, job.status == "waiting_2fa" else {
             errorMessage = "No install job is currently waiting for 2FA"
             return
         }
+
+        errorMessage = nil
 
         let code = activeInstall2FACode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard code.count == 6 else {
@@ -416,11 +847,185 @@ final class HelperViewModel: ObservableObject {
 
     func applyDiscoveredBackend(_ backend: DiscoveredBackend) {
         backendURL = backend.url
-        toastMessage = "Using \(backend.name)"
+        errorMessage = nil
+    }
+
+    func signInAppleAccount(appleId: String, password: String) async {
+        guard isPaired else {
+            errorMessage = "Pair with a Sidelink server before adding an Apple ID"
+            return
+        }
+
+        let normalizedAppleId = appleId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAppleId.isEmpty, !password.isEmpty else {
+            errorMessage = "Apple ID and password are required"
+            return
+        }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let response = try await api.signInAppleAccount(
+                baseURL: backendURL,
+                token: helperToken,
+                appleId: normalizedAppleId,
+                password: password
+            )
+
+            if response.requires2FA == true {
+                pendingAppleAuth = PendingAppleAuthContext(
+                    mode: .signIn,
+                    appleId: normalizedAppleId,
+                    password: password,
+                    accountId: nil,
+                    authType: response.authType
+                )
+                toastMessage = "Enter the 6-digit verification code to finish adding this Apple ID"
+                return
+            }
+
+            guard let account = response.account else {
+                errorMessage = "Apple sign-in returned an unexpected response"
+                return
+            }
+
+            pendingAppleAuth = nil
+            selectedAccountId = account.id
+            toastMessage = "Apple ID added"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func reauthenticateAppleAccount(accountId: String) async {
+        guard isPaired else {
+            errorMessage = "Pair with a Sidelink server before re-authenticating Apple IDs"
+            return
+        }
+        guard let account = accounts.first(where: { $0.id == accountId }) else {
+            errorMessage = "Apple account not found"
+            return
+        }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let response = try await api.reauthenticateAppleAccount(
+                baseURL: backendURL,
+                token: helperToken,
+                accountId: accountId
+            )
+
+            if response.requires2FA == true {
+                pendingAppleAuth = PendingAppleAuthContext(
+                    mode: .reauth,
+                    appleId: account.appleId,
+                    password: "",
+                    accountId: accountId,
+                    authType: response.authType
+                )
+                toastMessage = "Enter the 6-digit verification code to re-authenticate \(account.appleId)"
+                return
+            }
+
+            pendingAppleAuth = nil
+            selectedAccountId = accountId
+            toastMessage = "Apple ID re-authenticated"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func submitPendingAppleAccount2FA(code: String) async {
+        guard isPaired else {
+            errorMessage = "Pair with a Sidelink server before verifying Apple IDs"
+            return
+        }
+        guard let pendingAppleAuth else {
+            errorMessage = "No Apple ID verification is pending"
+            return
+        }
+
+        errorMessage = nil
+
+        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCode.count == 6, trimmedCode.allSatisfy(\.isNumber) else {
+            errorMessage = "Enter the 6-digit verification code"
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let account: AccountDTO
+            switch pendingAppleAuth.mode {
+            case .signIn:
+                account = try await api.submitAppleAccount2FA(
+                    baseURL: backendURL,
+                    token: helperToken,
+                    appleId: pendingAppleAuth.appleId,
+                    password: pendingAppleAuth.password,
+                    code: trimmedCode
+                )
+            case .reauth:
+                guard let accountId = pendingAppleAuth.accountId else {
+                    errorMessage = "Missing Apple account ID for verification"
+                    return
+                }
+                account = try await api.submitAppleAccountReauth2FA(
+                    baseURL: backendURL,
+                    token: helperToken,
+                    accountId: accountId,
+                    code: trimmedCode
+                )
+            }
+
+            self.pendingAppleAuth = nil
+            selectedAccountId = account.id
+            toastMessage = "Apple ID verified successfully"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteAppleAccount(_ accountId: String) async {
+        guard isPaired else {
+            errorMessage = "Pair with a Sidelink server before removing Apple IDs"
+            return
+        }
+
+        errorMessage = nil
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            try await api.deleteAppleAccount(baseURL: backendURL, token: helperToken, accountId: accountId)
+            if selectedAccountId == accountId {
+                selectedAccountId = ""
+            }
+            pendingAppleAuth = nil
+            toastMessage = "Apple ID removed"
+            await refreshAll()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func deleteInstalledApp(_ appId: String) async {
-        guard isPaired else { return }
+        guard requirePairing(for: "remove installed apps") else { return }
+
+        errorMessage = nil
 
         isLoading = true
         defer { isLoading = false }
@@ -445,6 +1050,13 @@ final class HelperViewModel: ObservableObject {
         customSourceURLs = decoded
     }
 
+    private func ensureDefaultSourcePresent() {
+        if !customSourceURLs.contains(Self.officialSourceURL) {
+            customSourceURLs.append(Self.officialSourceURL)
+            persistCustomSources()
+        }
+    }
+
     private func persistCustomSources() {
         let unique = Array(Set(customSourceURLs)).sorted()
         customSourceURLs = unique
@@ -452,23 +1064,54 @@ final class HelperViewModel: ObservableObject {
         customSourceURLsJSON = encoded
     }
 
-    private func refreshSourceCatalogs() async {
+    private func requirePairing(for action: String) -> Bool {
         guard isPaired else {
-            sourceCatalogs = []
-            return
+            errorMessage = "Pair with a Sidelink server before you \(action)."
+            return false
+        }
+        return true
+    }
+
+    private func requireInstallReadiness() -> Bool {
+        guard let message = installReadinessMessage else {
+            return true
         }
 
+        errorMessage = message
+        return false
+    }
+
+    private func refreshSourceCatalogs() async {
         let feedURLs = (config?.sourceFeeds.map { $0.url } ?? []) + customSourceURLs
         let uniqueURLs = Array(Set(feedURLs)).sorted()
 
         var catalogs: [SourceCatalog] = []
+        var failures: [String] = []
         for url in uniqueURLs {
-            if let manifest = try? await api.fetchSourceManifest(urlString: url) {
+            do {
+                let manifest = try await api.fetchSourceManifest(urlString: url)
                 catalogs.append(SourceCatalog(sourceURL: url, manifest: manifest))
+            } catch {
+                failures.append("\(url): \(error.localizedDescription)")
             }
         }
 
+        sourceCatalogFailures = failures
         sourceCatalogs = catalogs.sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
+    }
+
+    private func recordLocalActivity(level: String, code: String, message: String) {
+        let entry = HelperLogEntryDTO(
+            id: "local-\(UUID().uuidString)",
+            level: level,
+            code: code,
+            message: message,
+            at: ISO8601DateFormatter().string(from: Date())
+        )
+        localActivityLogs.insert(entry, at: 0)
+        if localActivityLogs.count > 100 {
+            localActivityLogs.removeLast(localActivityLogs.count - 100)
+        }
     }
 
     private func refreshLatestInstallJob() async {
@@ -495,7 +1138,14 @@ final class HelperViewModel: ObservableObject {
         activeJobPollingTask?.cancel()
         activeJobPollingTask = Task { [weak self] in
             guard let self else { return }
+            let startedAt = Date()
             while !Task.isCancelled {
+                if Date().timeIntervalSince(startedAt) > 300 {
+                    await MainActor.run {
+                        self.activeJobPollingTask = nil
+                    }
+                    break
+                }
                 do {
                     let job = try await self.api.getInstallJob(baseURL: self.backendURL, token: self.helperToken, jobId: jobId)
                     await MainActor.run {
@@ -527,7 +1177,23 @@ final class HelperViewModel: ObservableObject {
         else {
             return
         }
+        sseReconnectTask?.cancel()
         sseClient.connect(url: url, headers: ["x-sidelink-helper-token": helperToken])
+    }
+
+    private func scheduleSSEReconnect() {
+        guard isPaired else { return }
+        sseReconnectTask?.cancel()
+        let attempt = min(sseReconnectAttempt, 5)
+        let delaySeconds = pow(2.0, Double(attempt))
+        sseReconnectAttempt += 1
+        sseReconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(min(delaySeconds, 30) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.connectSSEIfPossible()
+            }
+        }
     }
 
     private func updateHelperToken(_ token: String) {
@@ -541,22 +1207,7 @@ final class HelperViewModel: ObservableObject {
     }
 
     private func isLocalHost(_ host: String) -> Bool {
-        let lower = host.lowercased()
-        if lower == "localhost" || lower.hasSuffix(".local") {
-            return true
-        }
-
-        let parts = lower.split(separator: ".")
-        guard parts.count == 4,
-              let a = Int(parts[0]),
-              let b = Int(parts[1]) else {
-            return false
-        }
-
-        if a == 10 || a == 127 || (a == 192 && b == 168) {
-            return true
-        }
-        return a == 172 && (16...31).contains(b)
+        SidelinkNetworkUtil.isLocalHost(host)
     }
 
     private func isValidRemoteURL(_ raw: String) -> Bool {
@@ -614,6 +1265,21 @@ final class HelperViewModel: ObservableObject {
             return
         }
 
+        if event == "log" {
+            guard let logData = data.data(using: .utf8),
+                  let entry = try? JSONDecoder().decode(HelperLogEntryDTO.self, from: logData)
+            else {
+                return
+            }
+
+            helperLogs.removeAll { $0.id == entry.id }
+            helperLogs.insert(entry, at: 0)
+            if helperLogs.count > 200 {
+                helperLogs.removeLast(helperLogs.count - 200)
+            }
+            return
+        }
+
         if event == "device-update" {
             Task {
                 await refreshAll()
@@ -643,11 +1309,12 @@ final class HelperViewModel: ObservableObject {
     }
 
     private func ingestDiscovery(_ payload: DiscoveryBroadcastDTO) {
-        guard let firstAddress = payload.addresses.first(where: { !$0.isEmpty }) else {
+        guard let address = preferredDiscoveryAddress(from: payload.addresses) else {
             return
         }
 
-        let url = "http://\(firstAddress):\(payload.port)"
+        let host = address.contains(":") ? "[\(address)]" : address
+        let url = "http://\(host):\(payload.port)"
         let now = Date()
 
         if let idx = discoveredBackends.firstIndex(where: { $0.url == url }) {
@@ -667,5 +1334,29 @@ final class HelperViewModel: ObservableObject {
         discoveredBackends = discoveredBackends
             .filter { now.timeIntervalSince($0.lastSeenAt) < 20 }
             .sorted { $0.lastSeenAt > $1.lastSeenAt }
+
+        if !isPaired && backendURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            backendURL = url
+        }
+    }
+
+    private func preferredDiscoveryAddress(from addresses: [String]) -> String? {
+        let cleaned = addresses
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if let preferred = cleaned.first(where: { isPreferredDiscoveryHost($0) }) {
+            return preferred
+        }
+
+        return cleaned.first(where: { !$0.hasPrefix("127.") && !$0.hasPrefix("169.254.") && $0 != "::1" })
+    }
+
+    private func isPreferredDiscoveryHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower.hasSuffix(".local") {
+            return true
+        }
+        return isLocalHost(lower) && !lower.hasPrefix("127.") && !lower.hasPrefix("169.254.")
     }
 }

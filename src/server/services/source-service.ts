@@ -3,7 +3,7 @@ import type { SourceApp, SourceManifest, UserSource, UserSourceWithManifest } fr
 import type { Database } from '../state/database';
 import { AppError } from '../utils/errors';
 
-const OFFICIAL_SOURCE_URL = 'https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source.json';
+const OFFICIAL_SOURCE_URL = 'https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json';
 
 export class SourceService {
   constructor(private readonly db: Database) {

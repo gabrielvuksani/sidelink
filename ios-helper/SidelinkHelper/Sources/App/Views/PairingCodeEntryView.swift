@@ -5,6 +5,7 @@ struct PairingCodeEntryView: View {
     var onSubmit: () -> Void
     var isLoading: Bool
     var autoFocus: Bool = false
+    var focusTrigger: Int = 0
 
     @FocusState private var isFocused: Bool
 
@@ -73,6 +74,11 @@ struct PairingCodeEntryView: View {
         .onAppear {
             guard autoFocus else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                isFocused = true
+            }
+        }
+        .onChange(of: focusTrigger) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isFocused = true
             }
         }

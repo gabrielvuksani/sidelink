@@ -4,13 +4,13 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.sidelink.refresh</string>
-		<string>com.sidelink.refresh.processing</string>
+		<string>com.sidelink.ioshelper.refresh</string>
+		<string>com.sidelink.ioshelper.refresh.processing</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Sidelink Helper</string>
+	<string>Sidelink</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,6 +23,17 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.sidelink.ioshelper.sources</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sidelink</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSAppTransportSecurity</key>
@@ -30,6 +41,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Sidelink Helper uses the camera to scan pairing QR codes from your desktop app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sidelink Helper discovers and connects to your desktop server on your local network.</string>
 	<key>UIApplicationSceneManifest</key>

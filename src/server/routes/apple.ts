@@ -9,6 +9,14 @@ import { Router } from 'express';
 import type { AppContext } from '../context';
 import { Apple2FARequiredError } from '../utils/errors';
 import { validators } from '../utils/validators';
+import {
+  deleteAppleAppId,
+  listAppleAppIdUsage,
+  listAppleCertificates,
+  listSafeAppleAccounts,
+  syncAndListAppleAppIds,
+  toSafeAppleAccount,
+} from '../services/shared-backend';
 
 export function appleRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -21,7 +29,7 @@ export function appleRoutes(ctx: AppContext): Router {
         return res.status(400).json({ ok: false, error: 'Apple ID and password required' });
       }
       const account = await ctx.appleAccounts.signIn(appleId, password);
-      res.json({ ok: true, data: account });
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
     } catch (err) {
       if (err instanceof Apple2FARequiredError) {
         return res.status(200).json({
@@ -49,7 +57,7 @@ export function appleRoutes(ctx: AppContext): Router {
         code,
         method: method ?? 'totp',
       });
-      res.json({ ok: true, data: account });
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
     } catch (err) {
       next(err);
     }
@@ -71,27 +79,21 @@ export function appleRoutes(ctx: AppContext): Router {
 
   // List accounts
   router.get('/accounts', (req, res) => {
-    const accounts = ctx.appleAccounts.list();
-    // Explicitly pick safe fields — new sensitive fields won't leak
-    const safe = accounts.map(({ id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt }) => ({
-      id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt,
-    }));
-    res.json({ ok: true, data: safe });
+    res.json({ ok: true, data: listSafeAppleAccounts(ctx) });
   });
 
   // Get single account
   router.get('/accounts/:id', (req, res) => {
     const account = ctx.appleAccounts.get(req.params.id);
     if (!account) return res.status(404).json({ ok: false, error: 'Account not found' });
-    const { id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt } = account;
-    res.json({ ok: true, data: { id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt } });
+    res.json({ ok: true, data: toSafeAppleAccount(account) });
   });
 
   // Re-authenticate an existing account (when requires_2fa or session_expired)
   router.post('/accounts/:id/reauth', async (req, res, next) => {
     try {
       const account = await ctx.appleAccounts.reauthenticate(req.params.id);
-      res.json({ ok: true, data: account });
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
     } catch (err) {
       if (err instanceof Apple2FARequiredError) {
         return res.status(200).json({
@@ -111,9 +113,7 @@ export function appleRoutes(ctx: AppContext): Router {
     try {
       const { code } = req.body;
       const account = await ctx.appleAccounts.complete2FAForAccount(req.params.id, code);
-      // Strip sensitive fields
-      const { id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt } = account;
-      res.json({ ok: true, data: { id, appleId, teamId, teamName, accountType, status, lastAuthAt, createdAt } });
+      res.json({ ok: true, data: toSafeAppleAccount(account) });
     } catch (err) {
       next(err);
     }
@@ -123,6 +123,35 @@ export function appleRoutes(ctx: AppContext): Router {
   router.delete('/accounts/:id', (req, res) => {
     ctx.appleAccounts.remove(req.params.id);
     res.json({ ok: true });
+  });
+
+  router.get('/app-ids', async (req, res, next) => {
+    try {
+      const sync = req.query.sync === 'true';
+      res.json({ ok: true, data: await syncAndListAppleAppIds(ctx, sync) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/app-ids/usage', (_req, res) => {
+    res.json({ ok: true, data: listAppleAppIdUsage(ctx) });
+  });
+
+  router.delete('/app-ids/:id', async (req, res, next) => {
+    try {
+      const deleted = await deleteAppleAppId(ctx, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ ok: false, error: 'App ID not found' });
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/certificates', (_req, res) => {
+    res.json({ ok: true, data: listAppleCertificates(ctx) });
   });
 
   return router;

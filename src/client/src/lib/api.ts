@@ -22,6 +22,50 @@ const BASE = '/api';
 
 interface ApiRes<T = unknown> { ok: boolean; data?: T; error?: string }
 
+export interface AppleAppIdRecord {
+  id: string;
+  accountId: string;
+  teamId: string;
+  portalAppIdId: string;
+  bundleId: string;
+  name: string;
+  originalBundleId: string;
+  createdAt: string;
+  accountAppleId?: string;
+  teamName?: string;
+}
+
+export interface AppleAppIdUsageRecord {
+  accountId: string;
+  appleId: string;
+  teamId: string;
+  active: number;
+  weeklyCreated: number;
+  maxActive: number;
+  maxWeekly: number;
+}
+
+export interface AppleCertificateRecord {
+  id: string;
+  accountId: string;
+  teamId: string;
+  serialNumber: string;
+  commonName: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  createdAt: string;
+  accountAppleId?: string;
+  teamName?: string;
+}
+
+export interface TrustedSourceRecord {
+  id: string;
+  name: string;
+  url: string;
+  iconURL?: string;
+  description?: string;
+}
+
 // ── Global 401 listener ──────────────────────────────────────────────
 let onSessionExpired: (() => void) | null = null;
 
@@ -211,6 +255,7 @@ export const api = {
   listSourceApps: (id: string) => request<SourceApp[]>('GET', `/sources/${encodeURIComponent(id)}/apps`),
   getSourceManifest: (id: string) => request<SourceManifest>('GET', `/sources/${encodeURIComponent(id)}/manifest`),
   getCombinedSources: () => request<SourceManifest>('GET', '/sources/combined'),
+  listTrustedSources: () => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources'),
   getSelfHostedSource: async () => ({ ok: true, data: await requestRawJson<SourceManifest>('GET', '/sources/self-hosted') }),
   updateSelfHostedSource: (manifest: SourceManifest) => request('PUT', '/sources/self-hosted', manifest),
 
@@ -224,6 +269,8 @@ export const api = {
     request('POST', `/install/jobs/${encodeURIComponent(jobId)}/2fa`, { code }),
   listInstalledApps: () => request<InstalledApp[]>('GET', '/install/apps'),
   removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${id}`),
+  deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${id}/deactivate`),
+  reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${id}/reactivate`),
 
   // ── System ──────────────────────────────────────────────────────────
   dashboard: () => request<DashboardState>('GET', '/system/dashboard'),
@@ -234,6 +281,8 @@ export const api = {
     request<SchedulerSnapshot>('POST', '/system/scheduler', config),
   triggerRefresh: (installedAppId: string) =>
     request('POST', `/system/scheduler/refresh/${encodeURIComponent(installedAppId)}`),
+  triggerRefreshAll: () =>
+    request<{ triggered: number; skipped: number; errors: string[] }>('POST', '/system/scheduler/refresh-all'),
   getAutoRefreshStates: () => request<AutoRefreshState[]>('GET', '/system/scheduler/states'),
   helperDoctor: () => request<{
     platform: string;
@@ -257,6 +306,11 @@ export const api = {
       teamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
     }>('POST', '/system/helper/ensure', teamId ? { teamId } : {}),
   createHelperPairingCode: () =>
-    request<{ code: string; expiresAt: string; ttlMs: number }>('POST', '/system/helper/pairing-code'),
+    request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string }>('POST', '/system/helper/pairing-code'),
+
+  listAppleAppIds: (sync = false) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`),
+  listAppleAppIdUsage: () => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage'),
+  deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${id}`),
+  listAppleCertificates: () => request<AppleCertificateRecord[]>('GET', '/apple/certificates'),
   health: () => request<{ status: string; uptime: number }>('GET', '/health'),
 };

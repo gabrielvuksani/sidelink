@@ -66,6 +66,44 @@ struct AccountDTO: Decodable, Identifiable {
     let teamName: String
     let accountType: String
     let status: String
+    let lastAuthAt: String?
+    let createdAt: String?
+}
+
+struct HelperAppleAuthPayloadDTO: Decodable {
+    let requires2FA: Bool?
+    let authType: String?
+    let id: String?
+    let appleId: String?
+    let teamId: String?
+    let teamName: String?
+    let accountType: String?
+    let status: String?
+    let lastAuthAt: String?
+    let createdAt: String?
+
+    var account: AccountDTO? {
+        guard let id,
+              let appleId,
+              let teamId,
+              let teamName,
+              let accountType,
+              let status
+        else {
+            return nil
+        }
+
+        return AccountDTO(
+            id: id,
+            appleId: appleId,
+            teamId: teamId,
+            teamName: teamName,
+            accountType: accountType,
+            status: status,
+            lastAuthAt: lastAuthAt,
+            createdAt: createdAt
+        )
+    }
 }
 
 struct IpaArtifactDTO: Decodable, Identifiable {
@@ -177,6 +215,7 @@ struct InstallCardDTO: Decodable, Identifiable {
 
 struct InstalledAppDTO: Decodable, Identifiable {
     let id: String
+    let status: String?
     let bundleId: String
     let originalBundleId: String
     let appName: String?
@@ -187,6 +226,78 @@ struct InstalledAppDTO: Decodable, Identifiable {
     let expiresAt: String
     let refreshCount: Int
     let lastRefreshAt: String?
+}
+
+struct HelperLogEntryDTO: Decodable, Identifiable {
+    let id: String
+    let level: String
+    let code: String
+    let message: String
+    let at: String
+}
+
+struct HelperAppIdDTO: Decodable, Identifiable {
+    let id: String
+    let accountId: String
+    let teamId: String
+    let portalAppIdId: String
+    let bundleId: String
+    let name: String
+    let originalBundleId: String
+    let createdAt: String
+    let accountAppleId: String?
+    let teamName: String?
+}
+
+struct HelperAppIdUsageDTO: Decodable, Identifiable {
+    let accountId: String
+    let appleId: String
+    let teamId: String
+    let active: Int
+    let weeklyCreated: Int
+    let maxActive: Int
+    let maxWeekly: Int
+
+    var id: String { accountId }
+}
+
+struct HelperCertificateDTO: Decodable, Identifiable {
+    let id: String
+    let accountId: String
+    let teamId: String
+    let serialNumber: String
+    let commonName: String
+    let expiresAt: String
+    let revokedAt: String?
+    let createdAt: String
+    let accountAppleId: String?
+    let teamName: String?
+}
+
+struct TrustedSourceDTO: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let url: String
+    let iconURL: String?
+    let description: String?
+}
+
+struct UnmanagedDeviceAppDTO: Decodable, Identifiable {
+    let bundleId: String
+    let name: String
+
+    var id: String { bundleId }
+}
+
+struct DeviceAppInventoryDTO: Decodable {
+    let managed: [InstalledAppDTO]
+    let unmanaged: [UnmanagedDeviceAppDTO]
+}
+
+struct RefreshAllResponseDTO: Decodable {
+    let triggered: Int
+    let skipped: Int
+    let errors: [String]
 }
 
 struct AutoRefreshDTO: Decodable {
@@ -202,6 +313,42 @@ struct DeviceDTO: Decodable, Identifiable {
     let connection: String
     let transport: String
     let networkName: String?
+    let iosVersion: String?
+    let productType: String?
+    let model: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case udid
+        case name
+        case connection
+        case transport
+        case networkName
+        case iosVersion
+        case productType
+        case model
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedId = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .udid)
+        guard let id = decodedId, !id.isEmpty else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.id,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Device payload is missing id/udid")
+            )
+        }
+
+        self.id = id
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "iOS Device"
+        self.connection = try container.decodeIfPresent(String.self, forKey: .connection) ?? "unknown"
+        self.transport = try container.decodeIfPresent(String.self, forKey: .transport) ?? "unknown"
+        self.networkName = try container.decodeIfPresent(String.self, forKey: .networkName)
+        self.iosVersion = try container.decodeIfPresent(String.self, forKey: .iosVersion)
+        self.productType = try container.decodeIfPresent(String.self, forKey: .productType)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+    }
 }
 
 struct HelperArtifactDTO: Decodable {
@@ -256,6 +403,11 @@ struct SourceManifestDTO: Decodable {
     let apps: [SourceAppDTO]
 }
 
+private struct SourceNamedValueDTO: Decodable {
+    let name: String
+    let usageDescription: String?
+}
+
 struct SourceNewsDTO: Decodable, Identifiable {
     let identifier: String?
     let title: String
@@ -306,12 +458,52 @@ struct SourceAppDTO: Decodable, Identifiable {
 struct SourceScreenshotsDTO: Decodable {
     let iphone: [SourceScreenshotDTO]?
     let ipad: [SourceScreenshotDTO]?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if let grouped = try? container.decode([String: [SourceScreenshotDTO]].self) {
+            iphone = grouped["iphone"]
+            ipad = grouped["ipad"]
+            return
+        }
+
+        if let flat = try? container.decode([SourceScreenshotDTO].self) {
+            iphone = flat
+            ipad = nil
+            return
+        }
+
+        iphone = nil
+        ipad = nil
+    }
 }
 
 struct SourceScreenshotDTO: Decodable, Identifiable {
     let imageURL: String
     let width: Int?
     let height: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let url = try? container.decode(String.self) {
+            imageURL = url
+            width = nil
+            height = nil
+            return
+        }
+
+        let object = try decoder.container(keyedBy: CodingKeys.self)
+        imageURL = try object.decode(String.self, forKey: .imageURL)
+        width = try object.decodeIfPresent(Int.self, forKey: .width)
+        height = try object.decodeIfPresent(Int.self, forKey: .height)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case imageURL
+        case width
+        case height
+    }
 
     var id: String { imageURL }
 }
@@ -333,6 +525,51 @@ struct SourceAppVersionDTO: Decodable, Identifiable {
 struct SourceAppPermissionsDTO: Decodable {
     let entitlements: [String]?
     let privacy: [String: String]?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entitlements = Self.decodeEntitlements(from: container)
+        privacy = Self.decodePrivacy(from: container)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case entitlements
+        case privacy
+    }
+
+    private static func decodeEntitlements(from container: KeyedDecodingContainer<CodingKeys>) -> [String]? {
+        if let direct = try? container.decodeIfPresent([String].self, forKey: .entitlements) {
+            return direct
+        }
+
+        if let named = try? container.decodeIfPresent([SourceNamedValueDTO].self, forKey: .entitlements) {
+            return named.map(\.name)
+        }
+
+        return nil
+    }
+
+    private static func decodePrivacy(from container: KeyedDecodingContainer<CodingKeys>) -> [String: String]? {
+        if let direct = try? container.decodeIfPresent([String: String].self, forKey: .privacy) {
+            return direct
+        }
+
+        if let list = try? container.decodeIfPresent([String].self, forKey: .privacy) {
+            return list.reduce(into: [String: String]()) { partialResult, entry in
+                let parts = entry.split(separator: ":", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                guard let key = parts.first, !key.isEmpty else { return }
+                partialResult[key] = parts.count > 1 ? parts[1] : ""
+            }
+        }
+
+        if let named = try? container.decodeIfPresent([SourceNamedValueDTO].self, forKey: .privacy) {
+            return named.reduce(into: [String: String]()) { partialResult, entry in
+                partialResult[entry.name] = entry.usageDescription ?? ""
+            }
+        }
+
+        return nil
+    }
 }
 
 struct SourceAppPatreonDTO: Decodable {

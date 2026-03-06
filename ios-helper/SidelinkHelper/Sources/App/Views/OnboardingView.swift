@@ -1,328 +1,484 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct OnboardingView: View {
-    @ObservedObject var model: HelperViewModel
-    @Binding var completed: Bool
-    @State private var showTour = false
-    @State private var tourPage = 0
+    enum Step: Int, CaseIterable {
+        case welcome
+        case permissions
+        case pairing
+        case finish
 
-    // Animation states
-    @State private var logoScale: CGFloat = 0.3
-    @State private var logoOpacity: Double = 0
-    @State private var radarRing1: CGFloat = 0.4
-    @State private var radarRing2: CGFloat = 0.3
-    @State private var radarRing3: CGFloat = 0.2
-    @State private var radarOpacity1: Double = 0.8
-    @State private var radarOpacity2: Double = 0.6
-    @State private var radarOpacity3: Double = 0.4
-    @State private var showConfetti = false
-
-    var body: some View {
-        NavigationStack {
-            if showTour {
-                featureTourView
-            } else {
-                pairingView
+        var title: String {
+            switch self {
+            case .welcome: return "Welcome"
+            case .permissions: return "Permissions"
+            case .pairing: return "Pair"
+            case .finish: return "Start"
             }
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.6)) {
-                logoScale = 1.0
-                logoOpacity = 1.0
-            }
-            startRadarPulse()
         }
     }
 
-    // MARK: - Pairing View
-    private var pairingView: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                // Logo animation
-                VStack(spacing: 16) {
-                    ZStack {
-                        // Radar pulse rings
-                        radarRingView(scale: radarRing1, opacity: radarOpacity1)
-                        radarRingView(scale: radarRing2, opacity: radarOpacity2)
-                        radarRingView(scale: radarRing3, opacity: radarOpacity3)
+    @ObservedObject var model: HelperViewModel
+    @Binding var completed: Bool
 
-                        // Main logo
-                        Image(systemName: "link.circle.fill")
-                            .font(.system(size: 72))
-                            .foregroundStyle(Color.slAccent)
-                            .scaleEffect(logoScale)
-                            .opacity(logoOpacity)
+    @State private var step: Step = .welcome
+    @State private var pairingFocusTrigger = 0
+    @State private var notificationsRequested = false
+    @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                onboardingBackground
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    header
+
+                    TabView(selection: $step) {
+                        welcomeStep.tag(Step.welcome)
+                        permissionsStep.tag(Step.permissions)
+                        pairingStep.tag(Step.pairing)
+                        finishStep.tag(Step.finish)
                     }
-                    .frame(height: 160)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
 
-                    Text("Welcome to Sidelink")
-                        .font(.title.bold())
-                        .opacity(logoOpacity)
-                    Text("Pair once with your desktop, then browse, install, and refresh apps directly from your iPhone.")
+                    footer
+                }
+            }
+        }
+        .interactiveDismissDisabled()
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                HStack(spacing: 14) {
+                    SidelinkBrandIcon(size: 54)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sidelink")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                        Text("iPhone companion")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.slAccent)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("A calmer setup for sideloading from your iPhone.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                        .opacity(logoOpacity)
                 }
-                .padding(.top, 20)
+                Spacer()
+                if step != .finish {
+                    Button("Skip") {
+                        completed = true
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+            }
 
-                // MARK: - Auto-discovered servers
+            HStack(spacing: 10) {
+                ForEach(Step.allCases, id: \.rawValue) { item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Capsule()
+                            .fill(item.rawValue <= step.rawValue ? Color.slAccent : Color.secondary.opacity(0.18))
+                            .frame(height: 6)
+                        Text(item.title)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(item == step ? .primary : .secondary)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 10)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 12) {
+            if let error = model.errorMessage, step == .pairing {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(Color.slDanger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+            }
+
+            Button {
+                advance()
+            } label: {
+                Text(primaryButtonTitle)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.slAccent)
+            .padding(.horizontal, 24)
+
+            if step == .pairing && !model.isPaired {
+                Button("Continue without pairing") {
+                    step = .finish
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 20)
+        .background(.ultraThinMaterial)
+    }
+
+    private var welcomeStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 36, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.slAccent, Color.slAccent2, Color(red: 0.04, green: 0.17, blue: 0.25)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(height: 300)
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        SidelinkBrandIcon(size: 64)
+                        Text("Install, refresh, and manage apps without leaving your phone.")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text("Sidelink turns your iPhone into a polished control center for the desktop helper you already trust.")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.82))
+                    }
+                    .padding(28)
+                }
+
+                VStack(spacing: 12) {
+                    onboardingFeatureRow(icon: "sparkles", title: "Beautiful discovery", message: "A real home feed, separate search, and source-powered app discovery.")
+                    onboardingFeatureRow(icon: "arrow.triangle.2.circlepath", title: "Reliable refresh", message: "Track installed apps, expiry, and background refresh status from one place.")
+                    onboardingFeatureRow(icon: "checkmark.shield", title: "Safer account handling", message: "Apple ID verification and re-authentication stay visible instead of being buried.")
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+        }
+    }
+
+    private var permissionsStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                permissionsIntroCard
+
+                permissionCard(
+                    title: "Notifications",
+                    icon: "bell.badge",
+                    description: "Let Sidelink tell you when background refresh succeeds or fails.",
+                    actionTitle: notificationsRequested ? "Requested" : "Enable Notifications",
+                    tint: .slAccent
+                ) {
+                    Task {
+                        notificationsRequested = true
+                        await BackgroundRefreshCoordinator.shared.requestNotificationAuthorizationIfNeeded()
+                        backgroundRefreshEnabled = true
+                        BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(true)
+                    }
+                }
+
+                permissionCard(
+                    title: "Camera",
+                    icon: "camera.viewfinder",
+                    description: "Used only when you scan the desktop pairing QR code. iOS will ask the first time you open the scanner.",
+                    actionTitle: "Ask When Scanning",
+                    tint: .slAccent2,
+                    action: nil
+                )
+
+                permissionCard(
+                    title: "Local Network",
+                    icon: "dot.radiowaves.left.and.right",
+                    description: "Needed to discover your desktop helper on the same network. iOS prompts when Sidelink first connects or scans.",
+                    actionTitle: "Triggered During Pairing",
+                    tint: .slSuccess,
+                    action: nil
+                )
+
+                permissionCard(
+                    title: "Background Refresh",
+                    icon: "clock.arrow.circlepath",
+                    description: "Keep refreshes running in the background so expiring apps can be renewed automatically.",
+                    actionTitle: "Open Settings",
+                    tint: .slWarning
+                ) {
+#if canImport(UIKit)
+                    guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+                    UIApplication.shared.open(settingsURL)
+#endif
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+        }
+    }
+
+    private var permissionsIntroCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Only the permissions Sidelink actually uses.")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+            Text("We request notification access directly here. Camera and local network prompts appear only when you use the pairing tools that need them.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(22)
+        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private var pairingStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Pair with your desktop helper")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                    Text("Choose a discovered server, scan the QR payload, or paste the payload directly from the desktop app.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 24)
+
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Discovered servers")
-                        .sectionHeader()
+                    Text("Discovered Servers")
+                        .font(.headline)
 
                     if model.discoveredBackends.isEmpty {
                         HStack(spacing: 12) {
                             ProgressView()
-                            Text("Scanning local network...")
-                                .font(.footnote)
+                            Text("Scanning your local network…")
                                 .foregroundStyle(.secondary)
                         }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                     } else {
                         ForEach(model.discoveredBackends) { backend in
                             Button {
-                                SidelinkHaptics.impact()
                                 model.applyDiscoveredBackend(backend)
-                                Task {
-                                    if model.isPaired { showTour = true }
-                                }
+                                pairingFocusTrigger += 1
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "desktopcomputer")
-                                        .font(.title3)
                                         .foregroundStyle(Color.slAccent)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(backend.name).font(.subheadline.bold())
+                                        Text(backend.name)
+                                            .font(.subheadline.bold())
                                         Text(backend.url)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .foregroundStyle(.secondary.opacity(0.5))
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .foregroundStyle(.secondary)
                                 }
-                                .sidelinkCard()
+                                .padding(16)
+                                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 24)
 
-                // MARK: - Pair by Code
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Pair by code")
-                        .sectionHeader()
-                    Text("Enter the 6-digit code shown on your desktop Sidelink app.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    PairingCodeEntryView(code: $model.pairingCode, onSubmit: {
-                        Task {
-                            await model.pair()
-                            if model.isPaired { showTour = true }
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Fast Pair")
+                        .font(.headline)
+
+                    PairingPayloadActions(
+                        onScanned: { payload in
+                            Task {
+                                let didPair = await model.pairUsingPayload(payload)
+                                if didPair {
+                                    step = .finish
+                                }
+                            }
+                        },
+                        onPasted: { payload in
+                            Task {
+                                let didPair = await model.pairUsingPayload(payload)
+                                if didPair {
+                                    step = .finish
+                                }
+                            }
                         }
-                    }, isLoading: model.isLoading, autoFocus: false)
-
-                    Text("Tap the code boxes to start typing.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    )
                 }
-                .padding(.horizontal)
+                .padding(22)
+                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .padding(.horizontal, 24)
 
-                // MARK: - Manual
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Manual server")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Manual Pairing")
+                        .font(.headline)
+
                     TextField("http://your-computer-ip:4010", text: $model.backendURL)
-                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
                         .textFieldStyle(.roundedBorder)
-                }
-                .padding(.horizontal)
 
-                if let error = model.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Color.slDanger)
-                        .font(.footnote)
-                        .padding(.horizontal)
+                    PairingCodeEntryView(
+                        code: $model.pairingCode,
+                        onSubmit: {
+                            Task {
+                                await model.pair()
+                                if model.isPaired {
+                                    step = .finish
+                                }
+                            }
+                        },
+                        isLoading: model.isLoading,
+                        autoFocus: false,
+                        focusTrigger: pairingFocusTrigger
+                    )
                 }
-
-                Button("Skip for now") {
-                    completed = true
-                }
-                .foregroundStyle(.secondary)
-                .disabled(model.isLoading)
-                .padding(.bottom, 20)
+                .padding(22)
+                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .padding(.horizontal, 24)
             }
+            .padding(.top, 8)
         }
-        .navigationTitle("Setup")
     }
 
-    // MARK: - Feature Tour
-    private var featureTourView: some View {
-        TabView(selection: $tourPage) {
-            tourCard(
-                icon: "shippingbox.fill",
-                color: .slAccent,
-                title: "Browse & Install",
-                body: "Browse your IPA library, search apps, and install them with one tap — all from your iPhone."
-            )
-            .tag(0)
+    private var finishStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(model.isPaired ? "You’re connected." : "You’re ready to explore.")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                    Text(model.isPaired
+                         ? "Home, Search, Sources, and Installed are set up to feel like a real iPhone control center for sideloading."
+                         : "You can start exploring now, then return to Settings any time to pair and add signing accounts.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 24)
 
-            tourCard(
-                icon: "clock.arrow.circlepath",
-                color: .slSuccess,
-                title: "Auto Refresh",
-                body: "Free accounts expire every 7 days. Sidelink automatically refreshes your apps in the background."
-            )
-            .tag(1)
-
-            tourCard(
-                icon: "square.stack.3d.up.fill",
-                color: .slAccent2,
-                title: "App Sources",
-                body: "Add external app sources to discover and install apps from community repositories."
-            )
-            .tag(2)
-
-            completionCard
-                .tag(3)
+                VStack(spacing: 12) {
+                    onboardingFeatureRow(icon: "sparkles", title: "Home", message: "A featured storefront built from your source feeds and uploaded apps.")
+                    onboardingFeatureRow(icon: "magnifyingglass", title: "Search", message: "Dedicated search across both library IPAs and source apps.")
+                    onboardingFeatureRow(icon: "checkmark.shield", title: "Installed", message: "Import, sign, refresh, and manage the apps already on your device.")
+                    onboardingFeatureRow(icon: "square.stack.3d.up", title: "Sources", message: "Manage trusted feeds and browse AltStore-compatible app catalogs.")
+                }
+                .padding(.horizontal, 24)
+            }
+            .padding(.top, 16)
         }
-        .tabViewStyle(.page)
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
     }
 
-    // MARK: - Completion with Confetti
-    private var completionCard: some View {
-        ZStack {
-            VStack(spacing: 20) {
-                Spacer()
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 72))
-                    .foregroundStyle(Color.slSuccess)
-                    .scaleEffect(showConfetti ? 1.0 : 0.3)
-                    .opacity(showConfetti ? 1.0 : 0.0)
-                Text("You're all set!")
-                    .font(.title.bold())
-                    .opacity(showConfetti ? 1.0 : 0.0)
-                Text("Start exploring apps, or head to Settings any time to reconfigure.")
+    private var primaryButtonTitle: String {
+        switch step {
+        case .welcome:
+            return "Continue"
+        case .permissions:
+            return "Continue to Pairing"
+        case .pairing:
+            return model.isPaired ? "Continue" : "Skip Pairing For Now"
+        case .finish:
+            return "Enter Sidelink"
+        }
+    }
+
+    private func advance() {
+        switch step {
+        case .welcome:
+            step = .permissions
+        case .permissions:
+            step = .pairing
+        case .pairing:
+            step = .finish
+        case .finish:
+            completed = true
+        }
+    }
+
+    private var onboardingBackground: some View {
+        LinearGradient(
+            colors: [Color(red: 0.94, green: 0.97, blue: 1.0), Color.white, Color(red: 0.97, green: 0.99, blue: 0.98)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(Color.slAccent.opacity(0.09))
+                .frame(width: 260, height: 260)
+                .blur(radius: 16)
+                .offset(x: 80, y: -60)
+        }
+        .overlay(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 120, style: .continuous)
+                .fill(Color.slAccent2.opacity(0.08))
+                .frame(width: 220, height: 220)
+                .rotationEffect(.degrees(30))
+                .offset(x: -80, y: 80)
+        }
+    }
+
+    private func onboardingFeatureRow(icon: String, title: String, message: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(Color.slAccent)
+                .frame(width: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .opacity(showConfetti ? 1.0 : 0.0)
-                Button {
-                    completed = true
-                } label: {
-                    Text("Get Started")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.slAccent)
-                .padding(.horizontal, 40)
-                .padding(.top, 8)
-                .opacity(showConfetti ? 1.0 : 0.0)
-                Spacer()
-                Spacer()
             }
-
-            // Confetti overlay
-            if showConfetti {
-                ConfettiOverlay()
-                    .allowsHitTesting(false)
-            }
+            Spacer()
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.5).delay(0.2)) {
-                showConfetti = true
-            }
-            SidelinkHaptics.impact(.medium)
-        }
+        .padding(18)
+        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private func tourCard(icon: String, color: Color, title: String, body: String) -> some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 72))
-                .foregroundStyle(color)
-                .shadow(color: color.opacity(0.3), radius: 16, y: 6)
-            Text(title)
-                .font(.title2.bold())
-            Text(body)
+    private func permissionCard(
+        title: String,
+        icon: String,
+        description: String,
+        actionTitle: String,
+        tint: Color,
+        action: (() -> Void)?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.headline)
+            }
+
+            Text(description)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
-            Spacer()
-        }
-    }
 
-    // MARK: - Radar Pulse
-    private func radarRingView(scale: CGFloat, opacity: Double) -> some View {
-        Circle()
-            .stroke(Color.slAccent.opacity(0.3), lineWidth: 2)
-            .frame(width: 120, height: 120)
-            .scaleEffect(scale)
-            .opacity(opacity)
-    }
-
-    private func startRadarPulse() {
-        withAnimation(.easeOut(duration: 2.0).repeatForever(autoreverses: false)) {
-            radarRing1 = 2.0
-            radarOpacity1 = 0
-        }
-        withAnimation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(0.5)) {
-            radarRing2 = 2.0
-            radarOpacity2 = 0
-        }
-        withAnimation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(1.0)) {
-            radarRing3 = 2.0
-            radarOpacity3 = 0
-        }
-    }
-}
-
-// MARK: - Confetti Overlay
-private struct ConfettiOverlay: View {
-    @State private var particles: [ConfettiParticle] = (0..<30).map { _ in ConfettiParticle() }
-
-    var body: some View {
-        GeometryReader { geo in
-            ForEach(particles) { p in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(p.color)
-                    .frame(width: p.size, height: p.size * 1.5)
-                    .rotationEffect(.degrees(p.rotation))
-                    .position(
-                        x: geo.size.width * p.x,
-                        y: p.fallen ? geo.size.height + 20 : -20
-                    )
-                    .animation(
-                        .easeIn(duration: p.duration).delay(p.delay),
-                        value: p.fallen
-                    )
+            if let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .tint(tint)
+            } else {
+                Text(actionTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
             }
         }
-        .onAppear {
-            for i in particles.indices {
-                particles[i].fallen = true
-            }
-        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
-}
-
-private struct ConfettiParticle: Identifiable {
-    let id = UUID()
-    let x: CGFloat = CGFloat.random(in: 0.05...0.95)
-    let size: CGFloat = CGFloat.random(in: 4...8)
-    let rotation: Double = Double.random(in: 0...360)
-    let duration: Double = Double.random(in: 1.0...2.5)
-    let delay: Double = Double.random(in: 0...0.8)
-    let color: Color = [.slAccent, .slAccent2, .slSuccess, .yellow, .pink, .orange].randomElement()!
-    var fallen: Bool = false
 }

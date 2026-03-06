@@ -5,7 +5,7 @@ private let discoveryPort: UInt16 = 4011
 
 final class DiscoveryListener {
 	private var listener: NWListener?
-	private let queue = DispatchQueue(label: "com.sidelink.helper.discovery", qos: .utility)
+	private let queue = DispatchQueue(label: "com.sidelink.ioshelper.discovery", qos: .utility)
 
 	var onPayload: ((DiscoveryBroadcastDTO) -> Void)?
 

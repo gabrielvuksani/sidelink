@@ -59,10 +59,50 @@ export default function InstalledPage() {
     }
   };
 
+  const triggerRefreshAll = async () => {
+    try {
+      const res = await api.triggerRefreshAll();
+      toast('success', `Triggered refresh for ${res.data?.triggered ?? 0} apps`);
+      reload();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Refresh all failed'));
+    }
+  };
+
+  const deactivateApp = async (app: InstalledApp) => {
+    const ok = await confirmDialog({
+      title: 'Deactivate Installed App',
+      message: `Deactivate "${app.appName || app.originalBundleId}"? This will uninstall it from the device but keep it available for reactivation.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.deactivateInstalledApp(app.id);
+      toast('success', 'App deactivated');
+      reload();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to deactivate app'));
+    }
+  };
+
+  const reactivateApp = async (app: InstalledApp) => {
+    try {
+      await api.reactivateInstalledApp(app.id);
+      toast('success', 'App reactivation queued');
+      reload();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to reactivate app'));
+    }
+  };
+
   const getRefreshState = (id: string) =>
     refreshStates.find(s => s.installedAppId === id);
 
   if (loading) return <PageLoader message="Loading installed apps..." />;
+
+  const activeApps = apps.filter(app => app.status !== 'deactivated');
+  const deactivatedApps = apps.filter(app => app.status === 'deactivated');
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -71,12 +111,20 @@ export default function InstalledPage() {
           <h2 className="text-xl font-bold text-[var(--sl-text)]">Installed</h2>
           <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Apps installed on your devices</p>
         </div>
-        {apps.length > 0 && (
-          <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Install New
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeApps.length > 0 && (
+            <button onClick={triggerRefreshAll} className="sl-btn-ghost flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v6h6M19.5 19.5v-6h-6" /><path strokeLinecap="round" strokeLinejoin="round" d="M20 10a8 8 0 00-13.66-5.66L4.5 6m15 12l-1.84-1.84A8 8 0 014 14" /></svg>
+              Refresh All
+            </button>
+          )}
+          {apps.length > 0 && (
+            <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Install New
+            </button>
+          )}
+        </div>
       </div>
 
       {Object.keys(weeklyUsage ?? {}).length > 0 && (
@@ -100,8 +148,13 @@ export default function InstalledPage() {
           action={<button onClick={() => openInstall()} className="sl-btn-primary">Install an App</button>}
         />
       ) : (
-        <div className="space-y-2 stagger-children">
-          {apps.map(app => {
+        <div className="space-y-6 stagger-children">
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-[var(--sl-text)]">Active Installs</h3>
+              <span className="text-xs text-[var(--sl-muted)]">{activeApps.length} active</span>
+            </div>
+            {activeApps.map(app => {
             const refreshState = getRefreshState(app.id);
             const expiresAt = app.expiresAt ? new Date(app.expiresAt) : null;
             const daysLeft = expiresAt
@@ -110,7 +163,7 @@ export default function InstalledPage() {
             const isExpiring = daysLeft !== null && daysLeft <= 2;
             const isExpired = daysLeft !== null && daysLeft <= 0;
 
-            return (
+              return (
               <div key={app.id} className="sl-card sl-card-interactive p-4 animate-fadeInUp group">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
@@ -124,6 +177,9 @@ export default function InstalledPage() {
                   <div className="flex items-center gap-1.5 shrink-0 ml-3">
                     <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
                       Refresh
+                    </button>
+                    <button onClick={() => deactivateApp(app)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
+                      Deactivate
                     </button>
                     <button onClick={() => removeApp(app)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">
                       Remove
@@ -157,8 +213,39 @@ export default function InstalledPage() {
                   </div>
                 )}
               </div>
-            );
-          })}
+              );
+            })}
+          </section>
+
+          {deactivatedApps.length > 0 && (
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-[var(--sl-text)]">Deactivated</h3>
+                <span className="text-xs text-[var(--sl-muted)]">Available to reactivate</span>
+              </div>
+              {deactivatedApps.map(app => (
+                <div key={app.id} className="sl-card p-4 animate-fadeInUp border border-amber-500/15 bg-amber-500/[0.03]">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">Deactivated</span>
+                        <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[200px]">{app.originalBundleId}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                      <button onClick={() => reactivateApp(app)} className="sl-btn-primary !text-[12px] !px-3 !py-1.5">
+                        Reactivate
+                      </button>
+                      <button onClick={() => removeApp(app)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
         </div>
       )}
     </div>

@@ -77,7 +77,7 @@ export const DEFAULTS = {
   uploadDir: 'tmp/uploads',
   dbPath: 'tmp/sidelink.sqlite',
   helperProjectDir: 'ios-helper/SidelinkHelper',
-  helperBundleId: 'com.sidelink.helper',
+  helperBundleId: 'com.sidelink.ioshelper',
   schedulerCheckIntervalMs: 30 * 60 * 1000,  // 30 minutes
   schedulerRefreshThresholdHours: 48,
   schedulerInitialBackoffMinutes: 15,

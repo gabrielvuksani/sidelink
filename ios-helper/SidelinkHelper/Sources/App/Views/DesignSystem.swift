@@ -5,11 +5,11 @@ import UIKit
 
 // MARK: - Color Palette
 extension Color {
-    static let slAccent = Color.indigo
-    static let slAccent2 = Color.purple
-    static let slSuccess = Color.green
-    static let slWarning = Color.orange
-    static let slDanger = Color.red
+    static let slAccent = Color(red: 0.05, green: 0.42, blue: 0.74)
+    static let slAccent2 = Color(red: 0.05, green: 0.70, blue: 0.68)
+    static let slSuccess = Color(red: 0.11, green: 0.62, blue: 0.35)
+    static let slWarning = Color(red: 0.92, green: 0.47, blue: 0.09)
+    static let slDanger = Color(red: 0.82, green: 0.19, blue: 0.24)
     static let slMuted = Color.secondary
 
     /// Initialize a Color from a hex string like "#6366f1" or "6366f1"
@@ -23,6 +23,57 @@ extension Color {
             green: Double((rgb >> 8) & 0xFF) / 255,
             blue: Double(rgb & 0xFF) / 255
         )
+    }
+}
+
+struct SidelinkBrandIcon: View {
+    var size: CGFloat = 56
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Ellipse()
+                .fill(.white.opacity(0.18))
+                .frame(width: size * 0.76, height: size * 0.38)
+                .offset(x: 0, y: -size * 0.18)
+                .blur(radius: size * 0.04)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
+                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
+                    .frame(width: size * 0.33, height: size * 0.33)
+                    .offset(x: -size * 0.13, y: -size * 0.01)
+
+                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
+                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
+                    .frame(width: size * 0.33, height: size * 0.33)
+                    .offset(x: size * 0.13, y: size * 0.03)
+
+                RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: size * 0.16, height: size * 0.14)
+                    .offset(x: size * 0.01, y: -size * 0.01)
+            }
+
+            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: max(1, size * 0.01))
+        }
+        .frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.12), radius: size * 0.1, y: size * 0.04)
     }
 }
 

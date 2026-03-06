@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { BrandIcon } from '../components/BrandIcon';
 
 export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => void; sessionExpired?: boolean }) {
   const [username, setUsername] = useState('');
@@ -28,12 +29,7 @@ export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => 
     <div className="flex h-screen items-center justify-center bg-[var(--sl-bg)]">
       <div className="w-full max-w-sm px-4 animate-fadeIn">
         <div className="flex justify-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-[var(--sl-accent)]/15 flex items-center justify-center">
-            <svg className="w-6 h-6 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <rect x="4" y="7" width="11" height="11" rx="4.2" />
-              <rect x="9" y="6" width="11" height="11" rx="4.2" />
-            </svg>
-          </div>
+          <BrandIcon className="h-12 w-12" />
         </div>
         <h1 className="text-2xl font-bold text-center text-[var(--sl-text)] mb-1">Sidelink</h1>
         <p className="text-[var(--sl-muted)] text-center text-[13px] mb-8">Sign in to continue.</p>

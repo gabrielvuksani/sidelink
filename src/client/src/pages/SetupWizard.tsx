@@ -7,6 +7,8 @@ import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { Card } from '../components/Shared';
+import { BrandIcon } from '../components/BrandIcon';
+import { HelperPairingPanel } from '../components/HelperPairingPanel';
 import { isElectron, pickIpaFile } from '../lib/electron';
 import type { AppleAccount, DeviceInfo, IpaArtifact } from '../../../shared/types';
 import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
@@ -65,14 +67,10 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
       <div className="hidden lg:flex w-80 bg-[var(--sl-surface)] border-r border-[var(--sl-border)] flex-col p-8 justify-between">
         <div>
           <div className="flex items-center gap-3 mb-10">
-            <div role="img" className="w-10 h-10 rounded-xl bg-[var(--sl-accent)]/20 flex items-center justify-center" aria-label="Sidelink logo">
-              <svg className="w-5 h-5 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-            </div>
+            <BrandIcon className="h-10 w-10" />
             <div>
               <h1 className="text-lg font-bold text-[var(--sl-text)]">Sidelink</h1>
-              <p className="text-[10px] text-[var(--sl-muted)]">iOS App Manager</p>
+              <p className="text-[10px] text-[var(--sl-muted)]">Desktop App</p>
             </div>
           </div>
 
@@ -703,6 +701,14 @@ function DoneStep({ onFinish }: { onFinish: () => void }) {
         <p className="text-[var(--sl-muted)] text-sm">
           You're ready to sign and install apps. Head to the dashboard to get started.
         </p>
+      </div>
+
+      <div className="mb-6">
+        <HelperPairingPanel
+          title="Finish mobile setup"
+          subtitle="Pair the iPhone helper now so you can browse sources, trigger installs, and refresh apps directly from your phone."
+          compact
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-6">

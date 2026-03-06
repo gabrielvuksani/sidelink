@@ -159,6 +159,29 @@ struct APIClient {
         }
     }
 
+    func refreshAll(baseURL: String, token: String) async throws -> RefreshAllResponseDTO {
+        guard let url = URL(string: baseURL + "/api/helper/refresh-all") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Refresh all failed")
+        }
+
+        return try decodeEnvelope(RefreshAllResponseDTO.self, from: data)
+    }
+
     func pair(baseURL: String, code: String) async throws -> PairResponse {
         guard let url = URL(string: baseURL + "/api/system/pair") else {
             throw HelperAPIError.invalidURL
@@ -421,6 +444,204 @@ struct APIClient {
         }
     }
 
+    func deactivateInstalledApp(baseURL: String, token: String, appId: String) async throws -> InstalledAppDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apps/\(appId)/deactivate") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Deactivate failed")
+        }
+
+        return try decodeEnvelope(InstalledAppDTO.self, from: data)
+    }
+
+    func reactivateInstalledApp(baseURL: String, token: String, appId: String) async throws -> InstallJobDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apps/\(appId)/reactivate") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Reactivate failed")
+        }
+
+        return try decodeEnvelope(InstallJobDTO.self, from: data)
+    }
+
+    func listAllDeviceApps(baseURL: String, token: String, deviceUdid: String) async throws -> DeviceAppInventoryDTO {
+        guard let url = URL(string: baseURL + "/api/helper/devices/\(deviceUdid)/all-apps") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Device app inventory failed")
+        }
+
+        return try decodeEnvelope(DeviceAppInventoryDTO.self, from: data)
+    }
+
+    func listLogs(baseURL: String, token: String, level: String? = nil, limit: Int = 200) async throws -> [HelperLogEntryDTO] {
+        guard var components = URLComponents(string: baseURL + "/api/helper/logs") else {
+            throw HelperAPIError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let level, !level.isEmpty {
+            components.queryItems?.append(URLQueryItem(name: "level", value: level))
+        }
+        guard let url = components.url else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Logs request failed")
+        }
+
+        return try decodeEnvelope([HelperLogEntryDTO].self, from: data)
+    }
+
+    func listAppIds(baseURL: String, token: String, sync: Bool = false) async throws -> [HelperAppIdDTO] {
+        guard var components = URLComponents(string: baseURL + "/api/helper/app-ids") else {
+            throw HelperAPIError.invalidURL
+        }
+        if sync {
+            components.queryItems = [URLQueryItem(name: "sync", value: "true")]
+        }
+        guard let url = components.url else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "App IDs request failed")
+        }
+        return try decodeEnvelope([HelperAppIdDTO].self, from: data)
+    }
+
+    func getAppIdUsage(baseURL: String, token: String) async throws -> [HelperAppIdUsageDTO] {
+        guard let url = URL(string: baseURL + "/api/helper/app-ids/usage") else {
+            throw HelperAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "App ID usage request failed")
+        }
+        return try decodeEnvelope([HelperAppIdUsageDTO].self, from: data)
+    }
+
+    func deleteAppId(baseURL: String, token: String, appId: String) async throws {
+        guard let url = URL(string: baseURL + "/api/helper/app-ids/\(appId)") else {
+            throw HelperAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Delete App ID failed")
+        }
+    }
+
+    func listCertificates(baseURL: String, token: String) async throws -> [HelperCertificateDTO] {
+        guard let url = URL(string: baseURL + "/api/helper/certificates") else {
+            throw HelperAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Certificates request failed")
+        }
+        return try decodeEnvelope([HelperCertificateDTO].self, from: data)
+    }
+
+    func listTrustedSources(baseURL: String, token: String) async throws -> [TrustedSourceDTO] {
+        guard let url = URL(string: baseURL + "/api/helper/trusted-sources") else {
+            throw HelperAPIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Trusted sources request failed")
+        }
+        return try decodeEnvelope([TrustedSourceDTO].self, from: data)
+    }
+
     func importIpaFromURL(baseURL: String, token: String, urlString: String) async throws -> IpaArtifactDTO {
         guard let url = URL(string: baseURL + "/api/helper/ipas/import-url") else {
             throw HelperAPIError.invalidURL
@@ -441,6 +662,32 @@ struct APIClient {
         }
         guard (200 ... 299).contains(http.statusCode) else {
             throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Import failed")
+        }
+
+        return try decodeEnvelope(IpaArtifactDTO.self, from: data)
+    }
+
+    func uploadIpa(baseURL: String, token: String, fileName: String, fileData: Data) async throws -> IpaArtifactDTO {
+        guard let url = URL(string: baseURL + "/api/helper/ipas/upload") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.httpBody = makeMultipartBody(boundary: boundary, fileName: fileName, fileData: fileData)
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Upload failed")
         }
 
         return try decodeEnvelope(IpaArtifactDTO.self, from: data)
@@ -480,15 +727,164 @@ struct APIClient {
             throw HelperAPIError.invalidURL
         }
 
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200 ... 299).contains(http.statusCode) else {
-            throw HelperAPIError.server("Source fetch failed")
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("SidelinkHelper/1.0", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw HelperAPIError.server(body?.isEmpty == false ? body! : "Source fetch failed with status \(http.statusCode)")
         }
 
         do {
             return try JSONDecoder().decode(SourceManifestDTO.self, from: data)
         } catch {
-            throw HelperAPIError.decoding
+            throw HelperAPIError.server("Source feed could not be read. Make sure it is a valid AltStore source JSON file.")
         }
+    }
+
+    func signInAppleAccount(baseURL: String, token: String, appleId: String, password: String) async throws -> HelperAppleAuthPayloadDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apple/signin") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.httpBody = try JSONEncoder().encode([
+            "appleId": appleId,
+            "password": password,
+        ])
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Apple sign-in failed")
+        }
+
+        return try decodeEnvelope(HelperAppleAuthPayloadDTO.self, from: data)
+    }
+
+    func submitAppleAccount2FA(baseURL: String, token: String, appleId: String, password: String, code: String) async throws -> AccountDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apple/2fa") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.httpBody = try JSONEncoder().encode([
+            "appleId": appleId,
+            "password": password,
+            "code": code,
+        ])
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "2FA verification failed")
+        }
+
+        return try decodeEnvelope(AccountDTO.self, from: data)
+    }
+
+    func reauthenticateAppleAccount(baseURL: String, token: String, accountId: String) async throws -> HelperAppleAuthPayloadDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)/reauth") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Re-authentication failed")
+        }
+
+        return try decodeEnvelope(HelperAppleAuthPayloadDTO.self, from: data)
+    }
+
+    func submitAppleAccountReauth2FA(baseURL: String, token: String, accountId: String, code: String) async throws -> AccountDTO {
+        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)/reauth/2fa") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.httpBody = try JSONEncoder().encode([
+            "code": code,
+        ])
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "2FA verification failed")
+        }
+
+        return try decodeEnvelope(AccountDTO.self, from: data)
+    }
+
+    func deleteAppleAccount(baseURL: String, token: String, accountId: String) async throws {
+        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)") else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Failed to remove Apple ID")
+        }
+    }
+
+    private func makeMultipartBody(boundary: String, fileName: String, fileData: Data) -> Data {
+        var body = Data()
+        let safeFileName = fileName.isEmpty ? "Imported.ipa" : fileName
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"ipa\"; filename=\"\(safeFileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        return body
     }
 }

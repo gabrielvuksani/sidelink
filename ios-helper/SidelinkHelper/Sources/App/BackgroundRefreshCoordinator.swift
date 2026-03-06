@@ -7,8 +7,8 @@ import UserNotifications
 final class BackgroundRefreshCoordinator {
     static let shared = BackgroundRefreshCoordinator()
 
-    private let appRefreshTaskID = "com.sidelink.refresh"
-    private let processingTaskID = "com.sidelink.refresh.processing"
+    private let appRefreshTaskID = "com.sidelink.ioshelper.refresh"
+    private let processingTaskID = "com.sidelink.ioshelper.refresh.processing"
     private let api = APIClient()
 
     private init() {}

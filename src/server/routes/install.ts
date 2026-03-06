@@ -7,8 +7,9 @@
 
 import { Router } from 'express';
 import type { AppContext } from '../context';
-import { startInstallPipeline, getJob, getJobLogs, listJobs, submitJobTwoFA } from '../pipeline';
+import { getJob, getJobLogs, listJobs, submitJobTwoFA } from '../pipeline';
 import { validators } from '../utils/validators';
+import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
 
 export function installRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -17,16 +18,27 @@ export function installRoutes(ctx: AppContext): Router {
   router.post('/', validators.startInstall, async (req, res, next) => {
     try {
       const { accountId, ipaId, deviceUdid, includeExtensions } = req.body;
-      if (!accountId || !ipaId || !deviceUdid) {
-        return res.status(400).json({
-          ok: false,
-          error: 'accountId, ipaId, and deviceUdid are required',
-        });
-      }
-      const job = await startInstallPipeline(ctx.pipelineDeps, {
-        accountId, ipaId, deviceUdid, includeExtensions: !!includeExtensions,
+      const result = await startValidatedInstall(ctx, {
+        accountId,
+        ipaId,
+        deviceUdid,
+        includeExtensions: !!includeExtensions,
       });
-      res.json({ ok: true, data: job });
+
+      if (result.kind === 'missing-ipa') {
+        return res.status(404).json({ ok: false, error: 'IPA not found' });
+      }
+      if (result.kind === 'missing-account') {
+        return res.status(404).json({ ok: false, error: 'Apple account not found' });
+      }
+      if (result.kind === 'inactive-account') {
+        return res.status(400).json({ ok: false, error: 'Apple account is not authenticated' });
+      }
+      if (result.kind === 'missing-device') {
+        return res.status(404).json({ ok: false, error: 'Device not found' });
+      }
+
+      res.json({ ok: true, data: result.job });
     } catch (err) {
       next(err);
     }
@@ -84,6 +96,33 @@ export function installRoutes(ctx: AppContext): Router {
   router.delete('/apps/:id', (req, res) => {
     ctx.db.deleteInstalledApp(req.params.id);
     res.json({ ok: true });
+  });
+
+  router.post('/apps/:id/deactivate', async (req, res, next) => {
+    try {
+      const app = await deactivateInstalledApp(ctx, req.params.id);
+      if (!app) {
+        return res.status(404).json({ ok: false, error: 'Installed app not found' });
+      }
+      res.json({ ok: true, data: app });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/apps/:id/reactivate', async (req, res, next) => {
+    try {
+      const result = await reactivateInstalledApp(ctx, req.params.id);
+      if (result.kind === 'missing') {
+        return res.status(404).json({ ok: false, error: 'Installed app not found' });
+      }
+      if (result.kind === 'missing-ipa') {
+        return res.status(409).json({ ok: false, error: 'Original IPA is no longer available for reactivation' });
+      }
+      res.json({ ok: true, data: result.job });
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;

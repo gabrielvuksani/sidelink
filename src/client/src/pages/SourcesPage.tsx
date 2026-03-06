@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import { api, type TrustedSourceRecord } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
@@ -17,6 +17,7 @@ export default function SourcesPage() {
   const [selfHostedAppDraft, setSelfHostedAppDraft] = useState<SelfHostedAppDraft>(emptySelfHostedAppDraft());
   const [combinedApps, setCombinedApps] = useState<SourceApp[]>([]);
   const [appSearch, setAppSearch] = useState('');
+  const [trustedSources, setTrustedSources] = useState<TrustedSourceRecord[]>([]);
 
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -32,9 +33,13 @@ export default function SourcesPage() {
         api.listSources(),
         api.getSelfHostedSource(),
       ]);
-      const combinedRes = await api.getCombinedSources();
+      const [combinedRes, trustedSourceRes] = await Promise.all([
+        api.getCombinedSources(),
+        api.listTrustedSources().catch(() => ({ data: [] as TrustedSourceRecord[] })),
+      ]);
       const loadedManifest = selfHostedRes.data ?? emptySelfHostedManifest();
       setSources(sourceRes.data ?? []);
+      setTrustedSources(trustedSourceRes.data ?? []);
       setSelfHostedText(JSON.stringify(loadedManifest, null, 2));
       setSelfHostedForm(manifestToFormState(loadedManifest));
       setSelfHostedDirty(false);
@@ -77,6 +82,19 @@ export default function SourcesPage() {
       await reload();
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to add source'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onAddTrustedSource = async (trustedSource: TrustedSourceRecord) => {
+    setBusy(`trusted:${trustedSource.id}`);
+    try {
+      await api.addSource(trustedSource.url);
+      toast('success', `${trustedSource.name} added`);
+      await reload();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to add trusted source'));
     } finally {
       setBusy(null);
     }
@@ -261,6 +279,37 @@ export default function SourcesPage() {
           >
             {busy === 'add' ? 'Adding...' : 'Add Source'}
           </button>
+        </div>
+      </section>
+
+      <section className="sl-card p-4">
+        <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Trusted Sources</h3>
+        <p className="mt-1 text-[12px] text-[var(--sl-muted)]">One-click import for curated AltStore-compatible feeds.</p>
+
+        <div className="mt-3 space-y-2">
+          {trustedSources.length === 0 ? (
+            <p className="text-[12px] text-[var(--sl-muted)]">No trusted sources published yet.</p>
+          ) : trustedSources.map((source) => {
+            const alreadyAdded = sources.some((candidate) => candidate.url === source.url);
+            return (
+              <div key={source.id} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
+                  {source.description && (
+                    <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">{source.description}</p>
+                  )}
+                  <p className="mt-1 truncate text-[11px] text-[var(--sl-muted)]">{source.url}</p>
+                </div>
+                <button
+                  onClick={() => void onAddTrustedSource(source)}
+                  disabled={alreadyAdded || busy === `trusted:${source.id}`}
+                  className="sl-btn-primary !px-3 !py-1.5 !text-[12px] disabled:opacity-40"
+                >
+                  {alreadyAdded ? 'Added' : busy === `trusted:${source.id}` ? 'Adding...' : 'Add Source'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 

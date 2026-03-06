@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { AppContext } from '../context';
 import type { SourceManifest } from '../../shared/types';
+import { listTrustedSources } from '../services/shared-backend';
 
 export function sourceRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -86,6 +87,14 @@ export function sourceRoutes(ctx: AppContext): Router {
       return res.json({ ok: true });
     } catch (error) {
       return next(error);
+    }
+  });
+
+  router.get('/trusted-sources', (_req, res, next) => {
+    try {
+      res.json({ ok: true, data: listTrustedSources() });
+    } catch (error) {
+      next(error);
     }
   });
 

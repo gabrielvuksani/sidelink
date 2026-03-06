@@ -102,6 +102,15 @@ function InstallModal({
   }, [preselect.ipaId, preselect.deviceUdid]);
 
   useEffect(() => {
+    if (preselect.ipaId) {
+      setSelectedIpa(preselect.ipaId);
+    }
+    if (preselect.deviceUdid) {
+      setSelectedDevice(preselect.deviceUdid);
+    }
+  }, [preselect.ipaId, preselect.deviceUdid]);
+
+  useEffect(() => {
     if (selectedAccount) {
       localStorage.setItem(STORAGE_KEYS.lastInstallAccountId, selectedAccount);
     }
@@ -197,6 +206,15 @@ function InstallModal({
     && !!selectedWeeklyUsage
     && selectedWeeklyUsage.used >= selectedWeeklyUsage.limit;
   const jobDone = activeJob && (activeJob.status === 'completed' || activeJob.status === 'failed');
+  const readinessIssues = [
+    ipas.length === 0 ? 'Upload an IPA before starting a quick install.' : null,
+    devices.length === 0 ? 'Connect a device before starting a quick install.' : null,
+    accounts.length === 0 ? 'Add and verify an active Apple ID before installing.' : null,
+    !selectedIpa && ipas.length > 0 ? 'Select an IPA to install.' : null,
+    !selectedDevice && devices.length > 0 ? 'Select a target device.' : null,
+    !selectedAccount && accounts.length > 0 ? 'Select an Apple account.' : null,
+    freeLimitReached ? 'This free account has reached its weekly App ID limit.' : null,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -440,6 +458,19 @@ function InstallModal({
               <p className="text-xs text-amber-400">No active Apple ID. Add one in Apple ID settings.</p>
             )}
 
+            {accounts.length === 1 && selectedAccountObj && (
+              <div className="sl-card p-3">
+                <p className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider">Apple Account</p>
+                <p className="mt-1 text-[13px] text-[var(--sl-text)]">{selectedAccountObj.appleId}</p>
+                <p className="text-[11px] text-[var(--sl-muted)]">{selectedAccountObj.teamName} · {selectedAccountObj.accountType}</p>
+                {selectedWeeklyUsage && (
+                  <p className="mt-2 text-[11px] text-amber-300/90">
+                    Weekly App IDs used: {selectedWeeklyUsage.used}/{selectedWeeklyUsage.limit}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Extensions toggle (only when IPA has extensions) */}
             {selectedIpaObj && (selectedIpaObj.extensions?.length ?? 0) > 0 && (
               <div className="sl-card p-3">
@@ -480,6 +511,16 @@ function InstallModal({
             {error && (
               <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3">
                 <p className="text-red-400 text-[13px]">{error}</p>
+              </div>
+            )}
+
+            {readinessIssues.length > 0 && !error && (
+              <div className="sl-card !border-amber-500/20 !bg-amber-500/[0.06] p-3">
+                <ul className="space-y-1 text-amber-300 text-[12px]">
+                  {readinessIssues.map((issue) => (
+                    <li key={issue}>• {issue}</li>
+                  ))}
+                </ul>
               </div>
             )}
 

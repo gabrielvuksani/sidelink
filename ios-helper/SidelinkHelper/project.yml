@@ -17,7 +17,7 @@ targets:
       - path: Sources/App
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sidelink.helper
+        PRODUCT_BUNDLE_IDENTIFIER: com.sidelink.ioshelper
         PRODUCT_NAME: SidelinkHelper
         INFOPLIST_FILE: Sources/App/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -28,7 +28,11 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-        CFBundleDisplayName: Sidelink Helper
+        CFBundleDisplayName: Sidelink
+        CFBundleURLTypes:
+          - CFBundleURLName: com.sidelink.ioshelper.sources
+            CFBundleURLSchemes:
+              - sidelink
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -40,10 +44,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSCameraUsageDescription: Sidelink Helper uses the camera to scan pairing QR codes from your desktop app.
         NSLocalNetworkUsageDescription: Sidelink Helper discovers and connects to your desktop server on your local network.
         BGTaskSchedulerPermittedIdentifiers:
-          - com.sidelink.refresh
-          - com.sidelink.refresh.processing
+          - com.sidelink.ioshelper.refresh
+          - com.sidelink.ioshelper.refresh.processing
         UIBackgroundModes:
           - fetch
           - processing
