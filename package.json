@@ -135,18 +135,6 @@
         ]
       },
       {
-        "from": ".venv/lib/python3.13/site-packages/",
-        "to": "python-packages",
-        "filter": [
-          "**/*",
-          "!**/__pycache__/**",
-          "!**/pip/**",
-          "!**/pip-*/**",
-          "!**/setuptools/**",
-          "!**/setuptools-*/**"
-        ]
-      },
-      {
         "from": "resources/helper/",
         "to": "helper",
         "filter": [
