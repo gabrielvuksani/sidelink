@@ -70,7 +70,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.6.2",
     "bplist-parser": "^0.3.2",
     "cookie-parser": "^1.4.7",
     "electron-updater": "^6.3.9",
