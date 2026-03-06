@@ -140,9 +140,9 @@ def main():
 
     if os.path.exists(output_path):
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        print(f'✓ Built {output_path} ({size_mb:.1f} MB)')
+        print(f'Built {output_path} ({size_mb:.1f} MB)')
     else:
-        print(f'✗ Output not found at {output_path}')
+        print(f'Output not found at {output_path}')
         sys.exit(1)
 
 if __name__ == '__main__':
