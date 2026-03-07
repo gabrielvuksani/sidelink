@@ -174,7 +174,7 @@ jobs:
         run: python scripts/generate-icon-assets.py
 
       - name: Download Python bundle for target arch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-bundle-${{ matrix.python_os }}-${{ matrix.python_arch }}
           path: python-bundle/dist/${{ matrix.python_os }}-${{ matrix.python_arch }}/
@@ -217,7 +217,7 @@ jobs:
 
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
