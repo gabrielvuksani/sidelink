@@ -30,50 +30,13 @@ struct SidelinkBrandIcon: View {
     var size: CGFloat = 56
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            Ellipse()
-                .fill(.white.opacity(0.18))
-                .frame(width: size * 0.76, height: size * 0.38)
-                .offset(x: 0, y: -size * 0.18)
-                .blur(radius: size * 0.04)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
-                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
-                    .frame(width: size * 0.33, height: size * 0.33)
-                    .offset(x: -size * 0.13, y: -size * 0.01)
-
-                RoundedRectangle(cornerRadius: size * 0.14, style: .continuous)
-                    .stroke(.white.opacity(0.94), lineWidth: size * 0.06)
-                    .frame(width: size * 0.33, height: size * 0.33)
-                    .offset(x: size * 0.13, y: size * 0.03)
-
-                RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.19, green: 0.36, blue: 1.0), Color(red: 0.56, green: 0.25, blue: 1.0)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: size * 0.16, height: size * 0.14)
-                    .offset(x: size * 0.01, y: -size * 0.01)
-            }
-
-            RoundedRectangle(cornerRadius: size * 0.235, style: .continuous)
-                .stroke(.white.opacity(0.18), lineWidth: max(1, size * 0.01))
-        }
-        .frame(width: size, height: size)
-        .shadow(color: .black.opacity(0.12), radius: size * 0.1, y: size * 0.04)
+        Image("BrandMark")
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(0.12), radius: size * 0.1, y: size * 0.04)
     }
 }
 

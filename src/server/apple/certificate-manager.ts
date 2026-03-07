@@ -17,7 +17,7 @@ import { ProvisioningError } from '../utils/errors';
  * Generate an RSA 2048-bit keypair and a Certificate Signing Request.
  * Returns PEM-encoded private key and CSR (base64 DER).
  */
-export function generateCSR(commonName: string = 'Sidelink'): {
+export function generateCSR(commonName: string = 'SideLink'): {
   privateKeyPem: string;
   csrBase64: string;
 } {
@@ -109,10 +109,10 @@ export class CertificateManager {
     }
 
     // 4. Generate new keypair + CSR
-    const { privateKeyPem, csrBase64 } = generateCSR(`Sidelink (${accountId.slice(0, 8)})`);
+    const { privateKeyPem, csrBase64 } = generateCSR(`SideLink (${accountId.slice(0, 8)})`);
 
     // 5. Submit CSR to Apple (this also fetches the full cert via listCertificates)
-    const appleCert = await this.client.submitCSR(teamId, csrBase64, 'Sidelink');
+    const appleCert = await this.client.submitCSR(teamId, csrBase64, 'SideLink');
 
     if (!appleCert.certContent) {
       throw new ProvisioningError(

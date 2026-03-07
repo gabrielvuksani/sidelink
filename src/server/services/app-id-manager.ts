@@ -99,7 +99,7 @@ export class AppIdManager {
   }
 
   /**
-   * Generate a Sidelink-namespaced bundle ID from the original.
+   * Generate a SideLink-namespaced bundle ID from the original.
    * Format: com.sidelink.<leaf>.<hash>
    */
   generateBundleId(originalBundleId: string, teamId: string): string {

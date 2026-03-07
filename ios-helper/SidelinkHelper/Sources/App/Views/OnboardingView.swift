@@ -60,7 +60,7 @@ struct OnboardingView: View {
                     SidelinkBrandIcon(size: 44)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Sidelink")
+                        Text("SideLink")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                         Text("iPhone companion")
                             .font(.caption.weight(.semibold))
@@ -134,7 +134,7 @@ struct OnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 14) {
-                    SidelinkSectionIntro(eyebrow: "Welcome", title: "Sideloading should feel deliberate", subtitle: "Sidelink turns your iPhone into a premium control center for the desktop helper you already trust.")
+                    SidelinkSectionIntro(eyebrow: "Welcome", title: "Sideloading should feel deliberate", subtitle: "SideLink turns your iPhone into a premium control center for the desktop helper you already trust.")
 
                     HStack(spacing: 12) {
                         SidelinkMetricTile(label: "Home", value: "Curated")
@@ -146,7 +146,7 @@ struct OnboardingView: View {
                 VStack(spacing: 12) {
                     onboardingFeatureRow(icon: "sparkles", title: "Beautiful discovery", message: "A real home feed, separate search, and source-powered app discovery.")
                     onboardingFeatureRow(icon: "arrow.triangle.2.circlepath", title: "Reliable refresh", message: "Track installed apps, expiry, and background refresh status from one place.")
-                    onboardingFeatureRow(icon: "checkmark.shield", title: "One signing identity", message: "Sidelink keeps one primary Apple ID in charge by default so installs stay predictable.")
+                    onboardingFeatureRow(icon: "checkmark.shield", title: "One signing identity", message: "SideLink keeps one primary Apple ID in charge by default so installs stay predictable.")
                 }
             }
             .padding(.horizontal, 24)
@@ -162,7 +162,7 @@ struct OnboardingView: View {
                 permissionCard(
                     title: "Notifications",
                     icon: "bell.badge",
-                    description: "Let Sidelink tell you when background refresh succeeds or fails.",
+                    description: "Let SideLink tell you when background refresh succeeds or fails.",
                     actionTitle: notificationsRequested ? "Requested" : "Enable Notifications",
                     tint: .slAccent
                 ) {
@@ -186,7 +186,7 @@ struct OnboardingView: View {
                 permissionCard(
                     title: "Local Network",
                     icon: "dot.radiowaves.left.and.right",
-                    description: "Needed to discover your desktop helper on the same network. iOS prompts when Sidelink first connects or scans.",
+                    description: "Needed to discover your desktop helper on the same network. iOS prompts when SideLink first connects or scans.",
                     actionTitle: "Triggered During Pairing",
                     tint: .slSuccess,
                     action: nil
@@ -211,7 +211,7 @@ struct OnboardingView: View {
     }
 
     private var permissionsIntroCard: some View {
-        SidelinkSectionIntro(eyebrow: "Permissions", title: "Only what Sidelink really uses", subtitle: "Notifications can be requested now. Camera and local-network prompts appear only when you use pairing tools that actually need them.")
+        SidelinkSectionIntro(eyebrow: "Permissions", title: "Only what SideLink really uses", subtitle: "Notifications can be requested now. Camera and local-network prompts appear only when you use pairing tools that actually need them.")
             .liquidPanel()
     }
 
@@ -364,7 +364,7 @@ struct OnboardingView: View {
         case .pairing:
             return model.isPaired ? "Continue" : "Skip Pairing For Now"
         case .finish:
-            return "Enter Sidelink"
+            return "Enter SideLink"
         }
     }
 

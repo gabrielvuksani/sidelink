@@ -41,7 +41,7 @@ exports.default = async function afterPack(context) {
   let resourcesDir;
   if (context.electronPlatformName === 'darwin') {
     // macOS: <appOutDir>/<productName>.app/Contents/Resources
-    const appName = packager.appInfo.productFilename || packager.appInfo.productName || 'Sidelink';
+    const appName = packager.appInfo.productFilename || packager.appInfo.productName || 'SideLink';
     resourcesDir = path.join(appOutDir, `${appName}.app`, 'Contents', 'Resources');
   } else {
     // Windows/Linux: <appOutDir>/resources

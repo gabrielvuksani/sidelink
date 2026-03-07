@@ -1,6 +1,6 @@
 // ─── Shared Types ───────────────────────────────────────────────────
 // All types shared between server, client, and helper app.
-// This is the single source of truth for the entire Sidelink system.
+// This is the single source of truth for the entire SideLink system.
 
 // ─── Apple Account ──────────────────────────────────────────────────
 

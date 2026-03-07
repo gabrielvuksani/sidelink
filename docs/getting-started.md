@@ -1,6 +1,6 @@
 # Getting Started
 
-Use this page when you want the shortest reliable path from clone to first working Sidelink install flow.
+Use this page when you want the shortest reliable path from clone to first working SideLink install flow.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ Open `http://localhost:4010`.
 `npm install` already prepares the local Python environment, installs helper dependencies, and runs preflight checks.
 
 ::: tip First-run auth
-Sidelink now asks you to create the admin account during setup. There is no shipped default username or password.
+SideLink now asks you to create the admin account during setup. There is no shipped default username or password.
 :::
 
 ## First-Run Sequence

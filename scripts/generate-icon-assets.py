@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Generate branded Sidelink desktop icon assets.
+"""Generate branded SideLink assets from one canonical drawing.
 
 Outputs:
 - build/icons/icon.icns (used by electron-builder mac package)
 - build/icons/icon.ico (used by electron-builder Windows package)
 - build/icons/icon.iconset/* (Apple iconset source)
 - build/icons/icon-1024.png and icon-512.png (preview/source exports)
+- src/client/public/brandmark.svg (web, README, favicon source)
 - ios-helper/SidelinkHelper/Sources/App/Assets.xcassets/AppIcon.appiconset/*
+- ios-helper/SidelinkHelper/Sources/App/Assets.xcassets/BrandMark.imageset/*
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import shutil
+import json
 from pathlib import Path
 
 try:
@@ -27,6 +30,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = PROJECT_ROOT / "build" / "icons"
 ICONSET_DIR = BUILD_DIR / "icon.iconset"
 IOS_APPICON_DIR = PROJECT_ROOT / "ios-helper" / "SidelinkHelper" / "Sources" / "App" / "Assets.xcassets" / "AppIcon.appiconset"
+IOS_BRANDMARK_DIR = PROJECT_ROOT / "ios-helper" / "SidelinkHelper" / "Sources" / "App" / "Assets.xcassets" / "BrandMark.imageset"
+CLIENT_PUBLIC_DIR = PROJECT_ROOT / "src" / "client" / "public"
+
+
+def brandmark_svg() -> str:
+        return """<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" fill=\"none\">
+    <defs>
+        <linearGradient id=\"plate\" x1=\"10\" y1=\"8\" x2=\"54\" y2=\"58\" gradientUnits=\"userSpaceOnUse\">
+            <stop stop-color=\"#305BFF\"/>
+            <stop offset=\"1\" stop-color=\"#8E40FF\"/>
+        </linearGradient>
+        <radialGradient id=\"highlight\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(0 21 -28 0 30 20)\" gradientUnits=\"userSpaceOnUse\">
+            <stop stop-color=\"#fff\" stop-opacity=\"0.36\"/>
+            <stop offset=\"1\" stop-color=\"#fff\" stop-opacity=\"0\"/>
+        </radialGradient>
+    </defs>
+    <rect x=\"2\" y=\"2\" width=\"60\" height=\"60\" rx=\"14\" fill=\"url(#plate)\"/>
+    <rect x=\"2\" y=\"2\" width=\"60\" height=\"60\" rx=\"14\" fill=\"url(#highlight)\"/>
+    <rect x=\"14\" y=\"20\" width=\"21\" height=\"21\" rx=\"8.5\" stroke=\"rgba(255,255,255,0.94)\" stroke-width=\"3.8\"/>
+    <rect x=\"30\" y=\"23\" width=\"21\" height=\"21\" rx=\"8.5\" stroke=\"rgba(255,255,255,0.94)\" stroke-width=\"3.8\"/>
+    <rect x=\"26.5\" y=\"23\" width=\"10.5\" height=\"10\" rx=\"4\" fill=\"url(#plate)\"/>
+    <rect x=\"2.5\" y=\"2.5\" width=\"59\" height=\"59\" rx=\"13.5\" stroke=\"rgba(255,255,255,0.22)\"/>
+</svg>
+"""
 
 
 def draw_master_icon(size: int = 1024) -> Image.Image:
@@ -129,6 +156,14 @@ def write_pngs(master: Image.Image) -> None:
         master.resize((px, px), Image.Resampling.LANCZOS).save(target)
 
 
+def write_web_brandmark() -> None:
+    CLIENT_PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+    (CLIENT_PUBLIC_DIR / "brandmark.svg").write_text(brandmark_svg(), encoding="utf-8")
+    legacy_favicon = CLIENT_PUBLIC_DIR / "favicon.svg"
+    if legacy_favicon.exists():
+        legacy_favicon.unlink()
+
+
 def build_icns() -> None:
     if sys.platform != "darwin" or shutil.which("iconutil") is None:
         print("Skipping icon.icns generation: iconutil is unavailable on this platform.")
@@ -199,18 +234,50 @@ def write_ios_appiconset(master: Image.Image) -> None:
         },
     }
 
-    import json
     (IOS_APPICON_DIR / "Contents.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def write_ios_brandmark_imageset(master: Image.Image) -> None:
+    IOS_BRANDMARK_DIR.mkdir(parents=True, exist_ok=True)
+
+    specs = [
+        {"scale": "1x", "px": 96, "filename": "brandmark.png"},
+        {"scale": "2x", "px": 192, "filename": "brandmark@2x.png"},
+        {"scale": "3x", "px": 288, "filename": "brandmark@3x.png"},
+    ]
+
+    for spec in specs:
+        master.resize((spec["px"], spec["px"]), Image.Resampling.LANCZOS).save(IOS_BRANDMARK_DIR / spec["filename"])
+
+    payload = {
+        "images": [
+            {
+                "idiom": "universal",
+                "scale": spec["scale"],
+                "filename": spec["filename"],
+            }
+            for spec in specs
+        ],
+        "info": {
+            "version": 1,
+            "author": "xcode",
+        },
+    }
+    (IOS_BRANDMARK_DIR / "Contents.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:
     master = draw_master_icon(1024)
     write_pngs(master)
+    write_web_brandmark()
     write_ios_appiconset(master)
+    write_ios_brandmark_imageset(master)
     build_icns()
     build_ico(master)
     print(f"Generated desktop icon assets in: {BUILD_DIR}")
+    print(f"Generated web brandmark in: {CLIENT_PUBLIC_DIR}")
     print(f"Generated iOS app icons in: {IOS_APPICON_DIR}")
+    print(f"Generated iOS brandmark assets in: {IOS_BRANDMARK_DIR}")
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ export function createApp(ctx: AppContext): express.Express {
       ok: true,
       data: {
         token: paired.token,
-        serverName: 'Sidelink',
+        serverName: 'SideLink',
         serverVersion: process.env.npm_package_version ?? '1.0.0',
       },
     });
@@ -102,7 +102,7 @@ export function createApp(ctx: AppContext): express.Express {
       return res.json(manifest);
     }
     const fallback: SourceManifest = {
-      name: 'Sidelink Self Hosted',
+      name: 'SideLink Self Hosted',
       identifier: 'com.sidelink.self-hosted',
       sourceURL: '/api/sources/self-hosted',
       apps: [],

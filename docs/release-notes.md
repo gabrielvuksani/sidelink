@@ -1,6 +1,6 @@
 # Release Notes
 
-This page tracks the user-visible release surface and the release-engineering changes that matter when you publish Sidelink.
+This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
 ## v0.2.0
 
@@ -27,6 +27,12 @@ This page tracks the user-visible release surface and the release-engineering ch
 3. If packaging on macOS locally, run `npm run desktop:package` and then `npm run desktop:smoke`.
 4. Push the tagged release from `main` so GitHub Actions can build and publish artifacts.
 5. Confirm the docs workflow deployed successfully to GitHub Pages.
+
+### Tag Policy
+
+- Cut release tags only from the exact `origin/main` tip you intend to publish.
+- Treat published semver tags as immutable. Do not force-move a tag after assets are released.
+- If release automation or docs publishing needs a follow-up fix after publish, land that fix on `main` and roll it into the next version instead of rewriting the existing release tag.
 
 ::: tip Release URL
 Once GitHub Pages is enabled with `Source = GitHub Actions`, the docs site publishes to `https://gabrielvuksani.github.io/sidelink/`.

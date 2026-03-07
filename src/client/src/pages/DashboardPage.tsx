@@ -15,7 +15,7 @@ export default function DashboardPage() {
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
 
-  useEffect(() => { document.title = 'Overview — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Overview — SideLink'; }, []);
 
   const reload = useCallback(async () => {
     try {

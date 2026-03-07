@@ -205,7 +205,7 @@ export class AppleDeveloperServicesClient {
   async submitCSR(
     teamId: string,
     csr: string,
-    machineName: string = 'Sidelink',
+    machineName: string = 'SideLink',
   ): Promise<AppleCertificate> {
     const data = await this.request(DEVELOPER_PATHS.submitCSR, {
       teamId,

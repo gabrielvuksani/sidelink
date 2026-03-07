@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Anisette header generator for Sidelink.
+Anisette header generator for SideLink.
 
 Generates Apple anisette (machine provisioning) data required for
 Apple GSA authentication. Uses the `anisette` Python package which

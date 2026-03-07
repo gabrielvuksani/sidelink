@@ -1,5 +1,5 @@
 // ─── Database ───────────────────────────────────────────────────────
-// SQLite-backed persistence for the entire Sidelink system.
+// SQLite-backed persistence for the entire SideLink system.
 // Single-file state with WAL mode, integrity checking, and migration.
 
 import BetterSqlite3 from 'better-sqlite3';

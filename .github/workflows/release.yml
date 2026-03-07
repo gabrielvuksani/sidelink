@@ -216,6 +216,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || github.ref }}
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -231,6 +236,7 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
+            helper/SidelinkHelper.ipa
             artifacts/sidelink-mac-x64/*
             artifacts/sidelink-mac-arm64/*arm64.dmg
             artifacts/sidelink-mac-arm64/*arm64.dmg.blockmap

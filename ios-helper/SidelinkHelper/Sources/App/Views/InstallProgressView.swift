@@ -200,7 +200,7 @@ struct InstallProgressView: View {
         case "provision":
             return "Apple needs a fresh verification code before provisioning can continue. Approve the trusted-device prompt if it appears, then enter the 6-digit code here."
         default:
-            return "Sidelink is waiting on Apple account verification. Enter the 6-digit code from your trusted device or SMS to resume the install."
+            return "SideLink is waiting on Apple account verification. Enter the 6-digit code from your trusted device or SMS to resume the install."
         }
     }
 

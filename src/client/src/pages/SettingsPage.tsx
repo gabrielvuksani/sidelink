@@ -11,7 +11,7 @@ import type { SchedulerSnapshot } from '../../../shared/types';
 
 
 export default function SettingsPage() {
-  useEffect(() => { document.title = 'Settings - Sidelink'; }, []);
+  useEffect(() => { document.title = 'Settings - SideLink'; }, []);
 
   return (
     <div className="sl-page animate-fadeIn">
@@ -205,7 +205,7 @@ function SystemInfo() {
   return (
     <Panel title="Runtime" subtitle="Cross-platform environment and app diagnostics.">
       <div className="grid gap-2 text-sm sm:grid-cols-2">
-        <InfoRow label="Application" value="Sidelink" />
+        <InfoRow label="Application" value="SideLink" />
         {info.isElectron && <InfoRow label="Version" value={<span className="font-mono text-xs">{info.version}</span>} />}
         <InfoRow label="Platform" value={platformLabel(info.platform)} />
         <InfoRow label="Runtime" value={info.isElectron ? (info.isPackaged ? 'Desktop (packaged)' : 'Desktop (dev)') : 'Browser'} />

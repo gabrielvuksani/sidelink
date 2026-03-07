@@ -20,7 +20,7 @@ struct PairingCodeEntryView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Enter the pairing code")
                         .font(.headline)
-                    Text("The desktop app generates a 6-digit code. Sidelink connects as soon as all digits are entered.")
+                    Text("The desktop app generates a 6-digit code. SideLink connects as soon as all digits are entered.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -95,7 +95,7 @@ struct SettingsTab: View {
 
     private var helperCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "Sidelink" : model.serverName)." : "Use the desktop pairing QR, the 6-digit code, or a discovered server to connect.")
+            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "SideLink" : model.serverName)." : "Use the desktop pairing QR, the 6-digit code, or a discovered server to connect.")
 
             HStack(spacing: 12) {
                 Label(model.sseConnected ? "Live" : (model.isPaired ? "Polling" : "Offline"), systemImage: model.isPaired ? "checkmark.shield.fill" : "iphone.slash")
@@ -163,7 +163,7 @@ struct SettingsTab: View {
 
     private var appleAccountsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Apple IDs", title: "Primary signing identity", subtitle: model.isPaired ? "Sidelink keeps one Apple ID as the default for installs and refreshes so the workflow never feels ambiguous." : "Pair first, then add the Apple IDs you want available for signing.")
+            SidelinkSectionIntro(eyebrow: "Apple IDs", title: "Primary signing identity", subtitle: model.isPaired ? "SideLink keeps one Apple ID as the default for installs and refreshes so the workflow never feels ambiguous." : "Pair first, then add the Apple IDs you want available for signing.")
 
             if model.pendingAppleAuth != nil || !model.accountsNeedingAttention.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
@@ -223,7 +223,7 @@ struct SettingsTab: View {
                             PillBadge(text: "Primary", color: .slAccent, small: true)
                         }
                     } else {
-                        Text("Add and verify an Apple ID so Sidelink can lock onto one primary signing identity.")
+                        Text("Add and verify an Apple ID so SideLink can lock onto one primary signing identity.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -260,7 +260,7 @@ struct SettingsTab: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Label("This Apple ID has not completed verification in Sidelink yet.", systemImage: "clock.badge.exclamationmark")
+                            Label("This Apple ID has not completed verification in SideLink yet.", systemImage: "clock.badge.exclamationmark")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -396,7 +396,7 @@ struct SettingsTab: View {
 
     private var currentSetupCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SidelinkSectionIntro(eyebrow: "Current Setup", title: "What Sidelink will use", subtitle: "Every install defaults to one primary Apple ID and your chosen device until you deliberately change them.")
+            SidelinkSectionIntro(eyebrow: "Current Setup", title: "What SideLink will use", subtitle: "Every install defaults to one primary Apple ID and your chosen device until you deliberately change them.")
 
             if let selected = model.primarySigningAccount ?? model.effectiveSigningAccount {
                 HStack {
@@ -425,7 +425,7 @@ struct SettingsTab: View {
     private var aboutCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             SidelinkSectionIntro(eyebrow: "About", title: "App details", subtitle: "Versioning and platform information, presented without the default settings-list noise.")
-            aboutRow("App", "Sidelink")
+            aboutRow("App", "SideLink")
             aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
             aboutRow("Build", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
             aboutRow("Platform", UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
@@ -451,7 +451,7 @@ struct SettingsTab: View {
                 SidelinkHaptics.impact(.light)
                 deleteConfirmation = DestructiveConfirmation(
                     title: "Disconnect Helper",
-                    message: "Disconnect from the Sidelink server? You will need to pair again.",
+                    message: "Disconnect from the SideLink server? You will need to pair again.",
                     buttonLabel: "Disconnect"
                 ) {
                     model.clearPairing()
@@ -850,7 +850,7 @@ private struct AppleAccountSheet: View {
             Form {
                 if let pending = pendingContext {
                     Section("Two-Factor Authentication") {
-                        Text("Finish verifying \(pending.appleId) to use it for signing in Sidelink.")
+                        Text("Finish verifying \(pending.appleId) to use it for signing in SideLink.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 

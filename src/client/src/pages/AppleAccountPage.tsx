@@ -16,7 +16,7 @@ export default function AppleAccountPage() {
   const [loading, setLoading] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
 
-  useEffect(() => { document.title = 'Apple ID — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Apple ID — SideLink'; }, []);
 
   const reload = useCallback(() => {
     Promise.all([
@@ -444,7 +444,7 @@ function SignInForm({ onDone }: { onDone: () => void }) {
               </svg>
               <p className="text-[12px] text-amber-400/90">
                 <span className="font-semibold">SMS 2FA is not supported.</span>{' '}
-                Sidelink uses trusted-device verification only. Make sure you have a trusted Apple device nearby to receive the 6-digit code.
+                SideLink uses trusted-device verification only. Make sure you have a trusted Apple device nearby to receive the 6-digit code.
               </p>
             </div>
           </div>

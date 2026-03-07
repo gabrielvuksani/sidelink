@@ -142,7 +142,7 @@ struct AppDetailView: View {
                         SidelinkSectionIntro(
                             eyebrow: "Package",
                             title: "Build details",
-                            subtitle: "The bundle metadata Sidelink will use while installing this IPA."
+                            subtitle: "The bundle metadata SideLink will use while installing this IPA."
                         )
 
                         VStack(spacing: 10) {

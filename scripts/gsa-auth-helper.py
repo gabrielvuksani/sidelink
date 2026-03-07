@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Apple Grand Slam Authentication (GSA) helper for Sidelink.
+Apple Grand Slam Authentication (GSA) helper for SideLink.
 
 Performs Apple GSA SRP-6a authentication using the proven Python `srp`
 library. Called from Node.js TypeScript code.

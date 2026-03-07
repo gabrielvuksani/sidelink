@@ -25,7 +25,7 @@ function confirmReset() {
       output: process.stdout,
     });
 
-    rl.question('This will delete the local Sidelink database and uploads. Continue? [y/N] ', (answer) => {
+    rl.question('This will delete the local SideLink database and uploads. Continue? [y/N] ', (answer) => {
       rl.close();
       resolve(/^(y|yes)$/i.test(answer.trim()));
     });

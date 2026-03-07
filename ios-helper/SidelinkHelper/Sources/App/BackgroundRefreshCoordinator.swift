@@ -120,7 +120,7 @@ final class BackgroundRefreshCoordinator {
         await requestNotificationAuthorizationIfNeeded()
 
         let content = UNMutableNotificationContent()
-        content.title = "Sidelink refreshed apps"
+        content.title = "SideLink refreshed apps"
         content.body = apps.count == 1 ? "\(apps[0]) was refreshed." : "\(apps.count) apps were refreshed."
         content.sound = .default
 
@@ -137,7 +137,7 @@ final class BackgroundRefreshCoordinator {
         await requestNotificationAuthorizationIfNeeded()
 
         let content = UNMutableNotificationContent()
-        content.title = "Sidelink refresh failed"
+        content.title = "SideLink refresh failed"
         content.body = error.localizedDescription
         content.sound = .default
 

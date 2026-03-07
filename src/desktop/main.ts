@@ -162,7 +162,7 @@ async function startBackend(): Promise<string> {
   // Start tray state updates — poll device/job counts every 15s
   startTrayPolling(url, internalToken);
   stopDiscoveryBroadcast = startDiscoveryBroadcaster({
-    name: `Sidelink (${os.hostname()})`,
+    name: `SideLink (${os.hostname()})`,
     port: Number(new URL(url).port),
   });
 
@@ -213,7 +213,7 @@ function buildWindow(): BrowserWindow {
     height: savedState.height,
     minWidth: 1024,
     minHeight: 680,
-    title: 'Sidelink',
+    title: 'SideLink',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
     backgroundColor: '#030712', // gray-950 to prevent white flash
@@ -324,7 +324,7 @@ app.whenReady().then(async () => {
   // Create the main window
   void createWindow().catch(async (err) => {
     dialog.showErrorBox(
-      'Sidelink failed to start',
+      'SideLink failed to start',
       err instanceof Error ? err.message : String(err),
     );
     await stopBackend();

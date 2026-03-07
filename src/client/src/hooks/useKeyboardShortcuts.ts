@@ -1,5 +1,5 @@
 // ─── Keyboard Shortcuts Hook ─────────────────────────────────────────
-// Global keyboard shortcut handling for the Sidelink client.
+// Global keyboard shortcut handling for the SideLink client.
 // Supports Cmd/Ctrl modifiers, navigation, and action shortcuts.
 
 import { useEffect, useCallback } from 'react';

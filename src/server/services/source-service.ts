@@ -109,7 +109,7 @@ export class SourceService {
     }
 
     return {
-      name: 'Sidelink Combined Sources',
+      name: 'SideLink Combined Sources',
       identifier: 'com.sidelink.sources.combined',
       sourceURL: '/api/sources/combined',
       apps: Array.from(appsByBundle.values()),
@@ -147,7 +147,7 @@ export class SourceService {
 
     const now = new Date().toISOString();
     const fallback: SourceManifest = {
-      name: 'Sidelink Official',
+      name: 'SideLink Official',
       identifier: 'com.sidelink.official',
       sourceURL: OFFICIAL_SOURCE_URL,
       apps: [],

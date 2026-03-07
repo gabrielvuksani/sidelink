@@ -302,7 +302,7 @@ private struct ImportSourceSheet: View {
         NavigationStack {
             Form {
                 Section("Import Source") {
-                    Text("Use this source in Sidelink?")
+                    Text("Use this source in SideLink?")
                         .font(.subheadline)
                     Text(sourceURL)
                         .font(.footnote.monospaced())

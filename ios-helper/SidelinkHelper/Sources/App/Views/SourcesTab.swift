@@ -58,7 +58,7 @@ struct SourcesTab: View {
                         } else {
                             if let officialCatalog {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    SidelinkSectionIntro(eyebrow: "Pinned", title: "Official Source", subtitle: "This feed is always kept in place so Sidelink never starts empty.")
+                                    SidelinkSectionIntro(eyebrow: "Pinned", title: "Official Source", subtitle: "This feed is always kept in place so SideLink never starts empty.")
                                     NavigationLink(value: officialCatalog.id) {
                                         sourceCard(officialCatalog)
                                     }

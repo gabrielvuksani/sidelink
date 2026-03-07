@@ -80,7 +80,7 @@ function purgeStaleSigningDirs(): number {
 }
 
 async function main() {
-  console.log('─── Sidelink Server ───────────────────────────────');
+  console.log('─── SideLink Server ───────────────────────────────');
   console.log(`  Platform: ${getPlatformDisplayName()}`);
 
   // Clean up stale signing temp dirs from prior runs
@@ -127,7 +127,7 @@ async function main() {
     console.log('──────────────────────────────────────────────────');
 
     stopDiscovery = startDiscoveryBroadcaster({
-      name: `Sidelink (${os.hostname()})`,
+      name: `SideLink (${os.hostname()})`,
       port: PORT,
     });
   });

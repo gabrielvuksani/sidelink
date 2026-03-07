@@ -83,7 +83,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   useGlobalShortcuts();
 
-  const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'Sidelink', [location.pathname]);
+  const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'SideLink', [location.pathname]);
   const pageDescription = useMemo(() => routeDescriptions[location.pathname] ?? 'Desktop control surface for installs, accounts, devices, and sources.', [location.pathname]);
 
   const handleLogout = async () => {
@@ -102,7 +102,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         <div className="sl-card-soft flex items-center gap-3 px-3 py-3">
           <BrandIcon className="h-9 w-9" />
           <div>
-            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">Sidelink Command</p>
+            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">SideLink Command</p>
             <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--sl-muted)]">Desktop Control Surface</p>
           </div>
         </div>

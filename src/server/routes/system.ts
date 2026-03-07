@@ -203,7 +203,7 @@ export function systemRoutes(ctx: AppContext): Router {
         qrPayload: JSON.stringify({
           code: pair.code,
           backendUrl: resolveHelperBackendURL(req),
-          serverName: process.env.SIDELINK_SERVER_NAME ?? 'Sidelink',
+          serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
         }),
       },
     });

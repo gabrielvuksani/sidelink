@@ -1,6 +1,6 @@
 # Desktop App
 
-Sidelink Desktop wraps the web control center in Electron with tray integration, auto-updates, and deep links.
+SideLink Desktop wraps the web control center in Electron with tray integration, auto-updates, and deep links.
 
 ## Run
 

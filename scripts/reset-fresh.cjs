@@ -24,7 +24,9 @@ function getCandidatePaths() {
   return unique([
     path.join(cwd, 'tmp', 'desktop'),
     path.join(home, 'Library', 'Application Support', 'Sidelink'),
+    path.join(home, 'Library', 'Application Support', 'SideLink'),
     path.join(appData, 'Sidelink'),
+    path.join(appData, 'SideLink'),
     path.join(xdgConfigHome, 'sidelink'),
   ]);
 }
@@ -34,7 +36,7 @@ function confirmReset(targets) {
     return Promise.resolve(true);
   }
 
-  console.log('This will remove local Sidelink test state, saved sessions, uploaded files, and the stored OS keychain master key.');
+  console.log('This will remove local SideLink test state, saved sessions, uploaded files, and the stored OS keychain master key.');
   console.log('Targets:');
   for (const target of targets) {
     console.log(`  - ${target}`);

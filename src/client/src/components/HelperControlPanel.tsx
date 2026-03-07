@@ -142,7 +142,7 @@ export function HelperControlPanel({
 
             {!canBuild && (
               <p className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs leading-5 text-[var(--sl-muted)]">
-                Helper build/export is macOS + Xcode only. On this OS, Sidelink can still import a bundled or prebuilt helper IPA automatically.
+                Helper build/export is macOS + Xcode only. On this OS, SideLink can still import a bundled or prebuilt helper IPA automatically.
               </p>
             )}
 

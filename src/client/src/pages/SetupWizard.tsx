@@ -20,12 +20,12 @@ type WizardStep = 'welcome' | 'account' | 'apple' | 'device' | 'upload' | 'done'
 const STEP_ORDER: WizardStep[] = ['welcome', 'account', 'apple', 'device', 'upload', 'done'];
 
 const STEP_META: Record<WizardStep, { title: string; subtitle: string }> = {
-  welcome:  { title: 'Welcome to Sidelink',       subtitle: 'Let\'s set everything up in a few quick steps.' },
-  account:  { title: 'Create Admin Account',       subtitle: 'Secure your Sidelink instance with a login.' },
+  welcome:  { title: 'Welcome to SideLink',       subtitle: 'Let\'s set everything up in a few quick steps.' },
+  account:  { title: 'Create Admin Account',       subtitle: 'Secure your SideLink instance with a login.' },
   apple:    { title: 'Connect Apple ID',            subtitle: 'Required for signing apps. You can skip and add later.' },
   device:   { title: 'Connect a Device',            subtitle: 'Plug in an iOS device or make sure it\'s on your network.' },
   upload:   { title: 'Upload Your First App',       subtitle: 'Drop an .ipa file to get started.' },
-  done:     { title: 'You\'re All Set!',            subtitle: 'Sidelink is ready. Head to the dashboard to manage apps.' },
+  done:     { title: 'You\'re All Set!',            subtitle: 'SideLink is ready. Head to the dashboard to manage apps.' },
 };
 
 // ── Main Wizard ──────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   });
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
 
-  useEffect(() => { document.title = 'Setup — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Setup — SideLink'; }, []);
 
   const goTo = (target: WizardStep, dir: 'forward' | 'back' = 'forward') => {
     setDirection(dir);
@@ -69,7 +69,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           <div className="flex items-center gap-3 mb-10">
             <BrandIcon className="h-10 w-10" />
             <div>
-              <h1 className="text-lg font-bold text-[var(--sl-text)]">Sidelink</h1>
+              <h1 className="text-lg font-bold text-[var(--sl-text)]">SideLink</h1>
               <p className="text-[10px] text-[var(--sl-muted)]">Desktop App</p>
             </div>
           </div>

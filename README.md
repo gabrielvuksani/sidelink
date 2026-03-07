@@ -1,62 +1,43 @@
-# Sidelink
+<p align="center">
+	<img src="src/client/public/brandmark.svg" alt="SideLink logo" width="96" height="96">
+</p>
 
-Sidelink is a cross-platform personal iOS sideload manager built around one idea: sideloading should feel like operating a real product, not juggling disconnected scripts, half-working dashboards, and fragile refresh workflows.
+<h1 align="center">SideLink</h1>
 
-It combines a TypeScript signing backend, a browser-based control center, an Electron desktop shell, AltStore-compatible source support, and an optional iPhone companion app that can pair to the helper, browse sources, monitor installs, and manage refresh state directly on-device.
+<p align="center">
+	Local-first iOS sideloading with a desktop control center, a TypeScript signing pipeline, and an iPhone helper that feels like part of the product instead of an afterthought.
+</p>
 
-## What Sidelink Includes
+<p align="center">
+	<a href="https://gabrielvuksani.github.io/sidelink/">Docs</a>
+	·
+	<a href="https://github.com/gabrielvuksani/sidelink/releases">Releases</a>
+	·
+	<a href="https://gabrielvuksani.github.io/sidelink/getting-started">Getting Started</a>
+	·
+	<a href="https://gabrielvuksani.github.io/sidelink/ios-helper">iOS Helper</a>
+</p>
 
-- Web control center for accounts, devices, installs, sources, logs, scheduler state, and IPA management
-- Electron desktop app with tray integration, desktop packaging, auto-update plumbing, and helper controls
-- Pure TypeScript backend and signing pipeline with install job tracking, live logs, and 2FA-aware recovery
-- Optional iPhone helper app for pairing, browsing sources, monitoring installs, reviewing signing state, and background refresh controls
-- AltStore-compatible source ingestion plus trusted-source curation
-- Release and docs pipelines for packaged desktop builds and published documentation
+## Why SideLink
 
-## Why This Repo Exists
+Most sideloading stacks feel like a pile of unrelated tools: one thing for signing, another for device state, another for sources, and a phone companion that barely knows what the desktop app is doing.
 
-Sidelink is not just an AltStore clone with a different skin. The repo is structured to expose more of the actual sideloading system:
+SideLink is built as one system:
 
-- Device, account, and install state are surfaced as first-class data instead of being hidden behind a single “refresh and hope” action
-- Install jobs are modeled explicitly, with step-by-step state, logs, retries, and 2FA interruption support
-- The iPhone helper is designed as a companion control surface, not just a thin pairing screen
-- Desktop and web flows share the same backend and state model, so the product behaves like one system instead of parallel tools
+- a React control center for installs, devices, Apple IDs, sources, logs, and scheduling
+- an Electron desktop shell with tray controls, packaging, and updater plumbing
+- a pure TypeScript signing pipeline with explicit job state and live progress
+- an iPhone helper that can pair, browse feeds, install apps, submit 2FA, and monitor refresh health
+- AltStore-compatible source support with a shipped official feed and release-hosted helper IPA
 
-## Current Product Surface
+## Product Surface
 
-### Web and desktop
-
-- Overview dashboard with consolidated system state
-- Apple account management, including re-auth and 2FA handling
-- Device inventory and install targeting
-- IPA library upload/import flows
-- Install queue and job log inspection
-- Installed app management, refresh, deactivate/reactivate, and cleanup flows
-- Source management and trusted-source browsing
-- Scheduler and background refresh configuration
-- Helper diagnostics, helper IPA import/build controls, pairing code, and QR pairing surfaces
-
-### iPhone helper
-
-- Pair to the desktop helper using QR or a 6-digit pairing code
-- Browse uploaded IPAs and source catalogs
-- Install from library or sources with a live install console
-- Submit Apple 2FA inline when the pipeline pauses for verification
-- Review installed apps, signing slot usage, certificates, logs, App IDs, and sources
-- Control background refresh behavior from the phone companion
-
-## Architecture
-
-The repository is organized into a few clear layers:
-
-- `src/server/`: Express server, helper routes, pipeline orchestration, services, scheduler, source ingestion, and signing logic
-- `src/client/`: React + Vite web client used both in browser and inside Electron
-- `src/desktop/`: Electron main/preload/tray/window integration
-- `src/shared/`: shared DTOs, constants, and types used by client and server
-- `ios-helper/`: native SwiftUI iPhone helper app and Xcode project
-- `docs/`: VitePress documentation site
-- `scripts/`: preflight checks, helper build/export utilities, release automation, migrations, and diagnostics
-- `tests/`: Vitest coverage for pipeline, signing, validators, routes, and integration behavior
+| Surface | What it handles |
+| --- | --- |
+| Desktop + Web | accounts, devices, installs, IPA library, logs, scheduler state, source management, helper controls |
+| Signing backend | provisioning, resigning, install orchestration, retries, 2FA pause/resume, refresh lifecycle |
+| iPhone helper | pairing, source browsing, installs, refresh visibility, Apple account follow-up, diagnostics |
+| Docs + releases | packaged desktop artifacts, published docs site, official source feed, helper IPA distribution |
 
 ## Quick Start
 
@@ -64,10 +45,10 @@ The repository is organized into a few clear layers:
 
 - Node.js 20+
 - Python 3.10+
-- macOS 11+ for full local device install support and local iOS helper build/export
+- macOS 11+ for full local device install support and local helper build/export
 - An Apple ID for signing
 
-### Start the web control center
+### Run locally
 
 ```bash
 git clone https://github.com/gabrielvuksani/sidelink.git
@@ -78,88 +59,42 @@ npm run dev
 
 Then open `http://localhost:4010`.
 
-`npm install` runs the dependency preflight and prepares the local Python side of the project automatically.
-
-If you want the full bootstrap and validation pass in one command:
+For the full bootstrap and validation path:
 
 ```bash
 npm run setup
 ```
 
-## Common Workflows
-
-### Run the server locally
-
-```bash
-npm run dev
-```
-
 ### Launch the desktop app
-
-Preferred local path:
 
 ```bash
 npm run desktop:easy
 ```
 
-On first launch, Sidelink will prompt you to create the admin account for that local instance. It no longer seeds a default username or password.
+On first launch, SideLink prompts you to create the local admin account. There is no seeded default username or password.
 
-Alternative Electron dev launch:
+## Core Workflows
+
+### Development
 
 ```bash
+npm run dev
 npm run desktop:dev
-```
-
-### Build the project
-
-```bash
-npm run build
-```
-
-### Validate everything
-
-```bash
-npm run verify
-```
-
-`verify` runs TypeScript validation, tests, production builds, docs build, and doctor checks.
-
-### Watch tests
-
-```bash
 npm run test:watch
-```
-
-### Inspect local logs
-
-```bash
 npm run logs
 ```
 
-## iPhone Helper
-
-The iPhone helper is optional, but it is a major part of the product rather than an afterthought.
-
-It lets you:
-
-- pair to the desktop helper from your phone
-- browse sources and uploaded IPAs
-- follow installs through a dedicated install console
-- submit 2FA directly when the pipeline pauses
-- inspect logs, App IDs, certificates, and installed apps
-
-Build/export scripts are available for local helper packaging:
+### Validation
 
 ```bash
-npm run helper:build
-npm run helper:export
+npm run build
+npm run verify
+npm run doctor
 ```
 
-The easiest path in practice is to use the desktop helper controls to one-click build or import the helper IPA when running on macOS.
+`npm run verify` runs TypeScript checks, tests, production builds, docs build, and runtime diagnostics.
 
-## Packaging
-
-Desktop packaging commands:
+### Packaging
 
 ```bash
 npm run desktop:package
@@ -168,17 +103,51 @@ npm run desktop:package:linux
 npm run desktop:package:all
 ```
 
-The desktop app uses Electron Builder and publishes release metadata compatible with in-app update checks.
+## iPhone Helper
 
-## Documentation
+The helper is not a side project in a subfolder. It is part of the release surface.
 
-Project documentation lives in `docs/` and is built with VitePress.
+- GitHub Releases now ship `SidelinkHelper.ipa` directly
+- desktop packaging can bundle a local or committed helper IPA automatically
+- the official source feed points at the latest published helper IPA asset
 
-Published docs URL:
+If you want to build the helper locally:
+
+```bash
+npm run helper:build
+npm run helper:export
+```
+
+Expected exported IPA path:
+
+```text
+tmp/helper/SidelinkHelper.ipa
+```
+
+## Branding
+
+The logo now has one canonical source: `scripts/generate-icon-assets.py`.
+
+That one generator produces:
+
+- desktop icons in `build/icons/`
+- the web brand asset in `src/client/public/brandmark.svg`
+- iOS app icons in `AppIcon.appiconset`
+- the reusable iOS in-app brand asset in `BrandMark.imageset`
+
+If you want to change the brand mark in the future, update the generator and run:
+
+```bash
+npm run icon:generate
+```
+
+## Docs
+
+Project documentation lives in `docs/` and publishes to:
 
 - `https://gabrielvuksani.github.io/sidelink/`
 
-Most useful entry points:
+Useful entry points:
 
 - `docs/getting-started.md`
 - `docs/desktop-app.md`
@@ -189,34 +158,12 @@ Most useful entry points:
 - `docs/troubleshooting.md`
 - `docs/security.md`
 
-Preview docs locally:
+Local docs commands:
 
 ```bash
 npm run docs:dev
-```
-
-Build docs for production:
-
-```bash
 npm run docs:build
-```
-
-Preview docs locally before publishing:
-
-```bash
 npm run docs:preview
-```
-
-## Core Commands
-
-```bash
-npm run dev
-npm run desktop:easy
-npm run build
-npm run test
-npm run verify
-npm run doctor
-npm run db:migrate
 ```
 
 ## Release Flow
@@ -227,19 +174,26 @@ Dry-run the release script first:
 bash scripts/release.sh v0.2.0 --dry-run
 ```
 
-Then cut a real release:
+Then create the real release:
 
 ```bash
 bash scripts/release.sh v0.2.0
 git push origin main --tags
 ```
 
-## Repository Notes
+Published semver tags are treated as immutable release records.
 
-- The backend, web client, and desktop app are developed together in this repo
-- The iPhone helper is native SwiftUI and ships alongside the core project rather than in a separate repository
-- Source support is AltStore-compatible, but the product is intentionally opinionated about visibility, diagnostics, and workflow control
+## Repository Layout
+
+- `src/server/` Express API, services, scheduler, sources, and signing
+- `src/client/` React + Vite control center
+- `src/desktop/` Electron shell, tray, menu, updater, preload
+- `src/shared/` shared DTOs and constants
+- `ios-helper/` native SwiftUI helper app
+- `docs/` VitePress site and official source feed
+- `scripts/` release, helper, migration, asset, and preflight tooling
+- `tests/` Vitest coverage for pipeline, security, signing, and integration paths
 
 ## License
 
-MIT
+Apache-2.0. See `LICENSE` and `NOTICE`.

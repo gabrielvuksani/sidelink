@@ -1,6 +1,6 @@
 # Architecture
 
-Sidelink has four major runtime surfaces:
+SideLink has four major runtime surfaces:
 
 - Express server (`src/server`)
 - React client (`src/client`)
@@ -42,7 +42,7 @@ For deep implementation details, see root `ARCHITECTURE.md`.
 
 ## Why The Runtime Split Matters
 
-Sidelink is intentionally divided into a few operator-facing surfaces that still share one backend and state model:
+SideLink is intentionally divided into a few operator-facing surfaces that still share one backend and state model:
 
 - desktop is the packaged control surface
 - web is the management UI

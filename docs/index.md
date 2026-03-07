@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: Sidelink
+  name: SideLink
   text: Local-first sideloading docs that read like the product
-  tagline: "Desktop release workflows, helper operations, signing behavior, troubleshooting, and deployment guidance for the full Sidelink stack."
+  tagline: "Desktop release workflows, helper operations, signing behavior, troubleshooting, and deployment guidance for the full SideLink stack."
   actions:
     - theme: brand
       text: Start Here
@@ -20,7 +20,7 @@ features:
   - title: Desktop-first release workflow
     details: "Packaging, updater metadata, native dependency validation, and smoke-tested app startup are documented together instead of scattered across scripts."
   - title: One system, not parallel tools
-    details: "The docs mirror how Sidelink actually works: backend, desktop shell, control center, and iPhone helper are explained as one coordinated product."
+    details: "The docs mirror how SideLink actually works: backend, desktop shell, control center, and iPhone helper are explained as one coordinated product."
   - title: Practical operator guidance
     details: "You get direct commands, expected outcomes, recovery paths, and security context rather than generic framework boilerplate."
 ---

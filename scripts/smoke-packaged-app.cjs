@@ -59,7 +59,7 @@ function resolveExecutablePaths() {
   }
 
   const linuxCandidates = walk(distDir, (fullPath, entry) => entry.isFile() && /\/linux-unpacked\//.test(fullPath.replace(/\\/g, '/')));
-  const preferredLinux = linuxCandidates.find((value) => path.basename(value) === 'Sidelink' || path.basename(value) === 'sidelink');
+  const preferredLinux = linuxCandidates.find((value) => path.basename(value) === 'SideLink' || path.basename(value) === 'sidelink');
   return [preferredLinux || linuxCandidates[0]].filter(Boolean);
 }
 

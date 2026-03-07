@@ -49,6 +49,24 @@ if [[ "$CURRENT_BRANCH" != "main" ]]; then
   exit 1
 fi
 
+if git remote get-url origin >/dev/null 2>&1; then
+  echo "[release] Fetching origin to verify main is in sync ..."
+  git fetch --tags origin main >/dev/null 2>&1 || {
+    echo "Error: Could not fetch origin/main. Check network access and retry."
+    exit 1
+  }
+
+  LOCAL_HEAD="$(git rev-parse HEAD)"
+  REMOTE_MAIN="$(git rev-parse origin/main)"
+  if [[ "$LOCAL_HEAD" != "$REMOTE_MAIN" ]]; then
+    echo "Error: Local main is not aligned with origin/main."
+    echo "  Local : $LOCAL_HEAD"
+    echo "  Remote: $REMOTE_MAIN"
+    echo "  Pull/rebase first, then create the release tag from the exact main tip you want to publish."
+    exit 1
+  fi
+fi
+
 CURRENT_VERSION="$(node -p "require('./package.json').version")"
 
 echo "[release] Current package.json version: $CURRENT_VERSION"
@@ -109,6 +127,11 @@ else
     echo "Error: Tag $TAG already exists locally."
     exit 1
   fi
+  if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+    echo "Error: Tag $TAG already exists on origin. Published release tags are immutable."
+    echo "  Create a new semver tag instead of moving an existing release tag."
+    exit 1
+  fi
   git add package.json
   git commit -m "$TAG"
   git tag -a "$TAG" -m "Release $TAG"
@@ -124,4 +147,6 @@ echo ""
 echo "  To push:  git push origin main --tags"
 echo "  electron-builder will pick up the tag when you"
 echo "  run:  npm run desktop:package"
+echo "  Do not force-move a published release tag."
+echo "  If release automation needs follow-up fixes, commit them to main and ship them in the next version."
 echo ""

@@ -14,6 +14,7 @@ npm run build
 - `main` is the release branch
 - Feature work should be small and reviewable
 - Keep commits scoped to one concern
+- Published semver tags are immutable; release follow-up fixes go to `main` and ship in the next version
 
 ## Coding Standards
 
@@ -46,3 +47,9 @@ Local docs validation commands:
 npm run docs:build
 npm run docs:preview
 ```
+
+## Release Discipline
+
+1. Cut release tags only from a clean local `main` that matches `origin/main`.
+2. Treat `v*` tags as publish records, not moving targets.
+3. If GitHub Actions or Pages needs a post-release fix, merge it to `main` and include it in the next semver release rather than force-updating the existing tag.

@@ -35,10 +35,13 @@ exports.default = async function beforePack(context) {
   ensureDir(helperResourcesDir);
 
   const helperSource = path.join(rootDir, 'tmp', 'helper', 'SidelinkHelper.ipa');
+  const fallbackHelperSource = path.join(rootDir, 'helper', 'SidelinkHelper.ipa');
   const helperTarget = path.join(helperResourcesDir, 'SidelinkHelper.ipa');
 
   if (copyIfExists(helperSource, helperTarget)) {
     console.log(`[beforePack] Bundled helper IPA from ${helperSource}`);
+  } else if (copyIfExists(fallbackHelperSource, helperTarget)) {
+    console.log(`[beforePack] Bundled helper IPA from ${fallbackHelperSource}`);
   } else {
     console.log('[beforePack] No local helper IPA found; packaging without bundled helper IPA');
   }

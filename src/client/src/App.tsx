@@ -49,7 +49,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--sl-accent)]/70 border-t-transparent" />
             <div>
-              <p className="text-sm font-medium text-[var(--sl-text)]">Loading Sidelink</p>
+              <p className="text-sm font-medium text-[var(--sl-text)]">Loading SideLink</p>
               <p className="text-xs text-[var(--sl-muted)]">Preparing the desktop control surface...</p>
             </div>
           </div>

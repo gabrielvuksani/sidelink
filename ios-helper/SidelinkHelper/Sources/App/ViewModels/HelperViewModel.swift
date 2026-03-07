@@ -28,10 +28,10 @@ final class HelperViewModel: ObservableObject {
         ),
         TrustedSourceDTO(
             id: "sidelink-official",
-            name: "Sidelink Official",
+            name: "SideLink Official",
             url: officialSourceURL,
             iconURL: "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
-            description: "The default source shipped with Sidelink."
+            description: "The default source shipped with SideLink."
         ),
     ]
 
@@ -161,7 +161,7 @@ final class HelperViewModel: ObservableObject {
 
     var installReadinessMessage: String? {
         if !isPaired {
-            return "Pair with a Sidelink server to install or refresh apps"
+            return "Pair with a SideLink server to install or refresh apps"
         }
         if pendingAppleAuth != nil {
             return "Finish Apple ID verification in Settings before installing apps"
@@ -294,7 +294,7 @@ final class HelperViewModel: ObservableObject {
             return "Add and verify an Apple ID to keep one signing identity across installs."
         }
         let device = selectedDevice?.name ?? "your device"
-        return "Sidelink defaults to \(account.appleId) for signing and installs to \(device)."
+        return "SideLink defaults to \(account.appleId) for signing and installs to \(device)."
     }
 
     var installPreparationSummary: String {
@@ -353,7 +353,7 @@ final class HelperViewModel: ObservableObject {
         do {
             let result = try await api.pair(baseURL: normalized, code: code)
             updateHelperToken(result.token)
-            serverName = result.serverName ?? "Sidelink"
+            serverName = result.serverName ?? "SideLink"
             serverVersion = result.serverVersion ?? ""
             pairingCode = ""
             errorMessage = nil
@@ -515,12 +515,12 @@ final class HelperViewModel: ObservableObject {
             if invalidatedPrimarySigningIdentity {
                 recoveryMessages.append(activeAccounts.isEmpty
                     ? "Your primary signing identity is no longer available."
-                    : "Your primary signing identity disappeared, so Sidelink switched to the next active Apple ID.")
+                    : "Your primary signing identity disappeared, so SideLink switched to the next active Apple ID.")
             }
             if invalidatedDeviceSelection {
                 recoveryMessages.append(devices.isEmpty
                     ? "Your selected device is no longer available."
-                    : "Your selected device was removed, so Sidelink switched to another connected device.")
+                    : "Your selected device was removed, so SideLink switched to another connected device.")
             }
             if !recoveryMessages.isEmpty {
                 toastMessage = recoveryMessages.joined(separator: " ")
@@ -1030,7 +1030,7 @@ final class HelperViewModel: ObservableObject {
 
     func signInAppleAccount(appleId: String, password: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a Sidelink server before adding an Apple ID"
+            errorMessage = "Pair with a SideLink server before adding an Apple ID"
             return
         }
 
@@ -1085,7 +1085,7 @@ final class HelperViewModel: ObservableObject {
 
     func reauthenticateAppleAccount(accountId: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a Sidelink server before re-authenticating Apple IDs"
+            errorMessage = "Pair with a SideLink server before re-authenticating Apple IDs"
             return
         }
         guard let account = accounts.first(where: { $0.id == accountId }) else {
@@ -1132,7 +1132,7 @@ final class HelperViewModel: ObservableObject {
 
     func submitPendingAppleAccount2FA(code: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a Sidelink server before verifying Apple IDs"
+            errorMessage = "Pair with a SideLink server before verifying Apple IDs"
             return
         }
         guard let pendingAppleAuth else {
@@ -1190,7 +1190,7 @@ final class HelperViewModel: ObservableObject {
 
     func deleteAppleAccount(_ accountId: String) async {
         guard isPaired else {
-            errorMessage = "Pair with a Sidelink server before removing Apple IDs"
+            errorMessage = "Pair with a SideLink server before removing Apple IDs"
             return
         }
 
@@ -1212,7 +1212,7 @@ final class HelperViewModel: ObservableObject {
             await refreshAll()
             if removedPrimarySigningIdentity {
                 if let fallback = primaryActiveSigningAccount {
-                    toastMessage = "Primary signing identity removed. Sidelink switched to \(fallback.appleId)"
+                    toastMessage = "Primary signing identity removed. SideLink switched to \(fallback.appleId)"
                 } else {
                     toastMessage = "Primary signing identity removed"
                 }
@@ -1268,7 +1268,7 @@ final class HelperViewModel: ObservableObject {
 
     private func requirePairing(for action: String) -> Bool {
         guard isPaired else {
-            errorMessage = "Pair with a Sidelink server before you \(action)."
+            errorMessage = "Pair with a SideLink server before you \(action)."
             return false
         }
         return true

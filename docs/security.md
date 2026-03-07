@@ -1,6 +1,6 @@
 # Security
 
-Security in Sidelink is mostly about keeping trust boundaries visible and local state under user control.
+Security in SideLink is mostly about keeping trust boundaries visible and local state under user control.
 
 ## Principles
 

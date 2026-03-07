@@ -7,7 +7,7 @@
     "name": "Gabriel Vuksani",
     "email": "gabrielvuksani@users.noreply.github.com"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/gabrielvuksani/sidelink",
   "repository": {
     "type": "git",
@@ -117,7 +117,7 @@
   },
   "build": {
     "appId": "com.gabriel.sidelink",
-    "productName": "Sidelink",
+    "productName": "SideLink",
     "beforePack": "./scripts/beforePack.cjs",
     "afterPack": "./scripts/afterPack.cjs",
     "files": [
@@ -163,7 +163,7 @@
       }
     ],
     "protocols": {
-      "name": "Sidelink",
+      "name": "SideLink",
       "schemes": [
         "sidelink"
       ]

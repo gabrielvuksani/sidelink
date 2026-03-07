@@ -1,5 +1,5 @@
 // ─── API Client ──────────────────────────────────────────────────────
-// Typed fetch wrapper for the Sidelink REST API with 401 interception.
+// Typed fetch wrapper for the SideLink REST API with 401 interception.
 
 import type {
   AppleAccount,

@@ -120,7 +120,7 @@ struct InstalledTab: View {
                         .padding(.vertical, 40)
                     } else if !activeApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            SidelinkSectionIntro(eyebrow: "Installed", title: "Active installs", subtitle: "Apps currently managed by Sidelink, with expiry and refresh actions front and center.")
+                            SidelinkSectionIntro(eyebrow: "Installed", title: "Active installs", subtitle: "Apps currently managed by SideLink, with expiry and refresh actions front and center.")
                                 .padding(.horizontal, 20)
 
                             LazyVStack(spacing: 12) {
@@ -241,7 +241,7 @@ struct InstalledTab: View {
 
     private var installedHero: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SidelinkSectionIntro(eyebrow: "Installed", title: "A sharper view of what Sidelink manages", subtitle: "Active installs, expiry risk, and your ready-to-sign library stay visible without the clutter of every unrelated device app.")
+            SidelinkSectionIntro(eyebrow: "Installed", title: "A sharper view of what SideLink manages", subtitle: "Active installs, expiry risk, and your ready-to-sign library stay visible without the clutter of every unrelated device app.")
 
             HStack(spacing: 12) {
                 SidelinkMetricTile(label: "Active", value: "\(activeApps.count)")
@@ -518,7 +518,7 @@ private struct InstalledImportURLSheet: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
 
-                    Text("Paste a direct IPA download link. Sidelink will import it into your library before you sign it.")
+                    Text("Paste a direct IPA download link. SideLink will import it into your library before you sign it.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 

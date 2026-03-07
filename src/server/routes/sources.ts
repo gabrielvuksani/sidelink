@@ -67,7 +67,7 @@ export function sourceRoutes(ctx: AppContext): Router {
     const manifest = ctx.sources.getSelfHostedManifest();
     if (!manifest) {
       const fallback: SourceManifest = {
-        name: 'Sidelink Self Hosted',
+        name: 'SideLink Self Hosted',
         identifier: 'com.sidelink.self-hosted',
         sourceURL: '/api/sources/self-hosted',
         apps: [],

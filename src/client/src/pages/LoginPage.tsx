@@ -9,7 +9,7 @@ export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { document.title = 'Sign In — Sidelink'; }, []);
+  useEffect(() => { document.title = 'Sign In — SideLink'; }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +31,7 @@ export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => 
         <div className="flex justify-center mb-6">
           <BrandIcon className="h-12 w-12" />
         </div>
-        <h1 className="text-2xl font-bold text-center text-[var(--sl-text)] mb-1">Sidelink</h1>
+        <h1 className="text-2xl font-bold text-center text-[var(--sl-text)] mb-1">SideLink</h1>
         <p className="text-[var(--sl-muted)] text-center text-[13px] mb-8">Sign in to continue.</p>
 
         {sessionExpired && (

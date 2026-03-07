@@ -1,8 +1,8 @@
 # FAQ
 
-## Does Sidelink require AltServer?
+## Does SideLink require AltServer?
 
-No. Sidelink is local-first and self-hosted.
+No. SideLink is local-first and self-hosted.
 
 ## Is this only for macOS?
 
@@ -22,7 +22,7 @@ Desktop uses GitHub release artifacts and in-app updater checks.
 
 ## Can I use helper without desktop?
 
-Helper pairs to a running Sidelink server. Desktop is recommended for easiest setup.
+Helper pairs to a running SideLink server. Desktop is recommended for easiest setup.
 
 ## Why is the desktop release flow stricter now?
 

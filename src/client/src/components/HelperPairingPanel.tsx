@@ -14,7 +14,7 @@ interface HelperPairingPanelProps {
 
 export function HelperPairingPanel({
   title = 'Pair your iPhone helper',
-  subtitle = 'Open Sidelink on your iPhone, choose Pair / Repair, then scan this QR or enter the 6-digit code manually.',
+  subtitle = 'Open SideLink on your iPhone, choose Pair / Repair, then scan this QR or enter the 6-digit code manually.',
   paired = false,
   compact = false,
 }: HelperPairingPanelProps) {
@@ -135,7 +135,7 @@ export function HelperPairingPanel({
               <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Scan on iPhone</p>
                 <ol className="mt-2 space-y-2 text-[12px] leading-5 text-[var(--sl-text)]">
-                  <li>1. Open Sidelink on your iPhone.</li>
+                  <li>1. Open SideLink on your iPhone.</li>
                   <li>2. Go to Pair / Repair in onboarding or settings.</li>
                   <li>3. Scan this QR to fill the server and pairing code instantly.</li>
                 </ol>
