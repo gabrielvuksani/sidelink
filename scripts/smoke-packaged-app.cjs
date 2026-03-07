@@ -32,7 +32,14 @@ function resolveExecutablePath() {
 
   if (process.platform === 'darwin') {
     const apps = walk(distDir, (fullPath, entry) => entry.isDirectory() && fullPath.endsWith('.app'));
-    for (const appPath of apps.sort()) {
+    const preferredSegment = process.arch === 'x64' ? 'mac-x64' : 'mac-arm64';
+    const sortedApps = apps.sort((left, right) => {
+      const leftPreferred = left.includes(preferredSegment) ? 0 : 1;
+      const rightPreferred = right.includes(preferredSegment) ? 0 : 1;
+      if (leftPreferred !== rightPreferred) return leftPreferred - rightPreferred;
+      return left.localeCompare(right);
+    });
+    for (const appPath of sortedApps) {
       const candidate = path.join(appPath, 'Contents', 'MacOS', path.basename(appPath, '.app'));
       if (fs.existsSync(candidate)) return candidate;
     }

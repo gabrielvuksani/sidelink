@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCmd = 'npm';
 const electronBin = path.join(
   rootDir,
   'node_modules',
@@ -14,6 +14,7 @@ const electronBin = path.join(
 );
 
 const run = (command, args, options = {}) => {
+  const resolvedCommand = process.platform === 'win32' && command === 'npm.cmd' ? 'npm' : command;
   const result = spawnSync(command, args, {
     cwd: rootDir,
     env: process.env,
@@ -27,7 +28,7 @@ const run = (command, args, options = {}) => {
   }
 
   if ((result.status ?? 1) !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}`);
+    throw new Error(`${resolvedCommand} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}`);
   }
 };
 

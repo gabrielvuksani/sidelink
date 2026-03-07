@@ -192,7 +192,7 @@ jobs:
 
       - name: Smoke test packaged desktop app
         if: startsWith(matrix.platform, 'mac')
-        run: npm run desktop:smoke
+        run: node scripts/smoke-packaged-app.cjs dist/${{ matrix.platform }}/Sidelink.app/Contents/MacOS/Sidelink
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
