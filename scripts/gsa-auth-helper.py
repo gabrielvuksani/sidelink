@@ -105,6 +105,61 @@ def get_client_info(anisette: dict) -> str:
     )
 
 
+def _normalize_phone_id(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def extract_trusted_phone_numbers(*sources) -> list[dict]:
+    """Best-effort normalization of trusted phone numbers from Apple responses."""
+    trusted_numbers = []
+    seen = set()
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+
+        for key in ("trustedPhoneNumbers", "trustedPhoneNumber", "phoneNumbers", "phoneNumber", "phones"):
+            raw_numbers = source.get(key)
+            if raw_numbers is None:
+                continue
+
+            entries = raw_numbers if isinstance(raw_numbers, list) else [raw_numbers]
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+
+                phone_id = _normalize_phone_id(
+                    entry.get("id")
+                    or entry.get("phoneNumberId")
+                    or entry.get("numberId")
+                )
+                number = (
+                    entry.get("numberWithDialCode")
+                    or entry.get("obfuscatedNumber")
+                    or entry.get("number")
+                    or entry.get("formattedNumber")
+                )
+
+                if phone_id is None or not isinstance(number, str) or not number.strip():
+                    continue
+
+                normalized = {"id": phone_id, "numberWithDialCode": number.strip()}
+                dedupe_key = (normalized["id"], normalized["numberWithDialCode"])
+                if dedupe_key in seen:
+                    continue
+
+                seen.add(dedupe_key)
+                trusted_numbers.append(normalized)
+
+    return trusted_numbers
+
+
 # ─── GSA Request ─────────────────────────────────────────────────────
 
 def gsa_request(parameters: dict, anisette: dict) -> dict:
@@ -270,8 +325,11 @@ def authenticate(username: str, password: str, anisette: dict) -> dict:
 
     # Check auth type
     auth_type = ""
-    if "Status" in r and "au" in r["Status"]:
-        auth_type = r["Status"]["au"]
+    status = r.get("Status", {}) if isinstance(r.get("Status"), dict) else {}
+    if "au" in status:
+        auth_type = status["au"]
+
+    trusted_phone_numbers = extract_trusted_phone_numbers(r, status, spd)
 
     result = {
         "error": False,
@@ -279,6 +337,9 @@ def authenticate(username: str, password: str, anisette: dict) -> dict:
         "idms_token": idms_token,
         "auth_type": auth_type,
     }
+
+    if trusted_phone_numbers:
+        result["trusted_phone_numbers"] = trusted_phone_numbers
 
     # Include sk and c as base64 if present
     if sk is not None:
@@ -432,6 +493,24 @@ def request_sms_2fa(adsid: str, idms_token: str, phone_id: int, anisette: dict) 
 
 # ─── Main Entry Point ───────────────────────────────────────────────
 
+def handle_command(req: dict) -> dict:
+    command = req.get("command", "")
+    anisette = req.get("anisette", {})
+
+    if command == "__self_check__":
+        return {"ok": True}
+    if command == "auth":
+        return authenticate(req["username"], req["password"], anisette)
+    if command == "2fa_trigger":
+        return trigger_2fa_push(req["adsid"], req["idms_token"], anisette)
+    if command == "2fa_validate":
+        return validate_2fa_code(req["adsid"], req["idms_token"], req["code"], anisette)
+    if command == "app_tokens":
+        return fetch_app_tokens(req["adsid"], req["idms_token"], req["sk"], req["c"], anisette)
+    if command == "sms_2fa":
+        return request_sms_2fa(req["adsid"], req["idms_token"], req.get("phone_id", 1), anisette)
+    return {"error": True, "error_code": -101, "error_message": f"Unknown command: {command}"}
+
 def main():
     try:
         raw = sys.stdin.read()
@@ -440,22 +519,8 @@ def main():
         print(json.dumps({"error": True, "error_code": -100, "error_message": f"Invalid JSON input: {str(e)}"}))
         sys.exit(1)
 
-    command = req.get("command", "")
-    anisette = req.get("anisette", {})
-
     try:
-        if command == "auth":
-            result = authenticate(req["username"], req["password"], anisette)
-        elif command == "2fa_trigger":
-            result = trigger_2fa_push(req["adsid"], req["idms_token"], anisette)
-        elif command == "2fa_validate":
-            result = validate_2fa_code(req["adsid"], req["idms_token"], req["code"], anisette)
-        elif command == "app_tokens":
-            result = fetch_app_tokens(req["adsid"], req["idms_token"], req["sk"], req["c"], anisette)
-        elif command == "sms_2fa":
-            result = request_sms_2fa(req["adsid"], req["idms_token"], req.get("phone_id", 1), anisette)
-        else:
-            result = {"error": True, "error_code": -101, "error_message": f"Unknown command: {command}"}
+        result = handle_command(req)
     except Exception as e:
         result = {"error": True, "error_code": -999, "error_message": str(e)}
 

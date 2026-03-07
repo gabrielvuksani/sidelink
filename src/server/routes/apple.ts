@@ -37,6 +37,7 @@ export function appleRoutes(ctx: AppContext): Router {
           data: {
             requires2FA: true,
             authType: err.authType,
+            trustedPhoneNumbers: err.trustedPhoneNumbers,
           },
         });
       }
@@ -101,6 +102,7 @@ export function appleRoutes(ctx: AppContext): Router {
           data: {
             requires2FA: true,
             authType: err.authType,
+            trustedPhoneNumbers: err.trustedPhoneNumbers,
           },
         });
       }

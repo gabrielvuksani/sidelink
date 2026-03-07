@@ -87,6 +87,65 @@ async function validateBundledPython(executablePath) {
       resolve();
     });
   });
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(helperPath, ['--command', 'gsa-auth'], {
+      cwd: rootDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let output = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`Bundled Python gsa-auth check timed out\n${output.trim()}`.trim()));
+    }, 30_000);
+
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on('exit', (_code) => {
+      clearTimeout(timer);
+
+      try {
+        const jsonLine = output
+          .trim()
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .reverse()
+          .find((line) => line.startsWith('{') && line.endsWith('}'));
+
+        if (!jsonLine) {
+          reject(new Error(`Bundled Python gsa-auth check returned invalid JSON\n${output.trim()}`.trim()));
+          return;
+        }
+
+        const parsed = JSON.parse(jsonLine);
+        if (parsed.error_code !== -101) {
+          reject(new Error(`Bundled Python gsa-auth dispatch is broken\n${output.trim()}`.trim()));
+          return;
+        }
+      } catch (_error) {
+        reject(new Error(`Bundled Python gsa-auth check returned invalid JSON\n${output.trim()}`.trim()));
+        return;
+      }
+
+      resolve();
+    });
+
+    child.stdin.write(JSON.stringify({ command: '__invalid_command__' }));
+    child.stdin.end();
+  });
 }
 
 function walk(dirPath, matcher, results = []) {
@@ -153,6 +212,7 @@ async function launchExecutable(executablePath) {
       env: {
         ...process.env,
         SIDELINK_SMOKE_TEST: '1',
+        SIDELINK_DISABLE_KEYCHAIN: '1',
         SIDELINK_SKIP_AUTO_UPDATER: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.5] - 2026-03-07
+
+### Fixed
+
+- Fixed the packaged Apple authentication path so onboarding and desktop smoke exercise the same helper dispatch boundary instead of diverging between development and packaged builds.
+- Completed the onboarding 2FA workflow by returning trusted phone metadata when Apple exposes it and by wiring the SMS trigger path through the backend instead of leaving it as a no-op.
+- Ignored generated Python helper build output and helper export artifacts so desktop release work no longer dirties the repository with local build products.
+
 ## [0.2.4] - 2026-03-07
 
 ### Fixed

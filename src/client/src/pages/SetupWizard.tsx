@@ -3,7 +3,7 @@
 // Replaces the old single-form SetupPage for a production-ready UX.
 
 import { useState, useEffect, useCallback, useRef, type ReactNode, type DragEvent } from 'react';
-import { api } from '../lib/api';
+import { api, type Apple2FAChallenge } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { Card } from '../components/Shared';
@@ -462,12 +462,6 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
 
 // ── Step 3: Apple ID ─────────────────────────────────────────────────
 
-interface TwoFAInfo {
-  requires2FA: boolean;
-  authType?: string;
-  trustedPhoneNumbers?: Array<{ id: number; numberWithDialCode: string }>;
-}
-
 function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [phase, setPhase] = useState<'form' | '2fa' | 'success'>('form');
   const [appleId, setAppleId] = useState('');
@@ -475,7 +469,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [twoFAInfo, setTwoFAInfo] = useState<TwoFAInfo | null>(null);
+  const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
   const { toast } = useToast();
 
   const signIn = async () => {
@@ -484,14 +478,14 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     try {
       const res = await api.appleSignIn(appleId, password);
       if (res.data && 'requires2FA' in res.data && res.data.requires2FA) {
-        setTwoFAInfo(res.data as TwoFAInfo);
+        setTwoFAInfo(res.data as Apple2FAChallenge);
         setPhase('2fa');
       } else {
         toast('success', 'Apple ID connected');
         setPhase('success');
       }
     } catch (e: unknown) {
-      const body = (e as { data?: TwoFAInfo })?.data ?? (e as TwoFAInfo);
+      const body = (e as { data?: Apple2FAChallenge })?.data ?? (e as Apple2FAChallenge);
       if (body?.requires2FA) {
         setTwoFAInfo(body);
         setPhase('2fa');
@@ -577,7 +571,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
       ) : (
         <div className="mt-5 space-y-4">
           <p className="text-xs text-[var(--sl-muted)]">
-            Enter the 6-digit code from your trusted Apple device.
+            Enter the 6-digit code from your trusted Apple device. If Apple exposes an SMS fallback for this account, you can trigger it below.
           </p>
           <input
             type="text"
@@ -599,7 +593,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
                     try {
                       await api.requestAppleSMS(appleId, p.id);
                       toast('info', 'SMS code sent');
-                    } catch { setError('Failed to send SMS'); }
+                    } catch (e: unknown) { setError(getErrorMessage(e, 'Failed to send SMS')); }
                   }}
                   className="text-xs text-indigo-400 hover:text-indigo-300 mr-3 transition-colors"
                 >
@@ -607,6 +601,11 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
                 </button>
               ))}
             </div>
+          )}
+          {(!twoFAInfo?.trustedPhoneNumbers || twoFAInfo.trustedPhoneNumbers.length === 0) && (
+            <p className="text-xs text-[var(--sl-muted)] opacity-80">
+              Apple is only offering trusted-device verification for this session.
+            </p>
           )}
         </div>
       )}

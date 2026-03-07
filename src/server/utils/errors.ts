@@ -22,6 +22,11 @@ export class AppleAuthError extends AppError {
   }
 }
 
+export interface AppleTrustedPhoneNumber {
+  id: number;
+  numberWithDialCode: string;
+}
+
 export class Apple2FARequiredError extends AppError {
   /** Partial session for the caller to resume 2FA. */
   public readonly partialSession: {
@@ -31,14 +36,17 @@ export class Apple2FARequiredError extends AppError {
     sessionId: string;
   };
   public readonly authType: string;
+  public readonly trustedPhoneNumbers: AppleTrustedPhoneNumber[];
 
   constructor(
     sessionData: { scnt: string; xAppleIdSessionId: string; authType: string },
     partialSession?: { cookies: string[]; sessionToken: string; scnt: string; sessionId: string },
+    trustedPhoneNumbers?: AppleTrustedPhoneNumber[],
   ) {
     super('APPLE_2FA_REQUIRED', 'Two-factor authentication is required', 409);
     this.name = 'Apple2FARequiredError';
     this.authType = sessionData.authType;
+    this.trustedPhoneNumbers = trustedPhoneNumbers ?? [];
     this.partialSession = partialSession ?? {
       cookies: [],
       sessionToken: '',

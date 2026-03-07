@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord, type AppleCertificateRecord } from '../lib/api';
+import {
+  api,
+  type Apple2FAChallenge,
+  type AppleAppIdRecord,
+  type AppleAppIdUsageRecord,
+  type AppleCertificateRecord,
+} from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
@@ -326,11 +332,6 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
   );
 }
 
-interface TwoFAInfo {
-  requires2FA: boolean;
-  authType?: string;
-}
-
 function SignInForm({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState<'credentials' | '2fa'>('credentials');
   const [appleId, setAppleId] = useState('');
@@ -338,7 +339,7 @@ function SignInForm({ onDone }: { onDone: () => void }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [twoFAInfo, setTwoFAInfo] = useState<TwoFAInfo | null>(null);
+  const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
   const { toast } = useToast();
 
   const signIn = async () => {
@@ -347,14 +348,14 @@ function SignInForm({ onDone }: { onDone: () => void }) {
     try {
       const res = await api.appleSignIn(appleId, password);
       if (res.data && 'requires2FA' in res.data && res.data.requires2FA) {
-        setTwoFAInfo(res.data as TwoFAInfo);
+        setTwoFAInfo(res.data as Apple2FAChallenge);
         setStep('2fa');
       } else {
         toast('success', 'Apple ID signed in successfully');
         onDone();
       }
     } catch (e: unknown) {
-      const body = (e as { data?: TwoFAInfo })?.data ?? (e as TwoFAInfo);
+      const body = (e as { data?: Apple2FAChallenge })?.data ?? (e as Apple2FAChallenge);
       if (body?.requires2FA) {
         setTwoFAInfo(body);
         setStep('2fa');
@@ -437,16 +438,41 @@ function SignInForm({ onDone }: { onDone: () => void }) {
             ) : 'Verify'}
           </button>
 
-          <div className="pt-2 border-t border-[var(--sl-border)]">
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-3">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" aria-hidden="true">
-                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-              </svg>
-              <p className="text-[12px] text-amber-400/90">
-                <span className="font-semibold">SMS 2FA is not supported.</span>{' '}
-                SideLink uses trusted-device verification only. Make sure you have a trusted Apple device nearby to receive the 6-digit code.
-              </p>
-            </div>
+          <div className="pt-2 border-t border-[var(--sl-border)] space-y-3">
+            {twoFAInfo?.trustedPhoneNumbers && twoFAInfo.trustedPhoneNumbers.length > 0 ? (
+              <div>
+                <p className="text-[12px] text-[var(--sl-muted)] mb-2">Need an SMS instead?</p>
+                <div className="flex flex-wrap gap-2">
+                  {twoFAInfo.trustedPhoneNumbers.map((phone) => (
+                    <button
+                      key={phone.id}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.requestAppleSMS(appleId, phone.id);
+                          toast('info', `SMS code sent to ${phone.numberWithDialCode}`);
+                        } catch (e: unknown) {
+                          setError(getErrorMessage(e, 'Failed to send SMS'));
+                        }
+                      }}
+                      className="sl-btn-ghost !text-[12px] !px-2.5 !py-1.5"
+                    >
+                      SMS to {phone.numberWithDialCode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" aria-hidden="true">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                <p className="text-[12px] text-amber-400/90">
+                  <span className="font-semibold">Trusted-device verification only.</span>{' '}
+                  Apple did not expose any SMS fallback numbers for this session.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

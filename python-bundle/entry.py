@@ -19,6 +19,7 @@ import sys
 import json
 import argparse
 import importlib
+import importlib.util
 import os
 import warnings
 
@@ -26,6 +27,56 @@ warnings.filterwarnings(
     'ignore',
     message='Unable to find acceptable character detection dependency.*',
 )
+
+def load_gsa_helper_module():
+    """Load the bundled GSA helper module in both frozen and development modes."""
+    try:
+        return importlib.import_module('sidelink_gsa_auth')
+    except ImportError:
+        pass
+
+    search_roots = []
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    search_roots.append(current_dir)
+
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        search_roots.append(meipass)
+
+    search_roots.extend([
+        os.path.dirname(current_dir),
+        os.path.join(os.path.dirname(current_dir), 'python-bundle'),
+    ])
+
+    candidate_paths = []
+    seen = set()
+    for root in search_roots:
+        if not root:
+            continue
+        for candidate in [
+            os.path.join(root, 'gsa_helper_assets', 'gsa-auth-helper.py'),
+            os.path.join(root, 'sidelink_gsa_auth', 'gsa-auth-helper.py'),
+            os.path.join(root, 'scripts', 'gsa-auth-helper.py'),
+        ]:
+            normalized = os.path.normpath(candidate)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            candidate_paths.append(normalized)
+
+    for helper_path in candidate_paths:
+        if not os.path.isfile(helper_path):
+            continue
+
+        spec = importlib.util.spec_from_file_location('sidelink_gsa_auth_runtime', helper_path)
+        if spec is None or spec.loader is None:
+            continue
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    raise ImportError('Could not locate bundled GSA auth helper script')
 
 def main():
     parser = argparse.ArgumentParser(description='Sidelink Python Helper')
@@ -54,6 +105,17 @@ def main():
                 checks[mod_name] = True
             except ImportError as e:
                 checks[mod_name] = str(e)
+
+        try:
+            helper_module = load_gsa_helper_module()
+            handle_command = getattr(helper_module, 'handle_command', None)
+            if not callable(handle_command):
+                raise RuntimeError('handle_command is missing')
+            result = handle_command({'command': '__self_check__'})
+            checks['gsa_auth'] = result == {'ok': True}
+        except Exception as e:
+            checks['gsa_auth'] = str(e)
+
         print(json.dumps({'ok': all(v is True for v in checks.values()), 'modules': checks}))
         return
 
@@ -103,26 +165,11 @@ def run_gsa_auth():
         print(json.dumps({'error': f'Invalid JSON input: {str(e)}'}))
         sys.exit(1)
 
-    # Import the GSA auth module
-    # When bundled, the gsa_auth module is included alongside this entry point
     try:
-        # Try importing from bundled location first
-        from sidelink_gsa_auth import handle_command
+        helper_module = load_gsa_helper_module()
+        handle_command = getattr(helper_module, 'handle_command')
         result = handle_command(request)
         print(json.dumps(result))
-    except ImportError:
-        # Fallback: try running the original script logic directly
-        try:
-            # Add scripts directory to path for development mode
-            scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts')
-            if os.path.isdir(scripts_dir):
-                sys.path.insert(0, scripts_dir)
-            from gsa_auth_helper import handle_command
-            result = handle_command(request)
-            print(json.dumps(result))
-        except ImportError:
-            print(json.dumps({'error': 'GSA auth module not found'}))
-            sys.exit(1)
     except Exception as e:
         print(json.dumps({'error': str(e), 'error_type': type(e).__name__}))
         sys.exit(1)

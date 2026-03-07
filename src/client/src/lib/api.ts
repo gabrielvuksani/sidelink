@@ -23,6 +23,17 @@ const BASE = '/api';
 interface ApiRes<T = unknown> { ok: boolean; data?: T; error?: string }
 interface ApiErrorShape { error?: string; ok?: boolean }
 
+export interface AppleTrustedPhoneNumber {
+  id: number;
+  numberWithDialCode: string;
+}
+
+export interface Apple2FAChallenge {
+  requires2FA: true;
+  authType?: string;
+  trustedPhoneNumbers?: AppleTrustedPhoneNumber[];
+}
+
 export interface AppleAppIdRecord {
   id: string;
   accountId: string;
@@ -220,10 +231,10 @@ export const api = {
 
   // ── Apple Accounts ──────────────────────────────────────────────────
   appleSignIn: (appleId: string, password: string) =>
-    request<AppleAccount | { requires2FA: boolean; authType: string }>('POST', '/apple/signin', { appleId, password }, {
+    request<AppleAccount | Apple2FAChallenge>('POST', '/apple/signin', { appleId, password }, {
       suppressSessionExpiryHandling: true,
     }),
-  submitApple2FA: (data: { appleId: string; password: string; code: string }) =>
+  submitApple2FA: (data: { appleId: string; password: string; code: string; method?: 'totp' | 'sms'; phoneId?: number }) =>
     request<AppleAccount>('POST', '/apple/2fa', data, {
       suppressSessionExpiryHandling: true,
     }),
@@ -235,7 +246,7 @@ export const api = {
   getAppleAccount: (id: string) => request<AppleAccount>('GET', `/apple/accounts/${encodeURIComponent(id)}`),
   removeAppleAccount: (id: string) => request('DELETE', `/apple/accounts/${encodeURIComponent(id)}`),
   reAuthAccount: (id: string) =>
-    request<AppleAccount | { requires2FA: boolean; authType: string }>('POST', `/apple/accounts/${encodeURIComponent(id)}/reauth`, undefined, {
+    request<AppleAccount | Apple2FAChallenge>('POST', `/apple/accounts/${encodeURIComponent(id)}/reauth`, undefined, {
       suppressSessionExpiryHandling: true,
     }),
   reAuthSubmit2FA: (id: string, code: string) =>

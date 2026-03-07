@@ -102,6 +102,7 @@ def main():
         'requests',
         'charset_normalizer',
         'cryptography',
+        'cryptography.hazmat.primitives.padding',
         'pymobiledevice3',
         'pymobiledevice3.cli',
         'pymobiledevice3.lockdown',
@@ -131,9 +132,9 @@ def main():
     for hi in hidden_imports:
         cmd.extend(['--hidden-import', hi])
 
-    # Add the GSA helper as additional data
+    # Add the GSA helper as additional data for the frozen entrypoint loader.
     if os.path.exists(gsa_helper):
-        datas.append((gsa_helper, 'sidelink_gsa_auth'))
+        datas.append((gsa_helper, 'gsa_helper_assets'))
 
     sep = ';' if sys.platform == 'win32' else ':'
 

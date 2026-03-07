@@ -176,7 +176,6 @@ export class AppleAccountService {
    * Step 2 (alt): Request SMS be sent to a specific phone number.
    */
   async requestSMS(appleId: string, phoneNumberId: number): Promise<void> {
-
     const session = pendingSessions.get(appleId);
     if (!session) {
       throw new AppleAuthError(
@@ -185,7 +184,7 @@ export class AppleAccountService {
       );
     }
 
-    await requestSMS2FA(phoneNumberId, session);
+    await requestSMS2FA(appleId, phoneNumberId);
     this.logs.info(LOG_CODES.APPLE_AUTH_2FA_SUBMITTED, `SMS 2FA requested for: ${appleId}`, {
       appleId, phoneNumberId,
     });

@@ -2,6 +2,22 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.5
+
+### Highlights
+
+- Fixed the packaged Apple sign-in path so the released desktop app exercises the same GSA helper dispatch boundary that local smoke validation checks.
+- Completed the onboarding 2FA flow by propagating trusted phone metadata through the API and wiring SMS delivery requests to the backend helper instead of leaving them as a stub.
+- Cleaned up helper and desktop build hygiene so local release preparation no longer spills generated Python and helper export files into git status.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Packaged Apple auth | Desktop smoke and packaged runtime continue through the bundled GSA helper entrypoint instead of a dev-only path | Prevents released macOS builds from regressing into generic onboarding auth failures |
+| 2FA contract | Backend 2FA responses now surface trusted phone metadata when Apple provides it, and SMS triggers now execute the helper request path | Keeps onboarding and account sign-in aligned with the server behavior instead of showing dead-end UI affordances |
+| Repo hygiene | `.gitignore` now excludes Python helper build output, bytecode caches, and helper export worktrees | Keeps release commits focused on source changes instead of generated artifacts |
+
 ## v0.2.4
 
 ### Highlights

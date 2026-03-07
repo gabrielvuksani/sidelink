@@ -14,6 +14,7 @@ import type { EncryptionProvider } from '../types';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
+const KEYTAR_TIMEOUT_MS = 5_000;
 
 const SERVICE_NAME = 'com.sidelink.secrets';
 const ACCOUNT_NAME = 'master-key';
@@ -34,6 +35,14 @@ let cachedMasterKey: Buffer | null = null;
 async function getMasterKey(): Promise<Buffer> {
   if (cachedMasterKey) return cachedMasterKey;
 
+  if (process.env.SIDELINK_DISABLE_KEYCHAIN === '1'
+    || process.env.SIDELINK_SMOKE_TEST === '1'
+    || process.env.VITEST) {
+    const key = deriveMachineKey();
+    cachedMasterKey = key;
+    return key;
+  }
+
   // 1. Explicit env override
   const envKey = process.env.SIDELINK_ENCRYPTION_KEY;
   if (envKey && envKey.length >= 16) {
@@ -46,7 +55,10 @@ async function getMasterKey(): Promise<Buffer> {
   try {
     const keytar = await loadKeytar();
     if (keytar) {
-      const stored = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME);
+      const stored = await withKeytarTimeout(
+        keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME),
+        'getPassword',
+      );
       if (stored) {
         cachedMasterKey = Buffer.from(stored, 'hex');
         return cachedMasterKey;
@@ -54,7 +66,10 @@ async function getMasterKey(): Promise<Buffer> {
 
       // Generate a new random key and store it
       const newKey = crypto.randomBytes(32);
-      await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, newKey.toString('hex'));
+      await withKeytarTimeout(
+        keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, newKey.toString('hex')),
+        'setPassword',
+      );
       cachedMasterKey = newKey;
       console.log('[KEYCHAIN] Generated and stored new master key in OS keychain');
       return newKey;
@@ -101,9 +116,27 @@ interface KeytarLike {
   deletePassword(service: string, account: string): Promise<boolean>;
 }
 
+function withKeytarTimeout<T>(operation: Promise<T>, action: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`keytar ${action} timed out after ${KEYTAR_TIMEOUT_MS}ms`));
+    }, KEYTAR_TIMEOUT_MS);
+
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function loadKeytar(): Promise<KeytarLike | null> {
   try {
-    // keytar is an optional dependency — may not be installed
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const keytar = require('keytar') as KeytarLike;
     return keytar;
@@ -111,7 +144,6 @@ async function loadKeytar(): Promise<KeytarLike | null> {
     return null;
   }
 }
-
 // ─── Initialization ─────────────────────────────────────────────────
 
 /**

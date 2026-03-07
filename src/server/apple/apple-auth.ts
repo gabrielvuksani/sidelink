@@ -16,9 +16,12 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import fs from 'node:fs';
 import { getAnisetteData, type AnisetteData } from './anisette';
-import { AppleAuthError, Apple2FARequiredError } from '../utils/errors';
+import {
+  AppleAuthError,
+  Apple2FARequiredError,
+  type AppleTrustedPhoneNumber,
+} from '../utils/errors';
 import { getPythonBinaryPath, hasBundledPython, getScriptsPath, getPythonPackagesPath } from '../utils/paths';
 
 // ─── Module Logger ──────────────────────────────────────────────────
@@ -60,6 +63,7 @@ export interface AuthResult {
   session: AuthSession;
   requires2FA: boolean;
   authType?: string;
+  trustedPhoneNumbers?: AppleTrustedPhoneNumber[];
 }
 
 // ─── Pending 2FA Contexts ───────────────────────────────────────────
@@ -67,9 +71,34 @@ export interface AuthResult {
 interface PendingGsaContext {
   adsid: string;
   idmsToken: string;
+  trustedPhoneNumbers: AppleTrustedPhoneNumber[];
 }
 
 const pending2FAContexts = new Map<string, PendingGsaContext>();
+
+function normalizeTrustedPhoneNumbers(value: unknown): AppleTrustedPhoneNumber[] {
+  if (!Array.isArray(value)) return [];
+
+  const trustedPhoneNumbers: AppleTrustedPhoneNumber[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    const candidate = entry as Record<string, unknown>;
+    const rawId = candidate.id;
+    const id = typeof rawId === 'number'
+      ? rawId
+      : (typeof rawId === 'string' && /^\d+$/.test(rawId) ? Number(rawId) : null);
+
+    const numberWithDialCode = typeof candidate.numberWithDialCode === 'string'
+      ? candidate.numberWithDialCode.trim()
+      : '';
+
+    if (id === null || !numberWithDialCode) continue;
+    trustedPhoneNumbers.push({ id, numberWithDialCode });
+  }
+
+  return trustedPhoneNumbers;
+}
 
 // ─── Python Helper ──────────────────────────────────────────────────
 
@@ -219,6 +248,9 @@ export async function initiateAuth(
   const authType = String(authResult.auth_type ?? '');
   const sk_b64 = authResult.sk as string | undefined;
   const c_b64 = authResult.c as string | undefined;
+  const trustedPhoneNumbers = normalizeTrustedPhoneNumbers(
+    authResult.trustedPhoneNumbers ?? authResult.trusted_phone_numbers,
+  );
 
   if (!adsid || !idmsToken) {
     throw new AppleAuthError(
@@ -234,7 +266,7 @@ export async function initiateAuth(
     logger.info(`2FA required (${authType})`);
 
     // Store context for 2FA completion
-    pending2FAContexts.set(appleId, { adsid, idmsToken });
+    pending2FAContexts.set(appleId, { adsid, idmsToken, trustedPhoneNumbers });
 
     // Trigger 2FA push notification to trusted devices
     await trigger2FAPush(adsid, idmsToken, anisette);
@@ -250,6 +282,7 @@ export async function initiateAuth(
     throw new Apple2FARequiredError(
       { scnt: '', xAppleIdSessionId: adsid, authType },
       partialSession,
+      trustedPhoneNumbers,
     );
   }
 
@@ -424,16 +457,31 @@ export async function submit2FACode(
 /**
  * Request SMS 2FA code to a specific phone number.
  */
-export async function requestSMS2FA(
-  phoneId: number,
-  session: AuthSession,
-): Promise<void> {
-  // GSA primarily uses trusted device 2FA.
-  // For SMS, we'd need the pending context — best effort only.
-  logger.warn(
-    'SMS 2FA in GSA flow: trusted device push is the primary mechanism. '
-    + 'If user has SMS 2FA configured, the code will be sent automatically.',
-  );
+export async function requestSMS2FA(appleId: string, phoneId: number): Promise<void> {
+  const ctx = pending2FAContexts.get(appleId);
+  if (!ctx) {
+    throw new AppleAuthError(
+      'APPLE_NO_SESSION',
+      'No pending authentication session. Please sign in again.',
+    );
+  }
+
+  const anisette = await getAnisetteData();
+  const result = await callGsaHelper({
+    command: 'sms_2fa',
+    adsid: ctx.adsid,
+    idms_token: ctx.idmsToken,
+    phone_id: phoneId,
+    anisette,
+  });
+
+  if (result.error) {
+    const ec = Number(result.error_code ?? 0);
+    const em = String(result.error_message ?? 'Unknown error');
+    throw new AppleAuthError('APPLE_2FA_SMS_FAILED', `SMS 2FA request failed (${ec}): ${em}`);
+  }
+
+  logger.info(`SMS 2FA requested for Apple ID ${appleId}`);
 }
 
 /**

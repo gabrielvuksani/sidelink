@@ -10,7 +10,15 @@ ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj/
 tmp/
 .DS_Store
 .venv/
+__pycache__/
+*.py[cod]
 resources/helper/
 python-bundle/dist/
+python-bundle/build/
+python-bundle/__pycache__/
+scripts/__pycache__/
+helper/DerivedData/
+helper/export/
+helper/SidelinkHelper.xcarchive/
 sidelink-clean-impl/
 test-results/
