@@ -102,7 +102,7 @@
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.1.4",
-    "electron": "^36.1.0",
+    "electron": "^40.8.0",
     "electron-builder": "^26.0.12",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
