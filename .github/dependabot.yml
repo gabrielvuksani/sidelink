@@ -6,10 +6,12 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: electron
+      - dependency-name: electron-builder
+      - dependency-name: electron-updater
     groups:
-      electron:
-        patterns: ['electron', 'electron-*']
       react:
         patterns: ['react', 'react-*', '@types/react*']
       types:

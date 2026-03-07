@@ -18,6 +18,7 @@ const run = (command, args, options = {}) => {
     cwd: rootDir,
     env: process.env,
     stdio: 'inherit',
+    shell: process.platform === 'win32',
     ...options
   });
 
