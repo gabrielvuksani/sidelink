@@ -102,7 +102,7 @@ jobs:
           SIDELINK_ARCH: ${{ matrix.arch }}
 
       - name: Upload Python bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-bundle-${{ matrix.os }}-${{ matrix.arch }}
           path: python-bundle/dist/${{ matrix.os }}-${{ matrix.arch }}/
@@ -195,7 +195,7 @@ jobs:
         run: npm run desktop:smoke
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sidelink-${{ matrix.platform }}
           path: |
