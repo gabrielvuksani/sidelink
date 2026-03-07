@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2] - 2026-03-07
+
+### Changed
+
+- Redesigned the desktop onboarding surface to match the stronger SideLink control-center visual language.
+- Added an overview-level desktop readiness panel so packaged runtime, helper IPA, Apple signing readiness, and device visibility are obvious before users hit dead ends.
+- Hardened local desktop packaging so it refuses to build without the bundled Python helper and now smoke-tests that helper inside the packaged app.
+- Trimmed GitHub Release publishing to ship only the helper IPA, DMGs, Windows EXEs, and Linux AppImage/DEB artifacts.
+
 ## [0.2.1] - 2026-03-07
 
 ### Changed

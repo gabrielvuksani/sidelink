@@ -6,6 +6,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
 import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
 import { HelperControlPanel } from '../components/HelperControlPanel';
+import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
 import type { DashboardState } from '../../../shared/types';
 
 export default function DashboardPage() {
@@ -263,6 +264,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-4">
+          <DesktopReadinessPanel activeAccountCount={activeAccounts.length} deviceCount={data.devices?.length ?? 0} />
           <HelperControlPanel variant="overview" />
         </div>
       </div>

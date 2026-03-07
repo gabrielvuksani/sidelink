@@ -27,9 +27,18 @@ exports.default = async function beforePack(context) {
   const rootDir = context.packager.projectDir;
   const platformName = context.electronPlatformName;
   const archName = ARCH_NAMES[context.arch] || process.arch;
+  const exeName = process.platform === 'win32' ? 'sidelink-python.exe' : 'sidelink-python';
 
   const pythonBundleDir = path.join(rootDir, 'python-bundle', 'dist', `${platformName}-${archName}`);
   ensureDir(pythonBundleDir);
+
+  const bundledPythonPath = path.join(pythonBundleDir, exeName);
+  if (!fs.existsSync(bundledPythonPath)) {
+    throw new Error(
+      `[beforePack] Missing bundled Python helper at ${bundledPythonPath}. ` +
+      'Run `npm run python:bundle` before packaging so Apple auth and device discovery are available in the desktop build.'
+    );
+  }
 
   const helperResourcesDir = path.join(rootDir, 'resources', 'helper');
   ensureDir(helperResourcesDir);
@@ -46,5 +55,5 @@ exports.default = async function beforePack(context) {
     console.log('[beforePack] No local helper IPA found; packaging without bundled helper IPA');
   }
 
-  console.log(`[beforePack] Ensured extraResources directory: ${pythonBundleDir}`);
+  console.log(`[beforePack] Using bundled Python helper: ${bundledPythonPath}`);
 };

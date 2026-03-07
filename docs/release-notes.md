@@ -2,6 +2,24 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.2
+
+### Highlights
+
+- Reworked the first-run desktop onboarding so it feels like the actual product instead of a placeholder setup form.
+- Added an overview-level readiness panel that exposes runtime health, helper availability, Apple signing readiness, and device visibility in one place.
+- Tightened local desktop packaging and smoke testing around the bundled Python helper used by Apple auth and device tooling.
+- Reduced the public release surface to the files users actually need: helper IPA, DMGs, Windows EXEs, and Linux desktop artifacts.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Onboarding UI | Setup wizard now uses the same stronger desktop visual language and macOS titlebar inset spacing | First launch feels deliberate and leaves room for the traffic-light controls on macOS |
+| Runtime diagnostics | Overview now includes a desktop readiness panel backed by health + helper diagnostics | Packaged-app failures are surfaced as concrete readiness gaps instead of vague broken behavior |
+| Local packaging | `npm run desktop:package` now builds the bundled Python helper first and `beforePack` fails if it is missing | Prevents shipping a desktop build that cannot perform Apple auth or device discovery |
+| Release assets | GitHub Releases now publish only `.ipa`, `.dmg`, `.exe`, `.AppImage`, and `.deb` assets | Keeps the release page focused on directly usable installer/download artifacts |
+
 ## v0.2.1
 
 ### Highlights

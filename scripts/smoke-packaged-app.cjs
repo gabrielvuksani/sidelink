@@ -8,6 +8,74 @@ const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
 const TIMEOUT_MS = 90_000;
 
+function resolveResourcesDir(executablePath) {
+  if (process.platform === 'darwin') {
+    return path.join(path.dirname(executablePath), '..', 'Resources');
+  }
+
+  return path.join(path.dirname(executablePath), 'resources');
+}
+
+function resolveBundledPythonPath(executablePath) {
+  const resourcesDir = resolveResourcesDir(executablePath);
+  const binaryName = process.platform === 'win32' ? 'sidelink-python.exe' : 'sidelink-python';
+  return path.join(resourcesDir, 'python', binaryName);
+}
+
+async function validateBundledPython(executablePath) {
+  const helperPath = resolveBundledPythonPath(executablePath);
+  if (!fs.existsSync(helperPath)) {
+    throw new Error(`Missing bundled Python helper: ${helperPath}`);
+  }
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(helperPath, ['--command', 'check'], {
+      cwd: rootDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let output = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`Bundled Python helper timed out during self-check\n${output.trim()}`.trim()));
+    }, 30_000);
+
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(`Bundled Python helper failed self-check with exit code ${code ?? 'unknown'}\n${output.trim()}`.trim()));
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(output.trim());
+        if (!parsed.ok) {
+          reject(new Error(`Bundled Python helper reported missing modules\n${output.trim()}`.trim()));
+          return;
+        }
+      } catch (error) {
+        reject(new Error(`Bundled Python helper returned invalid JSON\n${output.trim()}`.trim()));
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
 function walk(dirPath, matcher, results = []) {
   if (!fs.existsSync(dirPath)) return results;
 
@@ -123,6 +191,7 @@ async function main() {
 
   for (const executablePath of executablePaths) {
     try {
+      await validateBundledPython(executablePath);
       await launchExecutable(executablePath);
       return;
     } catch (error) {

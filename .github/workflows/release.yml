@@ -237,12 +237,10 @@ jobs:
           generate_release_notes: true
           files: |
             helper/SidelinkHelper.ipa
-            artifacts/sidelink-mac-x64/*
+            artifacts/sidelink-mac-x64/*.dmg
             artifacts/sidelink-mac-arm64/*arm64.dmg
-            artifacts/sidelink-mac-arm64/*arm64.dmg.blockmap
-            artifacts/sidelink-mac-arm64/*arm64-mac.zip
-            artifacts/sidelink-mac-arm64/*arm64-mac.zip.blockmap
-            artifacts/sidelink-win/*
-            artifacts/sidelink-linux/*
+            artifacts/sidelink-win/*.exe
+            artifacts/sidelink-linux/*.AppImage
+            artifacts/sidelink-linux/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

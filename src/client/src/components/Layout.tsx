@@ -80,6 +80,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { info } = useElectron();
+  const macChromeInset = info.isElectron && info.platform === 'darwin';
 
   useGlobalShortcuts();
 
@@ -98,7 +99,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   const sidebar = (
     <>
-      <div className="px-4 pb-4 pt-5">
+      <div className={`px-4 pb-4 pt-5 ${macChromeInset ? 'md:pt-12' : ''}`}>
         <div className="sl-card-soft flex items-center gap-3 px-3 py-3">
           <BrandIcon className="h-9 w-9" />
           <div>
@@ -173,7 +174,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.06),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(251,146,60,0.06),transparent_20%)]" />
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed left-3 top-3 z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden"
+        className={`fixed left-3 z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-3'}`}
         aria-label="Open menu"
       >
         <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
@@ -196,8 +197,8 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         {sidebar}
       </aside>
 
-      <main className="relative z-10 flex-1 overflow-y-auto pt-14 md:pt-0">
-        <header className="sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-6 py-4 backdrop-blur-xl md:px-8">
+      <main className={`relative z-10 flex-1 overflow-y-auto pt-14 md:pt-0 ${macChromeInset ? 'md:pt-8' : ''}`}>
+        <header className={`sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-6 py-4 backdrop-blur-xl md:px-8 ${macChromeInset ? 'md:pt-10' : ''}`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="sl-section-label">Desktop Workflow</p>
