@@ -13,6 +13,20 @@ let autoUpdaterLoaded = false;
 let autoUpdater: any; // electron-updater's autoUpdater
 let lastStatus: UpdaterEvent = { type: 'not-available' };
 
+function isManualOnlyMacIntelBuild(): boolean {
+  return process.platform === 'darwin' && process.arch === 'x64';
+}
+
+function formatUpdaterError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (message.includes('latest-mac.yml') && message.includes('404')) {
+    return 'Update metadata is missing from the GitHub release. Publish latest-mac.yml, the matching macOS zip, and related blockmap files for in-app updates to work.';
+  }
+
+  return message;
+}
+
 /**
  * Attempt to load electron-updater. Returns false if not available
  * (e.g., in dev mode or if the package isn't installed).
@@ -52,6 +66,15 @@ function broadcast(event: UpdaterEvent): void {
 }
 
 export async function checkForUpdates(): Promise<void> {
+  if (isManualOnlyMacIntelBuild()) {
+    lastStatus = {
+      type: 'error',
+      error: 'In-app updates are only published for the Apple silicon mac build right now. Download the latest Intel DMG manually from GitHub Releases.',
+    };
+    broadcast(lastStatus);
+    return;
+  }
+
   if (!ensureAutoUpdater()) return;
   await autoUpdater.checkForUpdates();
 }
@@ -69,19 +92,28 @@ export function setupAutoUpdater(): void {
     } catch (err) {
       broadcast({
         type: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatUpdaterError(err),
       });
     }
   });
 
   ipcMain.handle(IPC.UPDATER_DOWNLOAD, async () => {
+    if (isManualOnlyMacIntelBuild()) {
+      lastStatus = {
+        type: 'error',
+        error: 'In-app updates are only published for the Apple silicon mac build right now. Download the latest Intel DMG manually from GitHub Releases.',
+      };
+      broadcast(lastStatus);
+      return;
+    }
+
     if (!ensureAutoUpdater()) return;
     try {
       await autoUpdater.downloadUpdate();
     } catch (err) {
       broadcast({
         type: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatUpdaterError(err),
       });
     }
   });
@@ -147,7 +179,7 @@ export function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('error', (err: Error) => {
-    lastStatus = { type: 'error', error: err.message };
+    lastStatus = { type: 'error', error: formatUpdaterError(err) };
     broadcast(lastStatus);
   });
 

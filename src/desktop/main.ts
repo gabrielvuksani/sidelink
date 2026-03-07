@@ -23,6 +23,9 @@ import { startDiscoveryBroadcaster } from '../server/utils/discovery';
 
 const HOST = readEnv('SIDELINK_HOST', 'HOST') ?? '0.0.0.0';
 const PROTOCOL = 'sidelink'; // sidelink:// deep links
+const RESET_FRESH_ARG = '--sidelink-reset-fresh';
+const KEYCHAIN_SERVICE_NAME = 'com.sidelink.secrets';
+const KEYCHAIN_ACCOUNT_NAME = 'master-key';
 
 let server: Server | undefined;
 let shutdownFn: (() => void) | undefined;
@@ -42,6 +45,43 @@ function readEnv(...keys: string[]): string | undefined {
 
 function isSmokeTestMode(): boolean {
   return readEnv('SIDELINK_SMOKE_TEST') === '1';
+}
+
+function isFreshResetRequested(): boolean {
+  return process.argv.includes(RESET_FRESH_ARG);
+}
+
+async function clearStoredMasterKey(): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const keytar = require('keytar') as { deletePassword(service: string, account: string): Promise<boolean> };
+    const deleted = await keytar.deletePassword(KEYCHAIN_SERVICE_NAME, KEYCHAIN_ACCOUNT_NAME);
+    console.log(deleted
+      ? '[desktop] removed stored master key during fresh reset'
+      : '[desktop] no stored master key found during fresh reset');
+  } catch {
+    console.log('[desktop] keytar unavailable during fresh reset; skipped master key cleanup');
+  }
+}
+
+async function performFreshResetIfRequested(): Promise<void> {
+  if (!isFreshResetRequested()) return;
+
+  const userDataDir = app.getPath('userData');
+  const configuredDataDir = readEnv('SIDELINK_DATA_DIR');
+  const targets = [...new Set([userDataDir, configuredDataDir].filter(Boolean))] as string[];
+
+  for (const target of targets.sort((left, right) => right.length - left.length)) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+      console.log(`[desktop] fresh reset removed ${target}`);
+    } catch (err) {
+      console.warn(`[desktop] failed to remove ${target}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  fs.mkdirSync(userDataDir, { recursive: true });
+  await clearStoredMasterKey();
 }
 
 // ── Deep Link Protocol ──────────────────────────────────────────────
@@ -280,6 +320,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 app.whenReady().then(async () => {
+  await performFreshResetIfRequested();
+
   if (isSmokeTestMode()) {
     try {
       backendUrl = await startBackend();

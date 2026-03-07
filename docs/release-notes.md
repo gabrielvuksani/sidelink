@@ -2,6 +2,22 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.4
+
+### Highlights
+
+- Restored packaged desktop auto-update for Apple silicon macOS releases by publishing the updater manifest, matching zip, and blockmap assets GitHub Releases was missing.
+- Added a factory reset action in Desktop Settings so you can wipe local data, secrets, and cached runtime state without manually hunting through SideLink support directories.
+- Hardened the updater UX so missing release metadata shows a concrete operator-facing error, and Intel macOS builds now fall back to manual DMG updates instead of advertising a broken in-app path.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| GitHub release assets | `release.yml` now publishes the arm64 macOS updater zip, `latest-mac.yml`, and blockmap files alongside the DMG | `electron-updater` can now resolve the live Apple silicon macOS feed instead of failing with a 404 on missing metadata |
+| Desktop recovery | Electron main/preload/IPC now support a relaunch-driven factory reset from Settings | Operators can recover a corrupted local desktop install without manual filesystem or keychain cleanup |
+| macOS update policy | Intel macOS builds now explicitly use manual updates until the pipeline can publish a separate x64-safe manifest | Prevents ambiguous `latest-mac.yml` feeds from sending Intel builds down a broken in-app update path |
+
 ## v0.2.3
 
 ### Highlights

@@ -80,6 +80,8 @@ That directly targets the class of failure where a DMG downloads successfully bu
 
 The repo also includes an `afterPack` hook that generates `app-update.yml` for packaged app resources when Electron's dir builds would otherwise omit it.
 
+Current limitation: the macOS in-app update feed is published for the Apple silicon build. Intel macOS builds are still released as DMGs, but they should be updated manually until the release pipeline can publish a distinct x64-safe mac update manifest.
+
 ### Release pipeline expectations
 
 - GitHub Releases is the update source (`package.json` publish provider points at `gabrielvuksani/sidelink`)

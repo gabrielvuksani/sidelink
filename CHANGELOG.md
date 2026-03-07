@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4] - 2026-03-07
+
+### Fixed
+
+- Published the macOS arm64 updater feed assets needed by Electron auto-update so packaged Apple silicon desktop builds can fetch release metadata instead of failing on `latest-mac.yml`.
+- Added clearer desktop updater errors when release metadata is missing and prevented Intel macOS builds from offering a broken in-app update path before a separate x64-safe feed exists.
+
+### Added
+
+- Added a desktop factory reset action in Settings that wipes local SideLink state, clears the stored encryption key, and relaunches into a true first-run setup flow.
+
 ## [0.2.3] - 2026-03-07
 
 ### Fixed

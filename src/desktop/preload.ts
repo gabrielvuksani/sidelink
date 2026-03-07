@@ -24,6 +24,7 @@ const electronAPI = {
   getDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.APP_DATA_DIR),
   quit: (): void => ipcRenderer.send(IPC.APP_QUIT),
   relaunch: (): void => ipcRenderer.send(IPC.APP_RELAUNCH),
+  resetFresh: (): Promise<void> => ipcRenderer.invoke(IPC.APP_RESET_FRESH),
 
   // ── Window controls ───────────────────────────────────────────────
   minimize: (): void => ipcRenderer.send(IPC.WIN_MINIMIZE),

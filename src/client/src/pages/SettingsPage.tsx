@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { getElectronAPI } from '../lib/electron';
 import { useToast } from '../components/Toast';
 import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
 import { HelperControlPanel } from '../components/HelperControlPanel';
+import { useConfirm } from '../components/ConfirmModal';
 import { PageHeader } from '../components/Shared';
 import type { SchedulerSnapshot } from '../../../shared/types';
 
@@ -35,6 +37,8 @@ export default function SettingsPage() {
         <PasswordChange />
         {isElectron ? <AppUpdateSection /> : <SystemInfo />}
       </div>
+
+      {isElectron && <DesktopResetSection />}
 
       {isElectron && <SystemInfo />}
     </div>
@@ -277,6 +281,79 @@ function AppUpdateSection() {
             <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--sl-accent),var(--sl-accent-2))] transition-all duration-300" style={{ width: `${updater.percent ?? 0}%` }} />
           </div>
         )}
+      </div>
+    </Panel>
+  );
+}
+
+function DesktopResetSection() {
+  const confirm = useConfirm();
+  const { toast } = useToast();
+  const [resetting, setResetting] = useState(false);
+  const [dataDir, setDataDir] = useState<string | null>(null);
+
+  useEffect(() => {
+    const electron = getElectronAPI();
+    if (!electron) return;
+
+    electron.getDataDir()
+      .then(setDataDir)
+      .catch(() => setDataDir(null));
+  }, []);
+
+  const handleReset = async () => {
+    const accepted = await confirm({
+      title: 'Factory Reset Desktop State',
+      message: 'This wipes the local database, uploaded IPAs, saved Apple sessions, helper pairing state, cached runtime data, and the stored encryption key. SideLink will relaunch into first-run setup.',
+      confirmLabel: 'Wipe and Relaunch',
+      danger: true,
+    });
+
+    if (!accepted) return;
+
+    const electron = getElectronAPI();
+    if (!electron) {
+      toast('error', 'Desktop reset is only available in the packaged app');
+      return;
+    }
+
+    setResetting(true);
+    try {
+      await electron.resetFresh();
+    } catch (error: unknown) {
+      setResetting(false);
+      toast('error', getErrorMessage(error, 'Failed to start desktop reset'));
+    }
+  };
+
+  return (
+    <Panel title="Factory Reset" subtitle="Wipe SideLink desktop state and return to a true first run.">
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.06] px-4 py-4 text-[13px] leading-6 text-rose-100">
+          Use this when the packaged desktop runtime is in a bad local state and you need a clean reboot of SideLink itself, not just a logout.
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MetricChip label="Database" value="Wiped" tone="violet" />
+          <MetricChip label="Sessions" value="Cleared" tone="sky" />
+          <MetricChip label="Secrets" value="Reset" tone="emerald" />
+        </div>
+
+        {dataDir && (
+          <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Desktop data directory</p>
+            <p className="mt-2 break-all font-mono text-[12px] text-[var(--sl-text)]">{dataDir}</p>
+          </div>
+        )}
+
+        <button
+          onClick={handleReset}
+          disabled={resetting}
+          className="sl-btn-danger flex items-center gap-2"
+        >
+          {resetting && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+          {resetting ? 'Relaunching...' : 'Reset SideLink Desktop'}
+        </button>
       </div>
     </Panel>
   );

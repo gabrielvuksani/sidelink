@@ -1,6 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {

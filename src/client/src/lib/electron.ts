@@ -27,6 +27,7 @@ export interface SidelinkElectronAPI {
   getDataDir(): Promise<string>;
   quit(): void;
   relaunch(): void;
+  resetFresh(): Promise<void>;
 
   // Window controls
   minimize(): void;

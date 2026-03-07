@@ -10,6 +10,7 @@ export const IPC = {
   APP_RELAUNCH: 'app:relaunch',
   APP_IS_PACKAGED: 'app:isPackaged',
   APP_DATA_DIR: 'app:dataDir',
+  APP_RESET_FRESH: 'app:resetFresh',
 
   // ── Window management ──────────────────────────────────────────────
   WIN_MINIMIZE: 'win:minimize',

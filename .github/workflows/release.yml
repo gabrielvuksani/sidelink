@@ -239,7 +239,12 @@ jobs:
             helper/SidelinkHelper.ipa
             artifacts/sidelink-mac-x64/*.dmg
             artifacts/sidelink-mac-arm64/*arm64.dmg
+            artifacts/sidelink-mac-arm64/*arm64.zip
+            artifacts/sidelink-mac-arm64/latest*.yml
+            artifacts/sidelink-mac-arm64/*.blockmap
             artifacts/sidelink-win/*.exe
+            artifacts/sidelink-win/latest*.yml
+            artifacts/sidelink-win/*.blockmap
             artifacts/sidelink-linux/*.AppImage
             artifacts/sidelink-linux/*.deb
         env:

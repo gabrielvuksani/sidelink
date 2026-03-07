@@ -26,6 +26,14 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.APP_PLATFORM, () => process.platform);
   ipcMain.handle(IPC.APP_IS_PACKAGED, () => app.isPackaged);
   ipcMain.handle(IPC.APP_DATA_DIR, () => app.getPath('userData'));
+  ipcMain.handle(IPC.APP_RESET_FRESH, async () => {
+    const args = process.argv
+      .slice(1)
+      .filter((arg) => arg !== '--sidelink-reset-fresh' && !arg.startsWith('sidelink://'));
+
+    app.relaunch({ args: [...args, '--sidelink-reset-fresh'] });
+    app.exit(0);
+  });
 
   ipcMain.on(IPC.APP_QUIT, () => app.quit());
   ipcMain.on(IPC.APP_RELAUNCH, () => {
