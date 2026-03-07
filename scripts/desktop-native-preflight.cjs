@@ -6,12 +6,28 @@ const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
 const npmCmd = 'npm';
-const electronBin = path.join(
-  rootDir,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'electron.cmd' : 'electron'
-);
+
+const resolveElectronBinary = () => {
+  try {
+    const electronPath = require('electron');
+    if (typeof electronPath === 'string' && fs.existsSync(electronPath)) {
+      return electronPath;
+    }
+  } catch {
+    // Fall through to the local .bin shim.
+  }
+
+  const fallback = path.join(
+    rootDir,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'electron.cmd' : 'electron'
+  );
+
+  return fs.existsSync(fallback) ? fallback : null;
+};
+
+const electronBin = resolveElectronBinary();
 
 const run = (command, args, options = {}) => {
   const resolvedCommand = process.platform === 'win32' && command === 'npm.cmd' ? 'npm' : command;
@@ -84,7 +100,7 @@ const hardRebuildBetterSqlite3 = () => {
 };
 
 const main = () => {
-  if (!fs.existsSync(electronBin)) {
+  if (!electronBin || !fs.existsSync(electronBin)) {
     throw new Error('Electron binary not found. Run `npm install` first.');
   }
 

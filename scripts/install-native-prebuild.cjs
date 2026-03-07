@@ -21,16 +21,31 @@ const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
 
+function resolveElectronBinary() {
+  try {
+    const electronPath = require('electron');
+    if (typeof electronPath === 'string' && fs.existsSync(electronPath)) {
+      return electronPath;
+    }
+  } catch {
+    // Fall through to the local .bin shim.
+  }
+
+  const fallback = path.join(
+    rootDir,
+    'node_modules', '.bin',
+    process.platform === 'win32' ? 'electron.cmd' : 'electron',
+  );
+
+  return fs.existsSync(fallback) ? fallback : null;
+}
+
 function getNodeAbi() {
   return process.versions.modules;
 }
 
 function getElectronAbi() {
-  const electronBin = path.join(
-    rootDir,
-    'node_modules', '.bin',
-    process.platform === 'win32' ? 'electron.cmd' : 'electron',
-  );
+  const electronBin = resolveElectronBinary();
   if (!fs.existsSync(electronBin)) return null;
 
   const r = spawnSync(electronBin, ['-e', 'process.stdout.write(process.versions.modules)'], {
