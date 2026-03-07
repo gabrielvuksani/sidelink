@@ -20,6 +20,12 @@ import json
 import argparse
 import importlib
 import os
+import warnings
+
+warnings.filterwarnings(
+    'ignore',
+    message='Unable to find acceptable character detection dependency.*',
+)
 
 def main():
     parser = argparse.ArgumentParser(description='Sidelink Python Helper')

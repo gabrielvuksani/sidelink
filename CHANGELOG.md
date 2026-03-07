@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3] - 2026-03-07
+
+### Fixed
+
+- Restored the executable bit on the bundled Python helper during desktop packaging so released macOS builds can actually run the packaged readiness, Apple auth, and device runtime.
+- Bundled Unicorn native runtime assets into the packaged Python helper so macOS release builds no longer fail when anisette and device tooling initialize inside the shipped app.
+- Hardened packaged helper self-check handling so warning-prefixed output does not break desktop smoke validation.
+
 ## [0.2.2] - 2026-03-07
 
 ### Changed

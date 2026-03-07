@@ -40,6 +40,10 @@ exports.default = async function beforePack(context) {
     );
   }
 
+  if (process.platform !== 'win32') {
+    fs.chmodSync(bundledPythonPath, 0o755);
+  }
+
   const helperResourcesDir = path.join(rootDir, 'resources', 'helper');
   ensureDir(helperResourcesDir);
 

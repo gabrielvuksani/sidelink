@@ -2,6 +2,22 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.3
+
+### Highlights
+
+- Fixed the packaged macOS desktop build so the bundled Python helper keeps executable permissions after the CI artifact handoff.
+- Bundled the native Unicorn runtime required by the packaged Python helper so Apple auth and device flows can actually start inside the released app.
+- Preserved the tighter public release surface from `v0.2.2`: helper IPA, DMGs, Windows EXEs, and Linux AppImage/DEB files only.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Packaged mac runtime | `beforePack` now restores execute permissions on the bundled `sidelink-python` helper before Electron packages the app | Prevents released DMGs from failing packaged smoke checks with `EACCES` when Apple auth and device tooling start |
+| Bundled Python helper | `python-bundle/build.py` now explicitly collects Unicorn native libraries and the helper entrypoint suppresses dependency-warning noise | Prevents packaged Apple auth and device commands from failing or corrupting JSON responses inside the shipped app |
+| Release asset surface | GitHub Releases still publish only `.ipa`, `.dmg`, `.exe`, `.AppImage`, and `.deb` assets | Keeps the release page limited to directly usable installer/download artifacts |
+
 ## v0.2.2
 
 ### Highlights

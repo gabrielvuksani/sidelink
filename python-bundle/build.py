@@ -23,6 +23,22 @@ import platform
 import subprocess
 import argparse
 
+
+def collect_pyinstaller_resources():
+    """Collect package data and native libraries required at runtime."""
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+    datas = []
+    binaries = []
+
+    for source, target in collect_data_files('unicorn'):
+        datas.append((source, target))
+
+    for source, target in collect_dynamic_libs('unicorn'):
+        binaries.append((source, target))
+
+    return datas, binaries
+
 def get_platform_arch():
     """Get platform-arch identifier matching Node.js conventions."""
     plat = os.environ.get('SIDELINK_PLATFORM') or sys.platform
@@ -75,6 +91,8 @@ def main():
         print('Installing PyInstaller...')
         subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyinstaller'])
 
+    datas, binaries = collect_pyinstaller_resources()
+
     # Build hidden imports list for pymobiledevice3 (it has many submodules)
     hidden_imports = [
         'anisette',
@@ -82,6 +100,7 @@ def main():
         'srp._pysrp',
         'pbkdf2',
         'requests',
+        'charset_normalizer',
         'cryptography',
         'pymobiledevice3',
         'pymobiledevice3.cli',
@@ -114,8 +133,15 @@ def main():
 
     # Add the GSA helper as additional data
     if os.path.exists(gsa_helper):
-        sep = ';' if sys.platform == 'win32' else ':'
-        cmd.extend(['--add-data', f'{gsa_helper}{sep}sidelink_gsa_auth'])
+        datas.append((gsa_helper, 'sidelink_gsa_auth'))
+
+    sep = ';' if sys.platform == 'win32' else ':'
+
+    for source, target in datas:
+        cmd.extend(['--add-data', f'{source}{sep}{target}'])
+
+    for source, target in binaries:
+        cmd.extend(['--add-binary', f'{source}{sep}{target}'])
 
     # Entry point
     cmd.append(entry_point)

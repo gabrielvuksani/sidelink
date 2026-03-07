@@ -61,7 +61,20 @@ async function validateBundledPython(executablePath) {
       }
 
       try {
-        const parsed = JSON.parse(output.trim());
+        const jsonLine = output
+          .trim()
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .reverse()
+          .find((line) => line.startsWith('{') && line.endsWith('}'));
+
+        if (!jsonLine) {
+          reject(new Error(`Bundled Python helper returned invalid JSON\n${output.trim()}`.trim()));
+          return;
+        }
+
+        const parsed = JSON.parse(jsonLine);
         if (!parsed.ok) {
           reject(new Error(`Bundled Python helper reported missing modules\n${output.trim()}`.trim()));
           return;
