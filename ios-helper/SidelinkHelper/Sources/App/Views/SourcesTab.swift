@@ -728,10 +728,11 @@ private struct SourceAppDetailView: View {
                     Label(readiness, systemImage: "info.circle")
                         .font(.caption2)
                         .foregroundStyle(Color.slWarning)
+                } else {
+                    Text(model.primarySigningSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                Text("A live signing console opens immediately so you can follow every install step and verbose log here.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
 
                 Button {
                     Task {

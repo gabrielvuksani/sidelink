@@ -4,6 +4,7 @@ import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
+import { PageHeader } from '../components/Shared';
 import type { LogEntry } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
@@ -67,12 +68,19 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="h-full flex flex-col animate-fadeIn">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--sl-text)]">Logs</h2>
-          <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Real-time application logs</p>
-        </div>
+    <div className="sl-page h-full animate-fadeIn">
+      <PageHeader
+        eyebrow="Diagnostics"
+        title="Real-time logs without the throwaway tooling feel"
+        description="Logs stay live, filterable, and auto-scrolling, but the page now fits the same production shell as installs and settings instead of feeling like a debug leftover."
+        stats={[
+          { label: 'Visible Logs', value: logs.length, tone: 'sky' },
+          { label: 'Filter', value: filter || 'all', tone: filter ? 'amber' : 'slate' },
+          { label: 'Auto Scroll', value: autoScroll ? 'On' : 'Off', tone: autoScroll ? 'teal' : 'slate' },
+        ]}
+      />
+
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-0.5 sl-card !p-0.5 !rounded-xl">
             {LEVELS.map(l => (
@@ -103,15 +111,15 @@ export default function LogsPage() {
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="sl-card flex-1 flex items-center justify-center py-16">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--sl-accent)] border-t-transparent" />
         </div>
       ) : logs.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="sl-card flex-1 flex items-center justify-center py-16">
           <p className="text-[var(--sl-muted)] text-[13px]">No logs yet</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto sl-card !rounded-xl p-3 font-mono text-[12px]">
+        <div className="sl-console flex-1 overflow-y-auto p-3 font-mono text-[12px]">
           {logs.map((log) => (
             <div key={log.id} className="py-0.5 flex gap-2 hover:bg-white/[0.02] rounded px-1">
               <span className="text-[var(--sl-muted)] opacity-50 shrink-0">

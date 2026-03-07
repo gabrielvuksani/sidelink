@@ -43,12 +43,16 @@ final class HelperViewModel: ObservableObject {
     @AppStorage("deviceId") var deviceId = ""
     @AppStorage("customSourceURLs") private var customSourceURLsJSON = "[]"
     @AppStorage("selectedAccountId") private var persistedSelectedAccountId = ""
+    @AppStorage("primarySigningAccountId") private var persistedPrimarySigningAccountId = ""
     @AppStorage("selectedDeviceUdid") private var persistedSelectedDeviceUdid = ""
 
     @Published var pairingCode = ""
     @Published var importURL = ""
     @Published var selectedAccountId = "" {
         didSet { persistedSelectedAccountId = selectedAccountId }
+    }
+    @Published private(set) var primarySigningAccountId = "" {
+        didSet { persistedPrimarySigningAccountId = primarySigningAccountId }
     }
     @Published var selectedDeviceUdid = "" {
         didSet { persistedSelectedDeviceUdid = selectedDeviceUdid }
@@ -104,6 +108,7 @@ final class HelperViewModel: ObservableObject {
 
         loadCustomSourcesFromStorage()
         ensureDefaultSourcePresent()
+        primarySigningAccountId = persistedPrimarySigningAccountId
         selectedAccountId = persistedSelectedAccountId
         selectedDeviceUdid = persistedSelectedDeviceUdid
 
@@ -164,8 +169,8 @@ final class HelperViewModel: ObservableObject {
         if activeAccounts.isEmpty {
             return "Add an Apple ID before installing apps"
         }
-        if selectedActiveAccount == nil {
-            return "Select an active Apple ID before installing apps"
+        if primaryActiveSigningAccount == nil {
+            return "Choose a primary signing identity before installing apps"
         }
         if devices.isEmpty {
             return "Connect a device to the paired server before installing apps"
@@ -211,7 +216,7 @@ final class HelperViewModel: ObservableObject {
     }
 
     var canStartInstall: Bool {
-        isPaired && selectedActiveAccount != nil && selectedDevice != nil && !isAtFreeSlotLimit
+        isPaired && primaryActiveSigningAccount != nil && selectedDevice != nil && !isAtFreeSlotLimit
     }
 
     var installConsoleResolvedTitle: String {
@@ -248,8 +253,20 @@ final class HelperViewModel: ObservableObject {
         accounts.first(where: { $0.id == selectedAccountId })
     }
 
+    var primarySigningAccount: AccountDTO? {
+        accounts.first(where: { $0.id == primarySigningAccountId })
+    }
+
     var activeAccounts: [AccountDTO] {
         accounts.filter { $0.status == "active" }
+    }
+
+    var primaryActiveSigningAccount: AccountDTO? {
+        activeAccounts.first(where: { $0.id == primarySigningAccountId })
+    }
+
+    var effectiveSigningAccount: AccountDTO? {
+        primaryActiveSigningAccount ?? selectedActiveAccount ?? automaticPrimarySigningAccount()
     }
 
     var selectedActiveAccount: AccountDTO? {
@@ -262,6 +279,26 @@ final class HelperViewModel: ObservableObject {
 
     var sourceApps: [SourceAppDTO] {
         sourceCatalogs.flatMap { $0.manifest.apps }
+    }
+
+    var signingIdentityDisplayName: String {
+        effectiveSigningAccount?.appleId ?? "No Apple ID"
+    }
+
+    var signingDeviceDisplayName: String {
+        selectedDevice?.name ?? "No Device"
+    }
+
+    var primarySigningSummary: String {
+        guard let account = effectiveSigningAccount else {
+            return "Add and verify an Apple ID to keep one signing identity across installs."
+        }
+        let device = selectedDevice?.name ?? "your device"
+        return "Sidelink defaults to \(account.appleId) for signing and installs to \(device)."
+    }
+
+    var installPreparationSummary: String {
+        installSubtitle(base: "Importing the IPA if needed, then using your primary signing identity for the install.")
     }
 
     func isOfficialSourceURL(_ url: String) -> Bool {
@@ -278,6 +315,21 @@ final class HelperViewModel: ObservableObject {
 
     func accountNeedsAttention(_ account: AccountDTO) -> Bool {
         account.status != "active"
+    }
+
+    func setPrimarySigningAccount(_ accountId: String, showConfirmation: Bool = true) {
+        guard activeAccounts.contains(where: { $0.id == accountId }) else {
+            errorMessage = "Only active Apple IDs can become your primary signing identity"
+            return
+        }
+
+        primarySigningAccountId = accountId
+        selectedAccountId = accountId
+        errorMessage = nil
+
+        if showConfirmation, let account = activeAccounts.first(where: { $0.id == accountId }) {
+            toastMessage = "Primary signing identity switched to \(account.appleId)"
+        }
     }
 
     func pair() async {
@@ -402,7 +454,7 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let previousSelectedAccountId = selectedAccountId
+            let previousPrimarySigningAccountId = primarySigningAccountId
             let previousSelectedDeviceUdid = selectedDeviceUdid
             async let statusCall = api.fetchStatus(baseURL: backendURL, token: helperToken, deviceId: selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid)
             async let configCall = api.fetchConfig(baseURL: backendURL, token: helperToken)
@@ -421,21 +473,20 @@ final class HelperViewModel: ObservableObject {
             devices = deviceResponse
             ipas = ipaResponse
 
-            let nextSelectedAccountId = activeAccounts.contains(where: { $0.id == previousSelectedAccountId })
-                ? previousSelectedAccountId
-                : (activeAccounts.first?.id ?? "")
+            let nextPrimarySigningAccountId = resolvePrimarySigningAccountId(preferred: previousPrimarySigningAccountId)
             let nextSelectedDeviceUdid = devices.contains(where: { $0.id == previousSelectedDeviceUdid })
                 ? previousSelectedDeviceUdid
                 : (devices.first?.id ?? "")
 
-            let invalidatedAccountSelection = !previousSelectedAccountId.isEmpty
-                && previousSelectedAccountId != nextSelectedAccountId
-                && !activeAccounts.contains(where: { $0.id == previousSelectedAccountId })
+            let invalidatedPrimarySigningIdentity = !previousPrimarySigningAccountId.isEmpty
+                && previousPrimarySigningAccountId != nextPrimarySigningAccountId
+                && !activeAccounts.contains(where: { $0.id == previousPrimarySigningAccountId })
             let invalidatedDeviceSelection = !previousSelectedDeviceUdid.isEmpty
                 && previousSelectedDeviceUdid != nextSelectedDeviceUdid
                 && !devices.contains(where: { $0.id == previousSelectedDeviceUdid })
 
-            selectedAccountId = nextSelectedAccountId
+            primarySigningAccountId = nextPrimarySigningAccountId
+            selectedAccountId = nextPrimarySigningAccountId
             selectedDeviceUdid = nextSelectedDeviceUdid
 
             let installedDeviceFilter = selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid
@@ -461,10 +512,10 @@ final class HelperViewModel: ObservableObject {
             errorMessage = nil
 
             var recoveryMessages: [String] = []
-            if invalidatedAccountSelection {
+            if invalidatedPrimarySigningIdentity {
                 recoveryMessages.append(activeAccounts.isEmpty
-                    ? "Your selected Apple ID is no longer available."
-                    : "Your selected Apple ID was removed, so Sidelink switched to another active account.")
+                    ? "Your primary signing identity is no longer available."
+                    : "Your primary signing identity disappeared, so Sidelink switched to the next active Apple ID.")
             }
             if invalidatedDeviceSelection {
                 recoveryMessages.append(devices.isEmpty
@@ -577,7 +628,7 @@ final class HelperViewModel: ObservableObject {
 
     func startInstall(ipaId: String, appName: String? = nil, subtitle: String? = nil) async {
         let resolvedName = appName ?? ipas.first(where: { $0.id == ipaId })?.bundleName ?? "Library App"
-        let resolvedSubtitle = subtitle ?? "Installing from your library"
+        let resolvedSubtitle = installSubtitle(base: subtitle ?? "Installing from your library")
         prepareInstallConsole(title: resolvedName, subtitle: resolvedSubtitle)
         lastInstallRequest = .library(ipaId: ipaId, appName: resolvedName, subtitle: resolvedSubtitle)
 
@@ -595,7 +646,7 @@ final class HelperViewModel: ObservableObject {
                 baseURL: backendURL,
                 token: helperToken,
                 ipaId: ipaId,
-                accountId: selectedAccountId,
+                accountId: primarySigningAccountId,
                 deviceUdid: selectedDeviceUdid
             )
             await refreshLatestInstallJob()
@@ -607,7 +658,7 @@ final class HelperViewModel: ObservableObject {
 
     func installFromSource(_ app: SourceAppDTO, sourceName: String? = nil, subtitle: String? = nil) async {
         let resolvedSourceName = sourceName ?? sourceCatalogs.first(where: { $0.manifest.apps.contains(where: { $0.id == app.id }) })?.manifest.name ?? "Source"
-        let resolvedSubtitle = subtitle ?? "Installing from \(resolvedSourceName)"
+        let resolvedSubtitle = installSubtitle(base: subtitle ?? "Installing from \(resolvedSourceName)")
         prepareInstallConsole(title: app.name, subtitle: resolvedSubtitle)
         lastInstallRequest = .source(app: app, sourceName: resolvedSourceName, subtitle: resolvedSubtitle)
 
@@ -632,7 +683,7 @@ final class HelperViewModel: ObservableObject {
                 baseURL: backendURL,
                 token: helperToken,
                 ipaId: imported.id,
-                accountId: selectedAccountId,
+                accountId: primarySigningAccountId,
                 deviceUdid: selectedDeviceUdid
             )
             await refreshLatestInstallJob()
@@ -745,6 +796,7 @@ final class HelperViewModel: ObservableObject {
         installConsolePresented = false
         installConsoleAutoPresentationSuppressed = false
         lastInstallRequest = nil
+        primarySigningAccountId = ""
         selectedAccountId = ""
         selectedDeviceUdid = ""
     }
@@ -1019,8 +1071,12 @@ final class HelperViewModel: ObservableObject {
             }
 
             pendingAppleAuth = nil
-            selectedAccountId = account.id
-            toastMessage = "Apple ID added"
+            if primarySigningAccountId.isEmpty {
+                setPrimarySigningAccount(account.id, showConfirmation: false)
+                toastMessage = "Apple ID added and set as your primary signing identity"
+            } else {
+                toastMessage = "Apple ID added. Your primary signing identity stayed the same"
+            }
             await refreshAll()
         } catch {
             errorMessage = error.localizedDescription
@@ -1062,8 +1118,12 @@ final class HelperViewModel: ObservableObject {
             }
 
             pendingAppleAuth = nil
-            selectedAccountId = accountId
-            toastMessage = "Apple ID re-authenticated"
+            if primarySigningAccountId.isEmpty {
+                setPrimarySigningAccount(accountId, showConfirmation: false)
+                toastMessage = "Apple ID re-authenticated and set as your primary signing identity"
+            } else {
+                toastMessage = "Apple ID re-authenticated"
+            }
             await refreshAll()
         } catch {
             errorMessage = error.localizedDescription
@@ -1116,8 +1176,12 @@ final class HelperViewModel: ObservableObject {
             }
 
             self.pendingAppleAuth = nil
-            selectedAccountId = account.id
-            toastMessage = "Apple ID verified successfully"
+            if primarySigningAccountId.isEmpty {
+                setPrimarySigningAccount(account.id, showConfirmation: false)
+                toastMessage = "Apple ID verified and set as your primary signing identity"
+            } else {
+                toastMessage = "Apple ID verified successfully"
+            }
             await refreshAll()
         } catch {
             errorMessage = error.localizedDescription
@@ -1136,13 +1200,25 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
+            let removedPrimarySigningIdentity = primarySigningAccountId == accountId
             try await api.deleteAppleAccount(baseURL: backendURL, token: helperToken, accountId: accountId)
+            if removedPrimarySigningIdentity {
+                primarySigningAccountId = ""
+            }
             if selectedAccountId == accountId {
                 selectedAccountId = ""
             }
             pendingAppleAuth = nil
-            toastMessage = "Apple ID removed"
             await refreshAll()
+            if removedPrimarySigningIdentity {
+                if let fallback = primaryActiveSigningAccount {
+                    toastMessage = "Primary signing identity removed. Sidelink switched to \(fallback.appleId)"
+                } else {
+                    toastMessage = "Primary signing identity removed"
+                }
+            } else {
+                toastMessage = "Apple ID removed"
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1248,11 +1324,80 @@ final class HelperViewModel: ObservableObject {
     }
 
     private func inferredInstallSubtitle(for job: InstallJobDetailDTO) -> String {
-        if let device = devices.first(where: { $0.id == job.deviceUdid })?.name {
+        let account = accounts.first(where: { $0.id == job.accountId })?.appleId
+        let device = devices.first(where: { $0.id == job.deviceUdid })?.name
+
+        if let account, let device {
+            return "Signing with \(account) on \(device)"
+        }
+
+        if let device {
             return "Signing and installing to \(device)"
         }
 
         return "Signing, provisioning, and device installation happen here in one place."
+    }
+
+    private func installSubtitle(base: String) -> String {
+        let summaryBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let account = effectiveSigningAccount?.appleId,
+           let device = selectedDevice?.name {
+            return "\(summaryBase). Using \(account) on \(device)."
+        }
+
+        if let account = effectiveSigningAccount?.appleId {
+            return "\(summaryBase). Using \(account)."
+        }
+
+        if let device = selectedDevice?.name {
+            return "\(summaryBase). Installing to \(device)."
+        }
+
+        return summaryBase
+    }
+
+    private func resolvePrimarySigningAccountId(preferred: String? = nil) -> String {
+        let candidates = [preferred, primarySigningAccountId, persistedPrimarySigningAccountId, selectedAccountId]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+
+        for candidate in candidates {
+            if activeAccounts.contains(where: { $0.id == candidate }) {
+                return candidate
+            }
+        }
+
+        return automaticPrimarySigningAccount()?.id ?? ""
+    }
+
+    private func automaticPrimarySigningAccount() -> AccountDTO? {
+        activeAccounts.min { lhs, rhs in
+            let lhsDate = accountCreatedDate(lhs)
+            let rhsDate = accountCreatedDate(rhs)
+
+            switch (lhsDate, rhsDate) {
+            case let (lhsDate?, rhsDate?):
+                if lhsDate != rhsDate {
+                    return lhsDate < rhsDate
+                }
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                break
+            }
+
+            return lhs.appleId.localizedCaseInsensitiveCompare(rhs.appleId) == .orderedAscending
+        }
+    }
+
+    private func accountCreatedDate(_ account: AccountDTO) -> Date? {
+        guard let createdAt = account.createdAt, !createdAt.isEmpty else { return nil }
+        return ISO8601DateFormatter().date(from: createdAt)
     }
 
     private func recordLocalActivity(level: String, code: String, message: String) {

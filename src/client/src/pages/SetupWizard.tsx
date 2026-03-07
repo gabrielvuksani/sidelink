@@ -234,7 +234,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 // ── Step 2: Admin Account ────────────────────────────────────────────
 
 function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
   const [error, setError] = useState('');
@@ -268,6 +268,7 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
             autoComplete="username"
             value={username}
             onChange={e => setUsername(e.target.value)}
+            placeholder="Choose an admin username"
             className="sl-input w-full"
           />
         </div>

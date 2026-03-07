@@ -2,6 +2,10 @@
 
 The iOS Helper app lets you pair your phone with your desktop server and monitor installs/refresh state directly on-device.
 
+## Role In The Product
+
+The helper is not a separate admin tool. It is the paired on-device view into the same install, refresh, and signing state that the desktop app manages.
+
 ## Pairing
 
 1. Open desktop Settings and generate/view pairing code.
@@ -28,6 +32,12 @@ Output IPA:
 - View install logs and submit 2FA inline
 - Trigger refresh jobs
 - Track expiry and slot usage
+
+## Practical Flow
+
+1. Pair from the desktop Settings page.
+2. Confirm the helper can see current devices, Apple IDs, and install state.
+3. Use it to monitor installs, finish 2FA, and check refresh pressure when you are away from the desktop shell.
 
 ## Production Notes
 

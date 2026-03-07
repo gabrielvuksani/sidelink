@@ -198,7 +198,7 @@ private struct InstallConsoleSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Preparing secure install", systemImage: "hourglass.and.lock")
                 .font(.headline)
-            Text("Importing the IPA if needed, choosing your account and device, then opening the live signing console.")
+            Text(model.installPreparationSummary)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             ProgressView()

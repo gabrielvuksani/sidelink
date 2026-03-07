@@ -2,6 +2,8 @@
 
 Base URL: `http://localhost:4010/api`
 
+This is the practical HTTP surface, organized by operational use rather than generated-schema noise.
+
 ## Overview
 
 - Response envelope: most authenticated JSON APIs return `{ ok: boolean, data?: T, error?: string }`.
@@ -182,3 +184,9 @@ Common status codes:
 - `500` unexpected server failure
 
 Most non-2xx responses include `{ ok: false, error: string }`.
+
+## Operator Notes
+
+- `/auth/setup` is only meant for first-run bootstrap before the first admin exists
+- helper-token routes are intentionally narrower than dashboard session routes
+- install and refresh behavior is modeled around explicit state transitions, retries, and recovery steps

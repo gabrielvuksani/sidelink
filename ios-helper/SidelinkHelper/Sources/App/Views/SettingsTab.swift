@@ -163,7 +163,7 @@ struct SettingsTab: View {
 
     private var appleAccountsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Apple IDs", title: "Signing identity", subtitle: model.isPaired ? "Keep your default account visible and surface any verification issues immediately." : "Pair first, then add the Apple IDs you want to use for signing.")
+            SidelinkSectionIntro(eyebrow: "Apple IDs", title: "Primary signing identity", subtitle: model.isPaired ? "Sidelink keeps one Apple ID as the default for installs and refreshes so the workflow never feels ambiguous." : "Pair first, then add the Apple IDs you want available for signing.")
 
             if model.pendingAppleAuth != nil || !model.accountsNeedingAttention.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
@@ -179,13 +179,14 @@ struct SettingsTab: View {
                     Button {
                         if let pending = model.pendingAppleAuth, let accountId = pending.accountId {
                             appleSheetMode = .reauth(accountId: accountId)
+                        } else {
+                            appleSheetMode = .add
                         }
                     } label: {
                         Text("Finish Verification")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.sidelinkQuickAction(tint: .slWarning))
-                    .disabled(model.pendingAppleAuth?.accountId == nil)
                 }
                 .padding(16)
                 .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -196,20 +197,45 @@ struct SettingsTab: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                if !model.activeAccounts.isEmpty {
-                    Picker("Default Signing Account", selection: $model.selectedAccountId) {
-                        ForEach(model.activeAccounts) { account in
-                            Text(account.appleId).tag(account.id)
+                VStack(alignment: .leading, spacing: 12) {
+                    if let primary = model.primarySigningAccount ?? model.effectiveSigningAccount {
+                        Label("Primary signing identity", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.slAccent)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(primary.appleId)
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(primary.teamName) · \(primary.accountType.capitalized)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("New Apple IDs stay secondary until you promote them. Installs and refreshes will keep using this identity by default.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            PillBadge(text: "Primary", color: .slAccent, small: true)
                         }
+                    } else {
+                        Text("Add and verify an Apple ID so Sidelink can lock onto one primary signing identity.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.menu)
                 }
+                .padding(16)
+                .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 ForEach(model.accounts) { account in
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: account.id == model.selectedAccountId ? "checkmark.circle.fill" : "person.crop.circle")
-                                .foregroundStyle(account.id == model.selectedAccountId ? Color.slAccent : .secondary)
+                            Image(systemName: account.id == model.primarySigningAccountId ? "checkmark.circle.fill" : "person.crop.circle")
+                                .foregroundStyle(account.id == model.primarySigningAccountId ? Color.slAccent : .secondary)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(account.appleId)
@@ -221,7 +247,12 @@ struct SettingsTab: View {
 
                             Spacer()
 
-                            PillBadge(text: appleStatusLabel(for: account), color: appleStatusColor(for: account), small: true)
+                            VStack(alignment: .trailing, spacing: 6) {
+                                if account.id == model.primarySigningAccountId {
+                                    PillBadge(text: "Primary", color: .slAccent, small: true)
+                                }
+                                PillBadge(text: appleStatusLabel(for: account), color: appleStatusColor(for: account), small: true)
+                            }
                         }
 
                         if let lastAuthAt = account.lastAuthAt, !lastAuthAt.isEmpty {
@@ -235,6 +266,16 @@ struct SettingsTab: View {
                         }
 
                         HStack(spacing: 10) {
+                            if account.status == "active" && account.id != model.primarySigningAccountId {
+                                Button {
+                                    model.setPrimarySigningAccount(account.id)
+                                } label: {
+                                    Label("Use for Signing", systemImage: "checkmark.circle")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.sidelinkQuickAction(tint: .slAccent2))
+                            }
+
                             Button {
                                 appleSheetMode = .reauth(accountId: account.id)
                             } label: {
@@ -355,11 +396,11 @@ struct SettingsTab: View {
 
     private var currentSetupCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SidelinkSectionIntro(eyebrow: "Current Setup", title: "What Sidelink will use", subtitle: "Keep your active signing context visible before you start any install or refresh job.")
+            SidelinkSectionIntro(eyebrow: "Current Setup", title: "What Sidelink will use", subtitle: "Every install defaults to one primary Apple ID and your chosen device until you deliberately change them.")
 
-            if let selected = model.selectedAccount {
+            if let selected = model.primarySigningAccount ?? model.effectiveSigningAccount {
                 HStack {
-                    Label("Apple ID", systemImage: "person.crop.circle")
+                    Label("Primary Apple ID", systemImage: "person.crop.circle.badge.checkmark")
                     Spacer()
                     Text(selected.appleId)
                         .foregroundStyle(.secondary)
@@ -684,6 +725,10 @@ private struct PairingSheet: View {
                             )
 
                             HStack(spacing: 12) {
+
+                    Text(model.primarySigningSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                                 SidelinkMetricTile(label: "Connection", value: model.isPaired ? "Paired" : "Waiting", tint: model.isPaired ? .slSuccess : .slWarning)
                                 SidelinkMetricTile(label: "Discovery", value: model.discoveredBackends.isEmpty ? "Scanning" : "\(model.discoveredBackends.count) found", tint: .slAccent2)
                             }
@@ -870,7 +915,7 @@ private struct AppleAccountSheet: View {
 
                         SecureField("Password", text: $password)
 
-                        Text("Your Apple ID is used by the paired Sidelink server to sign apps for this device.")
+                        Text("The first verified Apple ID becomes your primary signing identity. Later Apple IDs stay available until you intentionally promote them.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
 

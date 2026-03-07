@@ -146,7 +146,7 @@ struct OnboardingView: View {
                 VStack(spacing: 12) {
                     onboardingFeatureRow(icon: "sparkles", title: "Beautiful discovery", message: "A real home feed, separate search, and source-powered app discovery.")
                     onboardingFeatureRow(icon: "arrow.triangle.2.circlepath", title: "Reliable refresh", message: "Track installed apps, expiry, and background refresh status from one place.")
-                    onboardingFeatureRow(icon: "checkmark.shield", title: "Safer account handling", message: "Apple ID verification and re-authentication stay visible instead of being buried.")
+                    onboardingFeatureRow(icon: "checkmark.shield", title: "One signing identity", message: "Sidelink keeps one primary Apple ID in charge by default so installs stay predictable.")
                 }
             }
             .padding(.horizontal, 24)
@@ -336,7 +336,7 @@ struct OnboardingView: View {
                     Text(model.isPaired ? "You’re connected." : "You’re ready to explore.")
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                     Text(model.isPaired
-                         ? "Home, Search, Sources, and Installed are set up to feel like a real iPhone control center for sideloading."
+                        ? "Home, Search, Sources, and Installed now keep your primary signing identity and target device visible while you work."
                          : "You can start exploring now, then return to Settings any time to pair and add signing accounts.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

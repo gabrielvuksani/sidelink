@@ -1,5 +1,7 @@
 # CLI Reference
 
+This page is the practical command surface for local development, release prep, and recovery operations.
+
 ## Development
 
 | Command | Description |
@@ -9,6 +11,7 @@
 | `npm run web` | Start server once |
 | `npm run desktop:easy` | One-command desktop launch |
 | `npm run desktop:dev` | Build + preflight + Electron |
+| `npm run desktop:smoke` | Launch packaged desktop build in smoke-test mode |
 
 ## Quality
 
@@ -28,6 +31,7 @@
 | `npm run db:migrate` | Apply DB migrations |
 | `npm run db:bootstrap` | Bootstrap admin user |
 | `npm run reset` | Clear local dev database and uploads |
+| `npm run reset:fresh` | Wipe local state, sessions, uploads, and stored keychain master key |
 
 ## iOS Helper
 
@@ -51,4 +55,12 @@
 | Command | Description |
 |---|---|
 | `bash scripts/release.sh v0.1.0 --dry-run` | Validate the release command path without committing or tagging |
-| `bash scripts/release.sh v0.1.0` | Update package version, create the release commit, and tag `v0.1.0` |
+| `bash scripts/release.sh v0.2.0 --dry-run` | Validate the release command path without committing or tagging |
+| `bash scripts/release.sh v0.2.0` | Update package version, create the release commit, and tag `v0.2.0` |
+
+## Recommended v0.2.0 Release Sequence
+
+1. `npm run verify`
+2. `npm run desktop:package`
+3. `npm run desktop:smoke`
+4. `bash scripts/release.sh v0.2.0`

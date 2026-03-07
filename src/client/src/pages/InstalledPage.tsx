@@ -5,7 +5,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
-import { PageLoader, EmptyState } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
 import type { InstalledApp, AutoRefreshState, DashboardState } from '../../../shared/types';
 
 export default function InstalledPage() {
@@ -104,29 +104,39 @@ export default function InstalledPage() {
 
   const activeApps = apps.filter(app => app.status !== 'deactivated');
   const deactivatedApps = apps.filter(app => app.status === 'deactivated');
+  const expiringSoon = activeApps.filter((app) => {
+    if (!app.expiresAt) return false;
+    return new Date(app.expiresAt).getTime() - Date.now() <= 1000 * 60 * 60 * 24 * 2;
+  }).length;
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--sl-text)]">Installed</h2>
-          <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Apps installed on your devices</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {activeApps.length > 0 && (
-            <button onClick={triggerRefreshAll} className="sl-btn-ghost flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v6h6M19.5 19.5v-6h-6" /><path strokeLinecap="round" strokeLinejoin="round" d="M20 10a8 8 0 00-13.66-5.66L4.5 6m15 12l-1.84-1.84A8 8 0 014 14" /></svg>
-              Refresh All
-            </button>
-          )}
-          {apps.length > 0 && (
-            <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-              Install New
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Installed Fleet"
+        title="Track live installs, expiry risk, and recovery actions from one board"
+        description="The installed view now behaves like a fleet dashboard: refresh active apps, keep expiring installs visible, and preserve deactivated items for fast reactivation."
+        actions={(
+          <>
+            {activeApps.length > 0 && (
+              <button onClick={triggerRefreshAll} className="sl-btn-ghost flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v6h6M19.5 19.5v-6h-6" /><path strokeLinecap="round" strokeLinejoin="round" d="M20 10a8 8 0 00-13.66-5.66L4.5 6m15 12l-1.84-1.84A8 8 0 014 14" /></svg>
+                Refresh All
+              </button>
+            )}
+            {apps.length > 0 && (
+              <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                Install New
+              </button>
+            )}
+          </>
+        )}
+        stats={[
+          { label: 'Active', value: activeApps.length, tone: 'teal' },
+          { label: 'Deactivated', value: deactivatedApps.length, tone: 'slate' },
+          { label: 'Expiring Soon', value: expiringSoon, tone: expiringSoon > 0 ? 'amber' : 'sky' },
+        ]}
+      />
 
       {Object.keys(weeklyUsage ?? {}).length > 0 && (
         <div className="sl-card p-3">
@@ -151,10 +161,7 @@ export default function InstalledPage() {
       ) : (
         <div className="space-y-6 stagger-children">
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[var(--sl-text)]">Active Installs</h3>
-              <span className="text-xs text-[var(--sl-muted)]">{activeApps.length} active</span>
-            </div>
+            <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${activeApps.length} install${activeApps.length === 1 ? '' : 's'} currently tracked across your devices.`} />
             {activeApps.map(app => {
             const refreshState = getRefreshState(app.id);
             const expiresAt = app.expiresAt ? new Date(app.expiresAt) : null;
@@ -220,10 +227,7 @@ export default function InstalledPage() {
 
           {deactivatedApps.length > 0 && (
             <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--sl-text)]">Deactivated</h3>
-                <span className="text-xs text-[var(--sl-muted)]">Available to reactivate</span>
-              </div>
+              <SectionHeading eyebrow="Standby" title="Deactivated installs" description="These stay available for one-click reactivation without losing the app record." />
               {deactivatedApps.map(app => (
                 <div key={app.id} className="sl-card p-4 animate-fadeInUp border border-amber-500/15 bg-amber-500/[0.03]">
                   <div className="flex items-center justify-between">

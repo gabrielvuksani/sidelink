@@ -1,6 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {
@@ -57,6 +57,7 @@
     "doctor": "node scripts/doctor.cjs",
     "reset": "node scripts/reset-dev.cjs",
     "reset:dev": "node scripts/reset-dev.cjs",
+    "reset:fresh": "node scripts/reset-fresh.cjs",
     "logs": "tail -f tmp/desktop/sidelink.log",
     "helper:build": "bash scripts/helper-build.sh",
     "helper:export": "bash scripts/helper-export.sh",
@@ -65,6 +66,7 @@
     "desktop:easy": "node scripts/desktop-easy-launch.cjs",
     "desktop:dev": "npm run build && npm run desktop:preflight && electron dist/desktop/main.js",
     "desktop:deps": "electron-builder install-app-deps",
+    "desktop:smoke": "node scripts/smoke-packaged-app.cjs",
     "desktop:package": "npm run build && npm run desktop:preflight && electron-builder --mac --dir",
     "desktop:package:win": "npm run build && electron-builder --win --dir",
     "desktop:package:linux": "npm run build && electron-builder --linux --dir",

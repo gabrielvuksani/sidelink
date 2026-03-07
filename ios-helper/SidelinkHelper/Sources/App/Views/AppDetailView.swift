@@ -300,9 +300,15 @@ struct AppDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
                 }
-                Text("A live signing console opens immediately and stays with the install until it finishes.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if let readiness = model.installReadinessMessage {
+                    Label(readiness, systemImage: "info.circle")
+                        .font(.caption2)
+                        .foregroundStyle(Color.slWarning)
+                } else {
+                    Text(model.primarySigningSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Button {
                     Task {
                         await model.startInstall(

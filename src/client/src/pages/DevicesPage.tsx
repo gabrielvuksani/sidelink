@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
-import { PageLoader, EmptyState } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
 import type { DeviceInfo } from '../../../shared/types';
 
 export default function DevicesPage() {
@@ -36,18 +36,26 @@ export default function DevicesPage() {
     }
   };
 
+  const usbDevices = devices.filter((device) => device.transport === 'usb').length;
+
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--sl-text)]">Devices</h2>
-          <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Manage connected iOS devices</p>
-        </div>
-        <button onClick={refresh} disabled={refreshing} className="sl-btn-ghost flex items-center gap-2 disabled:opacity-50">
-          {refreshing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/30 border-t-[var(--sl-muted)]" />}
-          {refreshing ? 'Scanning...' : 'Refresh'}
-        </button>
-      </div>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Device Bay"
+        title="See which devices are actually ready to receive installs"
+        description="USB and network targets are surfaced as an inventory board, with pairing actions kept directly on each card so the install path stays short."
+        actions={(
+          <button onClick={refresh} disabled={refreshing} className="sl-btn-ghost flex items-center gap-2 disabled:opacity-50">
+            {refreshing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/30 border-t-[var(--sl-muted)]" />}
+            {refreshing ? 'Scanning...' : 'Refresh Devices'}
+          </button>
+        )}
+        stats={[
+          { label: 'Detected', value: devices.length, tone: 'teal' },
+          { label: 'USB', value: usbDevices, tone: 'lime' },
+          { label: 'Network', value: devices.length - usbDevices, tone: 'sky' },
+        ]}
+      />
 
       {loading ? (
         <PageLoader message="Scanning for devices..." />
@@ -58,11 +66,14 @@ export default function DevicesPage() {
           icon={<svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 stagger-children">
+        <>
+          <SectionHeading eyebrow="Inventory" title="Connected targets" description="Each card keeps the install-critical details visible: transport, model, iOS version, and pairing action." />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 stagger-children">
           {devices.map(d => (
             <DeviceCard key={d.udid} device={d} onRefresh={reload} />
           ))}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

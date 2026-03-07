@@ -63,6 +63,18 @@ const routeTitles: Record<string, string> = {
   '/settings': 'Settings',
 };
 
+const routeDescriptions: Record<string, string> = {
+  '/': 'Live readiness for accounts, devices, installs, and helper automation.',
+  '/apple': 'Primary signing accounts, certificate visibility, and App ID pressure.',
+  '/devices': 'Connected hardware, pairing health, and target-device readiness.',
+  '/apps': 'Upload, curate, and launch installs from your desktop IPA library.',
+  '/install': 'Run installs, resolve 2FA, and inspect pipeline logs from one place.',
+  '/installed': 'Track active installs, expiry pressure, and reactivation workflows.',
+  '/logs': 'Operational logs for debugging, support, and release hardening.',
+  '/sources': 'Curated sources, self-hosted feeds, and source app import workflows.',
+  '/settings': 'Scheduler, updates, credentials, runtime, and helper configuration.',
+};
+
 export default function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,6 +84,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
   useGlobalShortcuts();
 
   const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'Sidelink', [location.pathname]);
+  const pageDescription = useMemo(() => routeDescriptions[location.pathname] ?? 'Desktop control surface for installs, accounts, devices, and sources.', [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -85,14 +98,27 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   const sidebar = (
     <>
-      {/* Logo / header */}
-      <div className="px-4 pb-3 pt-5">
-        <div className="flex items-center gap-3 px-2">
+      <div className="px-4 pb-4 pt-5">
+        <div className="sl-card-soft flex items-center gap-3 px-3 py-3">
           <BrandIcon className="h-9 w-9" />
           <div>
-            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">Sidelink</p>
-            <p className="text-[10px] font-medium text-[var(--sl-muted)]">Desktop App</p>
+            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">Sidelink Command</p>
+            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--sl-muted)]">Desktop Control Surface</p>
           </div>
+        </div>
+
+        <div className="mt-3 grid gap-2">
+          <div className="rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.45)] px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Workspace</p>
+            <p className="mt-1 text-[13px] font-semibold text-[var(--sl-text)]">Desktop ready</p>
+            <p className="mt-1 text-[11px] leading-5 text-[var(--sl-muted)]">Installs, helper automation, and device operations share one shell.</p>
+          </div>
+          {info.isElectron && (
+            <div className="rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.38)] px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Runtime</p>
+              <p className="mt-1 text-[12px] font-medium text-[var(--sl-text)]">{info.platform} v{info.version}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -109,8 +135,8 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
                   onClick={() => setMobileOpen(false)}
                   className={({ isActive }) =>
                     `group flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13px] font-medium transition-all duration-150 ${isActive
-                      ? 'bg-[var(--sl-accent)] text-white shadow-[0_2px_12px_rgba(99,102,241,0.3)]'
-                      : 'text-[var(--sl-muted)] hover:bg-[var(--sl-surface-soft)] hover:text-[var(--sl-text)]'
+                      ? 'border border-teal-300/15 bg-[linear-gradient(135deg,rgba(45,212,191,0.24),rgba(20,184,166,0.12))] text-[var(--sl-text)] shadow-[0_14px_30px_rgba(20,184,166,0.12)]'
+                      : 'text-[var(--sl-muted)] hover:bg-[rgba(24,39,53,0.8)] hover:text-[var(--sl-text)]'
                     }`
                   }
                 >
@@ -124,27 +150,30 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
       </nav>
 
       <div className="border-t border-[var(--sl-border)] px-3 py-3">
+        <div className="mb-3 rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.42)] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Fast Actions</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <NavLink to="/install" className="sl-btn-primary !px-3 !py-1.5 !text-[11px]">New Install</NavLink>
+            <NavLink to="/devices" className="sl-btn-ghost !px-3 !py-1.5 !text-[11px]">Scan Devices</NavLink>
+          </div>
+        </div>
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13px] font-medium text-[var(--sl-muted)] transition-all hover:bg-red-500/8 hover:text-red-400"
+          className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-[9px] text-[13px] font-medium text-[var(--sl-muted)] transition-all hover:bg-red-500/8 hover:text-red-400"
         >
           {icons.logout}
           Sign Out
         </button>
-        {info.isElectron && (
-          <p className="mt-2 px-3 text-[10px] font-medium text-[var(--sl-muted)] opacity-50">
-            {info.platform} v{info.version}
-          </p>
-        )}
       </div>
     </>
   );
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-[var(--sl-bg)] text-[var(--sl-text)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.06),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(251,146,60,0.06),transparent_20%)]" />
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed left-3 top-3 z-40 rounded-lg border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] md:hidden"
+        className="fixed left-3 top-3 z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden"
         aria-label="Open menu"
       >
         <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
@@ -158,8 +187,8 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 flex w-[232px] flex-col border-r border-[var(--sl-border)]
-          bg-[var(--sl-surface)] transition-transform duration-200
+          fixed inset-y-0 left-0 z-50 flex w-[290px] flex-col border-r border-[var(--sl-border)]
+          bg-[linear-gradient(180deg,rgba(10,18,26,0.96),rgba(6,11,17,0.98))] transition-transform duration-200
           md:static md:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -168,13 +197,25 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
       </aside>
 
       <main className="relative z-10 flex-1 overflow-y-auto pt-14 md:pt-0">
-        <header className="sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[var(--sl-bg)]/80 px-6 py-3 backdrop-blur-xl md:px-8">
-          <h2 className="text-[15px] font-semibold tracking-tight text-[var(--sl-text)]">{pageTitle}</h2>
+        <header className="sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-6 py-4 backdrop-blur-xl md:px-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="sl-section-label">Desktop Workflow</p>
+              <h2 className="mt-1 text-[1.3rem] font-semibold tracking-tight text-[var(--sl-text)]">{pageTitle}</h2>
+              <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{pageDescription}</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <NavLink to="/install" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Quick Install</NavLink>
+              <NavLink to="/apple" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Signing</NavLink>
+              <NavLink to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">System</NavLink>
+            </div>
+          </div>
         </header>
 
         <UpdateBanner />
 
-        <div className="mx-auto max-w-5xl px-6 py-6 md:px-8 md:py-8">{children}</div>
+        <div className="mx-auto max-w-[1440px] px-6 py-6 md:px-8 md:py-8">{children}</div>
       </main>
     </div>
   );

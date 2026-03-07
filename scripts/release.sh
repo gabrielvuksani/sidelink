@@ -3,7 +3,7 @@
 # Usage:  bash scripts/release.sh v1.2.3 [--dry-run]
 #
 # Bumps package.json version, creates a git commit + tag, and (optionally)
-# pushes.  The version argument must start with 'v' (e.g., v0.0.1, v1.5).
+# pushes. The version argument must be full semver and start with 'v' (e.g., v0.2.0).
 #
 # What it does:
 #   1. Validates the version string
@@ -25,9 +25,9 @@ DRY_RUN="${2:-}"
 
 # ── Validate ──────────────────────────────────────────────────────────
 
-if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "Error: Version must match v<MAJOR>.<MINOR>[.<PATCH>]"
-  echo "  Examples: v0.0.1, v1.5, v2.0.0"
+if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: Version must match v<MAJOR>.<MINOR>.<PATCH>"
+  echo "  Example: v0.2.0"
   exit 1
 fi
 
@@ -85,6 +85,7 @@ fi
 # ── Bump ──────────────────────────────────────────────────────────────
 
 echo "[release] Preparing release $TAG ..."
+echo "[release] Tip: run npm run verify before tagging, and npm run desktop:smoke if you packaged the mac app locally."
 
 # Use node to safely update package.json without mangling formatting
 if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then

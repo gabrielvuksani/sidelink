@@ -2,6 +2,7 @@
 // Launches the Express backend, opens a BrowserWindow, sets up tray,
 // native menus, IPC bridge, auto-updater, and deep link handling.
 
+import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { AddressInfo } from 'node:net';
@@ -37,6 +38,10 @@ function readEnv(...keys: string[]): string | undefined {
     if (process.env[k]) return process.env[k];
   }
   return undefined;
+}
+
+function isSmokeTestMode(): boolean {
+  return readEnv('SIDELINK_SMOKE_TEST') === '1';
 }
 
 // ── Deep Link Protocol ──────────────────────────────────────────────
@@ -112,6 +117,13 @@ async function startBackend(): Promise<string> {
   process.env.SIDELINK_CLIENT_DIR = app.isPackaged
     ? path.join(process.resourcesPath, 'client')
     : path.resolve(__dirname, '../client');
+
+  if (app.isPackaged) {
+    const clientIndexPath = path.join(process.env.SIDELINK_CLIENT_DIR, 'index.html');
+    if (!fs.existsSync(clientIndexPath)) {
+      throw new Error(`Packaged client bundle missing: ${clientIndexPath}`);
+    }
+  }
 
   // Dynamic import so we don't pull server code at module init
   const { createAppContextAsync } = await import('../server/context');
@@ -253,7 +265,36 @@ async function stopBackend(): Promise<void> {
 
 // ── Electron Lifecycle ──────────────────────────────────────────────
 
-app.whenReady().then(() => {
+process.on('uncaughtException', (err) => {
+  console.error('[desktop] Uncaught exception:', err);
+  if (isSmokeTestMode()) {
+    app.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[desktop] Unhandled rejection:', reason);
+  if (isSmokeTestMode()) {
+    app.exit(1);
+  }
+});
+
+app.whenReady().then(async () => {
+  if (isSmokeTestMode()) {
+    try {
+      backendUrl = await startBackend();
+      console.log(`[desktop:smoke] backend started at ${backendUrl}`);
+      await stopBackend();
+      console.log('[desktop:smoke] packaged startup check passed');
+      app.exit(0);
+    } catch (err) {
+      console.error('[desktop:smoke] startup check failed:', err instanceof Error ? err.message : String(err));
+      await stopBackend();
+      app.exit(1);
+    }
+    return;
+  }
+
   // Enforce CSP in production Electron renderer
   if (!app.isPackaged || readEnv('SIDELINK_DEVTOOLS') !== '1') {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

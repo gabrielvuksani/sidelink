@@ -173,9 +173,13 @@ struct BrowseTab: View {
             }
 
             HStack(spacing: 10) {
-                statusChip(systemImage: "person.crop.circle.fill", text: model.selectedAccount?.appleId ?? "No Apple ID")
+                statusChip(systemImage: "person.crop.circle.fill", text: model.signingIdentityDisplayName)
                 statusChip(systemImage: "iphone.gen3", text: model.selectedDevice?.name ?? "No Device")
             }
+
+            Text(model.primarySigningSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .liquidPanel()
         .padding(.horizontal, 20)
@@ -829,20 +833,32 @@ private struct SourceAppShowcaseView: View {
             .padding(.vertical, 18)
         }
         .safeAreaInset(edge: .bottom) {
-            Button {
-                Task { await model.installFromSource(app) }
-            } label: {
-                Label("Install", systemImage: "arrow.down.app.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+            VStack(spacing: 6) {
+                if let readiness = model.installReadinessMessage {
+                    Label(readiness, systemImage: "info.circle")
+                        .font(.caption2)
+                        .foregroundStyle(Color.slWarning)
+                } else {
+                    Text(model.primarySigningSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    Task { await model.installFromSource(app) }
+                } label: {
+                    Label("Install", systemImage: "arrow.down.app.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: app.tintColor) ?? .slAccent)
+                .disabled(!model.canStartInstall || app.primaryDownloadURL.isEmpty)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(hex: app.tintColor) ?? .slAccent)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(colorScheme == .dark ? Color.black.opacity(0.88) : Color.white.opacity(0.82))
-            .disabled(!model.canStartInstall || app.primaryDownloadURL.isEmpty)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)

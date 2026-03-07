@@ -102,6 +102,8 @@ Preferred local path:
 npm run desktop:easy
 ```
 
+On first launch, Sidelink will prompt you to create the admin account for that local instance. It no longer seeds a default username or password.
+
 Alternative Electron dev launch:
 
 ```bash
@@ -172,6 +174,10 @@ The desktop app uses Electron Builder and publishes release metadata compatible 
 
 Project documentation lives in `docs/` and is built with VitePress.
 
+Published docs URL:
+
+- `https://gabrielvuksani.github.io/sidelink/`
+
 Most useful entry points:
 
 - `docs/getting-started.md`
@@ -195,6 +201,12 @@ Build docs for production:
 npm run docs:build
 ```
 
+Preview docs locally before publishing:
+
+```bash
+npm run docs:preview
+```
+
 ## Core Commands
 
 ```bash
@@ -212,13 +224,13 @@ npm run db:migrate
 Dry-run the release script first:
 
 ```bash
-bash scripts/release.sh v0.1.0 --dry-run
+bash scripts/release.sh v0.2.0 --dry-run
 ```
 
 Then cut a real release:
 
 ```bash
-bash scripts/release.sh v0.1.0
+bash scripts/release.sh v0.2.0
 git push origin main --tags
 ```
 

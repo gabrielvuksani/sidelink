@@ -44,13 +44,15 @@ export default function App() {
   if (authState.loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[var(--sl-bg)]">
-        <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface)] px-6 py-5 shadow-[var(--sl-shadow)]">
+        <div className="sl-page-hero max-w-md">
+          <div className="sl-page-hero-inner !grid-cols-1">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--sl-accent)]/70 border-t-transparent" />
             <div>
               <p className="text-sm font-medium text-[var(--sl-text)]">Loading Sidelink</p>
-              <p className="text-xs text-[var(--sl-muted)]">Preparing your dashboard...</p>
+              <p className="text-xs text-[var(--sl-muted)]">Preparing the desktop control surface...</p>
             </div>
+          </div>
           </div>
         </div>
       </div>

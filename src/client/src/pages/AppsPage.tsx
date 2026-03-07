@@ -5,7 +5,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
-import { PageLoader, EmptyState } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
 import type { IpaArtifact } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
@@ -90,12 +90,23 @@ export default function AppsPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-[var(--sl-text)]">IPAs</h2>
-        <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Upload and manage your app files</p>
-      </div>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Library"
+        title="A desktop IPA library built for fast installs"
+        description="Upload once, keep the metadata visible, and launch installs directly from the app shelf instead of digging through files every time."
+        stats={[
+          { label: 'Library Size', value: ipas.length, tone: 'teal' },
+          { label: 'Upload State', value: uploading ? `${uploadPct}%` : 'Idle', tone: uploading ? 'amber' : 'slate' },
+          { label: 'Max File Size', value: '4 GB', tone: 'sky' },
+        ]}
+      />
+
+      <SectionHeading
+        eyebrow="Intake"
+        title="Upload or drop new IPA artifacts"
+        description="Drag-and-drop stays available, but the upload panel now reads like an ingestion workflow instead of a generic file field."
+      />
 
       {/* Upload zone */}
       <div
@@ -145,6 +156,12 @@ export default function AppsPage() {
         <EmptyState title="No IPAs yet" description="Upload an .ipa file above to get started." />
       ) : (
         <div className="space-y-2 stagger-children">
+          <SectionHeading
+            eyebrow="Shelf"
+            title="Ready-to-install apps"
+            description="Hover actions remain quick, but the visual hierarchy now favors app identity, version, size, and extension readiness."
+            action={<button onClick={() => openInstall()} className="sl-btn-primary">Launch Installer</button>}
+          />
           {ipas.map(ipa => (
             <div key={ipa.id} className="sl-card sl-card-interactive group flex items-center justify-between p-3.5 animate-fadeInUp">
               <div className="flex items-center gap-3 min-w-0">

@@ -1,13 +1,15 @@
 # Getting Started
 
-This guide follows the same practical structure as AltStore docs: prerequisites first, then numbered install steps, then validation.
+Use this page when you want the shortest reliable path from clone to first working Sidelink install flow.
 
 ## Requirements
 
-- macOS 11+ for full device install support
-- Node.js 20+
-- Python 3.10+
-- Apple ID (free or paid)
+| Requirement | Why it matters |
+| --- | --- |
+| Node.js 20+ | Builds the server, desktop shell, and web client |
+| Python 3.10+ | Powers helper scripts and Apple/device tooling |
+| macOS 11+ | Gives you the most complete local device install and helper build path |
+| Apple ID | Required for real signing and provisioning |
 
 ## Quick Start
 
@@ -18,25 +20,29 @@ npm install
 npm run dev
 ```
 
-`npm install` automatically creates the local Python environment, installs the required helper packages, and runs dependency preflight checks.
-
 Open `http://localhost:4010`.
 
-If you want a single command that bootstraps and validates everything:
+`npm install` already prepares the local Python environment, installs helper dependencies, and runs preflight checks.
+
+::: tip First-run auth
+Sidelink now asks you to create the admin account during setup. There is no shipped default username or password.
+:::
+
+## First-Run Sequence
+
+1. Create the admin account.
+2. Add and verify an Apple ID.
+3. Connect or discover a device.
+4. Upload an IPA or add a source.
+5. Start the first install from the dashboard, library, or source flow.
+
+## One-Command Bootstrap
 
 ```bash
 npm run setup
 ```
 
-## Full Install Steps
-
-1. Install dependencies (`node`, `python`, and `xcodegen` on macOS when building the helper locally).
-2. Run `npm install`.
-3. Let postinstall finish creating `.venv`, installing Python packages, and checking USB prerequisites.
-4. Connect your iPhone over USB and trust the computer.
-5. Run `npm run dev`.
-6. Complete Setup Wizard: admin, Apple ID, device, IPA upload.
-7. Install apps from the Install, Apps, or Sources flows.
+Use this when you want dependency install plus a full validation pass.
 
 ## Validate Setup
 
@@ -44,8 +50,10 @@ npm run setup
 npm run verify
 ```
 
-## Next
+`verify` runs type checks, tests, production builds, docs build, and doctor diagnostics.
+
+## Continue With
 
 - [Desktop App](/desktop-app)
-- [iOS Helper](/ios-helper)
+- [Configuration](/configuration)
 - [Troubleshooting](/troubleshooting)

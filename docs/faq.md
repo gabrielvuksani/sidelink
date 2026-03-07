@@ -23,3 +23,11 @@ Desktop uses GitHub release artifacts and in-app updater checks.
 ## Can I use helper without desktop?
 
 Helper pairs to a running Sidelink server. Desktop is recommended for easiest setup.
+
+## Why is the desktop release flow stricter now?
+
+Because a successful build is not enough. `v0.2.0` adds a packaged startup smoke test so broken DMG installs are caught before release publication.
+
+## Where do the docs publish?
+
+When GitHub Pages is enabled for GitHub Actions, the docs site publishes to `https://gabrielvuksani.github.io/sidelink/`.

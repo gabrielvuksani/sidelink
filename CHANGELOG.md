@@ -6,6 +6,19 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-07
+
+### Added
+- Packaged desktop smoke testing for release validation.
+- Architecture-specific macOS release jobs for `arm64` and `x64` artifacts.
+- GitHub Pages-ready VitePress base-path configuration and refreshed docs site theming.
+- `npm run desktop:smoke` for validating packaged startup locally.
+
+### Changed
+- Desktop launch no longer seeds a default admin username or password.
+- Release workflow now validates Electron-native dependencies before packaging.
+- Docs navigation and landing experience were redesigned for a stronger product-style presentation.
+
 ## [0.1.0] - 2026-03-06
 
 ### Added

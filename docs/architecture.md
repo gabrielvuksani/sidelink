@@ -39,3 +39,14 @@ Sidelink has four major runtime surfaces:
 - Log and error redaction for credentials/tokens
 
 For deep implementation details, see root `ARCHITECTURE.md`.
+
+## Why The Runtime Split Matters
+
+Sidelink is intentionally divided into a few operator-facing surfaces that still share one backend and state model:
+
+- desktop is the packaged control surface
+- web is the management UI
+- server owns the durable state and signing pipeline
+- iOS helper is the paired on-device companion
+
+That separation is why release packaging, troubleshooting, and documentation can all be reasoned about as one coherent system instead of separate products.

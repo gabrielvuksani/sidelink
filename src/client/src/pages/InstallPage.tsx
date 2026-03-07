@@ -5,7 +5,7 @@ import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageLoader } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
 import type { InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
@@ -68,25 +68,32 @@ export default function InstallPage() {
 
   const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'waiting_2fa');
   const completedJobs = jobs.filter(j => j.status !== 'running' && j.status !== 'waiting_2fa');
+  const waiting2FA = activeJobs.filter((job) => job.status === 'waiting_2fa').length;
 
   if (loading) return <PageLoader message="Loading..." />;
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--sl-text)]">Install</h2>
-          <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Sign and install apps on your devices</p>
-        </div>
-        <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          New Install
-        </button>
-      </div>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Install Pipeline"
+        title="Launch, monitor, and recover installs without leaving the page"
+        description="The install view now works like an operations console: queue a new install, respond to 2FA, and review history in one continuous desktop workflow."
+        actions={(
+          <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            New Install
+          </button>
+        )}
+        stats={[
+          { label: 'Active Jobs', value: activeJobs.length, tone: activeJobs.length > 0 ? 'teal' : 'slate' },
+          { label: '2FA Required', value: waiting2FA, tone: waiting2FA > 0 ? 'amber' : 'slate' },
+          { label: 'Completed Jobs', value: completedJobs.length, tone: 'sky' },
+        ]}
+      />
 
       {activeJobs.length > 0 && (
         <div className="space-y-3">
-          <p className="sl-section-label">Active</p>
+          <SectionHeading eyebrow="Live Work" title="Active installs" description="Running jobs stay pinned at the top so 2FA and failure states are never buried in history." />
           {activeJobs.map(job => (
             <ActiveJobCard key={job.id} job={job} logs={jobLogs[job.id] ?? []} />
           ))}
@@ -106,7 +113,7 @@ export default function InstallPage() {
 
       {completedJobs.length > 0 && (
         <div>
-          <p className="sl-section-label mb-3">History</p>
+          <SectionHeading eyebrow="Archive" title="Recent install history" description="Completed and failed runs stay visible with their latest error summaries for quick support and retry decisions." />
           <div className="sl-card divide-y divide-[var(--sl-border)]">
             {completedJobs.slice(0, 15).map(j => {
               const isFailed = j.status === 'failed';

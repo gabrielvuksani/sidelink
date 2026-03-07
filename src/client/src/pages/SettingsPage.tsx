@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
 import { HelperControlPanel } from '../components/HelperControlPanel';
+import { PageHeader } from '../components/Shared';
 import type { SchedulerSnapshot } from '../../../shared/types';
 
 
@@ -13,25 +14,17 @@ export default function SettingsPage() {
   useEffect(() => { document.title = 'Settings - Sidelink'; }, []);
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <section className="relative overflow-hidden rounded-[26px] border border-[var(--sl-border)] bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(99,102,241,0.24),transparent_40%),linear-gradient(180deg,#171d27_0%,#11161d_100%)] px-6 py-6 shadow-[var(--sl-shadow)]">
-        <div className="absolute inset-y-0 right-0 w-56 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.05))]" />
-        <div className="relative space-y-5">
-          <div className="max-w-2xl">
-            <p className="sl-section-label !text-sky-200/70">Control Center</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-white">Settings that explain themselves</h2>
-            <p className="mt-2 max-w-xl text-[14px] leading-6 text-slate-300">
-              Auto-refresh, helper automation, desktop updates, and runtime diagnostics are grouped by intent so the page feels like a real control surface instead of a dump of forms.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MetricChip label="Refresh" value="Automation" tone="sky" />
-            <MetricChip label="Security" value="Credentials" tone="violet" />
-            <MetricChip label="Helper" value="Build + Pair" tone="emerald" />
-          </div>
-        </div>
-      </section>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Control Center"
+        title="Settings that are structured like operations, not forms"
+        description="Auto-refresh, helper automation, desktop updates, and runtime diagnostics are grouped by intent so the page reads like a real control surface instead of a dump of toggles."
+        stats={[
+          { label: 'Refresh', value: 'Automation', tone: 'sky' },
+          { label: 'Security', value: 'Credentials', tone: 'amber' },
+          { label: 'Helper', value: 'Build + Pair', tone: 'teal' },
+        ]}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <SchedulerSettings />

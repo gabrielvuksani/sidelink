@@ -1,5 +1,7 @@
 # Configuration
 
+This page covers the runtime knobs that matter for local operation, helper orchestration, and documentation publishing.
+
 ## Core Environment Variables
 
 | Variable | Default | Purpose |
@@ -24,11 +26,23 @@
 | Variable | Purpose |
 |---|---|
 | `SIDELINK_ENABLE_REAL_WORKER` | Enables real execution paths |
-| `SIDELINK_ADMIN_USERNAME` | Initial admin bootstrap user |
-| `SIDELINK_ADMIN_PASSWORD` | Initial admin bootstrap password |
+| `SIDELINK_ADMIN_USERNAME` | Initial admin bootstrap user for the manual `npm run db:bootstrap` flow |
+| `SIDELINK_ADMIN_PASSWORD` | Initial admin bootstrap password for the manual `npm run db:bootstrap` flow |
 
 ## Data & Paths
 
 - SQLite DB and cache are local-only.
 - Uploaded IPAs live under the configured upload directory.
 - Build artifacts are generated in `dist/` and `tmp/helper/`.
+
+## GitHub Pages
+
+The docs site is configured as a GitHub Pages project site.
+
+- local preview uses `/`
+- GitHub Actions builds use the repository sub-path automatically
+- for this repository, the published URL is `https://gabrielvuksani.github.io/sidelink/`
+
+::: tip Required repository setting
+In GitHub repository Settings -> Pages, set `Build and deployment > Source` to `GitHub Actions`.
+:::

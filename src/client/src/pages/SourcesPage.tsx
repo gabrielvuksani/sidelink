@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
-import { EmptyState, PageLoader } from '../components/Shared';
+import { EmptyState, PageHeader, PageLoader } from '../components/Shared';
 import type { SourceApp, SourceManifest, UserSource } from '../../../shared/types';
 
 export default function SourcesPage() {
@@ -248,17 +248,17 @@ export default function SourcesPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--sl-text)]">Sources</h2>
-          <p className="mt-0.5 text-[13px] text-[var(--sl-muted)]">Manage AltStore-compatible feeds and your self-hosted source.</p>
-        </div>
-        <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] px-3 py-2 text-xs text-[var(--sl-muted)]">
-          <span className="mr-3">Enabled: {enabledSources.length}</span>
-          <span>Visible apps: {totalApps}</span>
-        </div>
-      </div>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Sources"
+        title="Feed management that feels like part of the product"
+        description="Curated feeds, combined source apps, and self-hosted manifests now live inside the same desktop system language as installs and settings."
+        stats={[
+          { label: 'Enabled Sources', value: enabledSources.length, tone: 'teal' },
+          { label: 'Visible Apps', value: totalApps, tone: 'sky' },
+          { label: 'Trusted Feeds', value: trustedSources.length, tone: 'amber' },
+        ]}
+      />
 
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Add Source</h3>

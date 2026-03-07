@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Use this page when launch, pairing, sign-in, packaging, or helper workflows behave differently than expected.
+
 ## App Won't Pair
 
 - Verify server is reachable from phone network.
@@ -23,6 +25,13 @@
 - Run `npm install` again to refresh dependencies.
 - Run `npm run node:preflight` for native module checks.
 - Ensure Node.js major version is 20+.
+
+## Downloaded DMG App Crashes On Launch
+
+- Confirm the release was built after the `v0.2.0` packaging changes.
+- Check that the release workflow completed the packaged smoke test.
+- Reproduce locally with `npm run desktop:package` followed by `npm run desktop:smoke`.
+- If macOS is blocking launch for Gatekeeper reasons, treat that separately from an actual runtime crash.
 
 ## Helper Build Fails
 

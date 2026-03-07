@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageLoader } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import type { DashboardState } from '../../../shared/types';
 
@@ -134,40 +134,37 @@ export default function DashboardPage() {
   ] as const;
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <section className="relative overflow-hidden rounded-[30px] border border-[var(--sl-border)] bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_30%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.16),transparent_34%),linear-gradient(180deg,#151b24_0%,#0f141a_100%)] px-6 py-6 shadow-[var(--sl-shadow)]">
-        <div className="absolute inset-y-0 right-0 w-64 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.05))]" />
-        <div className="relative grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="space-y-5">
-            <div>
-              <div className="flex items-center gap-3 text-[12px] text-slate-300">
-                <SSEIndicator state={sseState} />
-                <span className="h-1 w-1 rounded-full bg-white/30" />
-                <span>{activeJobs.length > 0 ? `${activeJobs.length} live install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
-              </div>
-              <h2 className="mt-3 text-3xl font-black tracking-tight text-white">Overview that behaves like one system</h2>
-              <p className="mt-2 max-w-2xl text-[14px] leading-6 text-slate-300">
-                Devices, installs, helper pairing, and signing readiness now refresh from one stable dashboard snapshot instead of a loose set of partially failing calls.
-              </p>
+    <div className="sl-page animate-fadeIn">
+      <PageHeader
+        eyebrow="Mission Control"
+        title="One desktop surface for every signing workflow"
+        description={(
+          <>
+            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot, so production usage feels like a single system instead of a loose set of tools.
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
+              <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
+              <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
+              <span className="sl-chip">Helper-aware dashboard</span>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <QuickMetric label="Ready Accounts" value={`${activeAccounts.length}`} tone="sky" />
-              <QuickMetric label="Connected Devices" value={`${data.devices?.length ?? 0}`} tone="emerald" />
-              <QuickMetric label="Library Ready" value={`${data.ipas?.length ?? 0} IPAs`} tone="violet" />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-start justify-end gap-2 xl:justify-end">
+          </>
+        )}
+        actions={(
+          <>
             <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               Quick Install
             </button>
             <Link to="/apps" className="sl-btn-ghost">Import IPA</Link>
-            <Link to="/devices" className="sl-btn-ghost">Devices</Link>
-          </div>
-        </div>
-      </section>
+            <Link to="/devices" className="sl-btn-ghost">Open Devices</Link>
+          </>
+        )}
+        stats={[
+          { label: 'Ready Accounts', value: `${activeAccounts.length}`, tone: 'teal' },
+          { label: 'Connected Devices', value: `${data.devices?.length ?? 0}`, tone: 'lime' },
+          { label: 'Library Ready', value: `${data.ipas?.length ?? 0} IPAs`, tone: 'sky' },
+          { label: 'Refresh Pressure', value: maxFreeUsage >= 0.8 ? 'Watch free limits' : 'Healthy', tone: maxFreeUsage >= 0.8 ? 'amber' : 'slate' },
+        ]}
+      />
 
       {setupAlerts.map((alert) => (
         <div key={alert.title} className="sl-card flex items-center gap-4 p-4 !border-amber-500/15 !bg-amber-500/[0.04]">
@@ -183,6 +180,12 @@ export default function DashboardPage() {
           </Link>
         </div>
       ))}
+
+      <SectionHeading
+        eyebrow="Operations"
+        title="Readiness, activity, and helper control"
+        description="Overview cards stay compact, but the shell now makes install pressure, setup gaps, and helper status obvious at a glance."
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
         <div className="space-y-4">

@@ -1,0 +1,228 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --vp-font-family-base: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --vp-c-brand-1: #0f766e;
+  --vp-c-brand-2: #14b8a6;
+  --vp-c-brand-3: #2dd4bf;
+  --vp-c-brand-soft: rgba(45, 212, 191, 0.14);
+  --vp-c-bg: #081019;
+  --vp-c-bg-alt: #0c1620;
+  --vp-c-bg-elv: #12202d;
+  --vp-c-bg-soft: #0f1b28;
+  --vp-c-border: rgba(159, 184, 201, 0.14);
+  --vp-c-divider: rgba(159, 184, 201, 0.12);
+  --vp-c-text-1: #ebf4fb;
+  --vp-c-text-2: #a9becd;
+  --vp-c-text-3: #7d93a3;
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #ecfeff 0%, #7dd3fc 30%, #5eead4 68%, #fdba74 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle at 30% 20%, rgba(45, 212, 191, 0.35), transparent 32%), radial-gradient(circle at 70% 30%, rgba(125, 211, 252, 0.3), transparent 28%), radial-gradient(circle at 50% 80%, rgba(251, 146, 60, 0.24), transparent 30%);
+  --vp-home-hero-image-filter: blur(52px);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-bg: linear-gradient(135deg, #14b8a6, #0f766e);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-bg: linear-gradient(135deg, #2dd4bf, #14b8a6);
+  --vp-button-brand-active-bg: linear-gradient(135deg, #0f766e, #115e59);
+  --vp-button-alt-border: rgba(159, 184, 201, 0.18);
+  --vp-button-alt-bg: rgba(8, 16, 25, 0.48);
+  --vp-button-alt-hover-border: rgba(186, 213, 228, 0.28);
+  --vp-button-alt-hover-bg: rgba(16, 28, 40, 0.92);
+  --vp-custom-block-tip-border: rgba(45, 212, 191, 0.28);
+  --vp-custom-block-tip-bg: rgba(15, 118, 110, 0.14);
+  --vp-custom-block-tip-text: #d9fffb;
+  --vp-custom-block-warning-border: rgba(251, 191, 36, 0.28);
+  --vp-custom-block-warning-bg: rgba(180, 83, 9, 0.16);
+  --vp-custom-block-danger-border: rgba(248, 113, 113, 0.28);
+  --vp-custom-block-danger-bg: rgba(127, 29, 29, 0.16);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.12), transparent 26%),
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.08), transparent 22%),
+    linear-gradient(180deg, #09121c 0%, #081019 100%);
+}
+
+.Layout {
+  background: transparent;
+}
+
+.VPNavBar,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar .content-body,
+.VPNavBar .content {
+  background: rgba(8, 16, 25, 0.78);
+  backdrop-filter: blur(18px);
+}
+
+.VPContent.is-home {
+  background:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(251, 146, 60, 0.08), transparent 22%);
+}
+
+.VPHomeHero .container,
+.VPDoc.has-aside .content-container,
+.VPDoc .container {
+  max-width: 1240px;
+}
+
+.VPHomeHero {
+  padding-top: 48px;
+}
+
+.VPHomeHero .main {
+  max-width: 680px;
+}
+
+.VPHomeHero .tagline,
+.VPDoc .lead {
+  color: var(--vp-c-text-2);
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+.VPFeature {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(17, 28, 40, 0.9), rgba(10, 18, 26, 0.94));
+  box-shadow: 0 22px 60px rgba(2, 10, 18, 0.24);
+}
+
+.VPFeature .box {
+  background: transparent;
+}
+
+.vp-doc {
+  font-size: 16px;
+}
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4 {
+  letter-spacing: -0.03em;
+}
+
+.vp-doc h1 {
+  font-size: clamp(2.2rem, 4vw, 3.4rem);
+  line-height: 1;
+}
+
+.vp-doc h2 {
+  border-top-color: rgba(159, 184, 201, 0.14);
+}
+
+.vp-doc p,
+.vp-doc li {
+  color: var(--vp-c-text-2);
+  line-height: 1.8;
+}
+
+.vp-doc strong,
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4,
+.vp-doc th {
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc a {
+  text-decoration: none;
+}
+
+.vp-doc a:hover {
+  text-decoration: underline;
+  text-decoration-color: rgba(45, 212, 191, 0.4);
+}
+
+.vp-doc blockquote,
+.vp-doc table,
+.vp-doc div[class*='language-'],
+.vp-doc .custom-block {
+  border-radius: 20px;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  overflow: hidden;
+  border-collapse: collapse;
+  border: 1px solid rgba(159, 184, 201, 0.12);
+  background: rgba(10, 18, 26, 0.72);
+}
+
+.vp-doc tr:nth-child(2n) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vp-doc th,
+.vp-doc td {
+  border-color: rgba(159, 184, 201, 0.1);
+}
+
+.vp-doc div[class*='language-'] {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 16px 40px rgba(2, 10, 18, 0.22);
+}
+
+.vp-doc .custom-block {
+  border-width: 1px;
+}
+
+.vp-doc .tip,
+.vp-doc .warning,
+.vp-doc .danger,
+.vp-doc .info,
+.vp-doc .details {
+  padding: 18px 20px;
+}
+
+.vp-doc .tip code,
+.vp-doc .warning code,
+.vp-doc .danger code,
+.vp-doc .info code {
+  background: rgba(8, 16, 25, 0.52);
+}
+
+.VPSidebar {
+  background: rgba(9, 17, 25, 0.92);
+  backdrop-filter: blur(20px);
+}
+
+.VPDocAside .content,
+.VPDocAsideOutline .content {
+  border-left-color: rgba(159, 184, 201, 0.14);
+}
+
+.vp-doc .sl-doc-card-grid {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.vp-doc .sl-doc-card {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(16, 27, 39, 0.88), rgba(9, 16, 25, 0.94));
+  padding: 20px;
+  box-shadow: 0 16px 40px rgba(2, 10, 18, 0.2);
+}
+
+.vp-doc .sl-doc-card h3,
+.vp-doc .sl-doc-card p:last-child {
+  margin: 0;
+}
+
+@media (min-width: 860px) {
+  .vp-doc .sl-doc-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

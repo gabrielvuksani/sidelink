@@ -1,5 +1,7 @@
 # Security
 
+Security in Sidelink is mostly about keeping trust boundaries visible and local state under user control.
+
 ## Principles
 
 - Local-first storage and execution
@@ -28,3 +30,9 @@
 - Real execution gates to avoid accidental destructive actions
 - Install pipeline state machine with explicit failure reasons
 - Recovery and retry telemetry for refresh/install jobs
+
+## Release Safety
+
+- packaged desktop artifacts are smoke-tested before publication
+- first-run admin creation is explicit rather than seeded from default credentials
+- docs deployment uses GitHub Actions instead of a generated branch artifact path
