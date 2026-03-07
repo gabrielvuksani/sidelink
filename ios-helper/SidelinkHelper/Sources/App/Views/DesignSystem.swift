@@ -77,6 +77,200 @@ struct SidelinkBrandIcon: View {
     }
 }
 
+struct SidelinkBackdrop: View {
+    var accent: Color = .slAccent
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color(red: 0.01, green: 0.01, blue: 0.015), Color(red: 0.03, green: 0.035, blue: 0.05), Color(red: 0.01, green: 0.01, blue: 0.015)]
+                : [Color(red: 0.965, green: 0.978, blue: 0.995), Color.white, Color(red: 0.972, green: 0.982, blue: 0.988)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(accent.opacity(colorScheme == .dark ? 0.18 : 0.12))
+                .frame(width: colorScheme == .dark ? 320 : 260, height: colorScheme == .dark ? 320 : 260)
+                .blur(radius: colorScheme == .dark ? 42 : 24)
+                .offset(x: 88, y: -56)
+        }
+        .overlay(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 120, style: .continuous)
+                .fill(Color.slAccent2.opacity(colorScheme == .dark ? 0.15 : 0.10))
+                .frame(width: 220, height: 220)
+                .rotationEffect(.degrees(24))
+                .blur(radius: colorScheme == .dark ? 20 : 12)
+                .offset(x: -92, y: 84)
+        }
+        .overlay {
+            if colorScheme == .dark {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.0), Color.black.opacity(0.12), Color.black.opacity(0.28)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
+    }
+}
+
+struct LiquidPanelModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(20)
+            .background {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.68))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.10) : Color.white.opacity(0.55), lineWidth: 1)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(colorScheme == .dark ? 0.06 : 0.28), .clear],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.08), radius: colorScheme == .dark ? 28 : 18, y: colorScheme == .dark ? 14 : 8)
+            }
+    }
+}
+
+extension View {
+    func liquidPanel() -> some View {
+        modifier(LiquidPanelModifier())
+    }
+}
+
+struct SidelinkSectionIntro: View {
+    let eyebrow: String?
+    let title: String
+    let subtitle: String
+
+    init(eyebrow: String? = nil, title: String, subtitle: String) {
+        self.eyebrow = eyebrow
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let eyebrow, !eyebrow.isEmpty {
+                Text(eyebrow.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.1)
+                    .foregroundStyle(.secondary)
+            }
+            Text(title)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct SidelinkMetricTile: View {
+    let label: String
+    let value: String
+    var tint: Color = .slAccent
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .tracking(1.0)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+            Capsule()
+                .fill(tint.opacity(0.22))
+                .frame(width: 34, height: 5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+struct SidelinkQuickActionButtonStyle: ButtonStyle {
+    var tint: Color = .slAccent
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(uiColor: UIColor { trait in
+                        if trait.userInterfaceStyle == .dark {
+                            return UIColor.white.withAlphaComponent(configuration.isPressed ? 0.10 : 0.14)
+                        }
+                        return UIColor.white.withAlphaComponent(configuration.isPressed ? 0.62 : 0.82)
+                    }))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(tint.opacity(0.16), lineWidth: 1)
+                    }
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == SidelinkQuickActionButtonStyle {
+    static var sidelinkQuickAction: SidelinkQuickActionButtonStyle { SidelinkQuickActionButtonStyle() }
+    static func sidelinkQuickAction(tint: Color) -> SidelinkQuickActionButtonStyle { SidelinkQuickActionButtonStyle(tint: tint) }
+}
+
+struct SidelinkInsetPanelModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72))
+            )
+    }
+}
+
+struct SidelinkFieldModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.78))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06), lineWidth: 1)
+            )
+    }
+}
+
 // MARK: - Card Style Modifier
 struct SidelinkCardStyle: ViewModifier {
     @Environment(\.colorScheme) var colorScheme
@@ -95,6 +289,14 @@ struct SidelinkCardStyle: ViewModifier {
 extension View {
     func sidelinkCard() -> some View {
         modifier(SidelinkCardStyle())
+    }
+
+    func sidelinkInsetPanel() -> some View {
+        modifier(SidelinkInsetPanelModifier())
+    }
+
+    func sidelinkField() -> some View {
+        modifier(SidelinkFieldModifier())
     }
 }
 
@@ -185,7 +387,7 @@ struct GlassmorphismCard: ViewModifier {
             .padding()
             .background {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72))
                     .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.1), radius: 12, y: 4)
             }
     }

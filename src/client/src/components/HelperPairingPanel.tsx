@@ -14,7 +14,7 @@ interface HelperPairingPanelProps {
 
 export function HelperPairingPanel({
   title = 'Pair your iPhone helper',
-  subtitle = 'Open Sidelink on your iPhone, choose Pair / Repair, then scan this QR or paste the payload.',
+  subtitle = 'Open Sidelink on your iPhone, choose Pair / Repair, then scan this QR or enter the 6-digit code manually.',
   paired = false,
   compact = false,
 }: HelperPairingPanelProps) {
@@ -142,26 +142,15 @@ export function HelperPairingPanel({
               </div>
 
               <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Paste instead</p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Manual fallback</p>
                 <p className="mt-2 text-[12px] leading-5 text-[var(--sl-text)]">
-                  If camera scanning is unavailable, copy the payload and use Paste Payload on the iPhone helper.
+                  If scanning is unavailable, choose a discovered desktop or type the desktop address, then enter this 6-digit pairing code on your iPhone.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => void copyText(pairingPayload, 'Pairing payload copied')}
-                  className="sl-btn-primary mt-3 !px-3 !py-2 !text-[12px]"
-                >
-                  Copy pairing payload
-                </button>
+                <div className="mt-3 rounded-xl border border-[var(--sl-border)] bg-black/10 px-3 py-3">
+                  <p className="font-mono text-2xl font-semibold tracking-[0.24em] text-[var(--sl-text)]">{pairingCode}</p>
+                </div>
               </div>
             </div>
-
-            <details className="rounded-2xl border border-[var(--sl-border)] bg-black/10 p-4">
-              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
-                Raw payload
-              </summary>
-              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-[var(--sl-text)]">{pairingPayload}</pre>
-            </details>
           </div>
         </div>
       ) : (

@@ -22,25 +22,13 @@ struct InstalledTab: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if let activeJob = model.activeInstallJob {
-                        InstallProgressView(
-                            job: activeJob,
-                            logs: model.activeInstallLogs,
-                            twoFACode: $model.activeInstall2FACode,
-                            onSubmitTwoFA: {
-                                Task { await model.submitActiveInstall2FA() }
-                            },
-                            onRetry: {
-                                if let job = model.activeInstallJob {
-                                    Task { await model.startInstall(ipaId: job.ipaId) }
-                                }
-                            },
-                            isSubmitting: model.isLoading
-                        )
-                        .padding(.horizontal)
-                    }
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent)
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        installedHero
 
                     if let limits = model.config?.freeAccountLimits {
                         VStack(alignment: .leading, spacing: 16) {
@@ -84,9 +72,8 @@ struct InstalledTab: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .padding()
-                        .glassmorphismCard()
-                        .padding(.horizontal)
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     HStack(spacing: 12) {
@@ -98,12 +85,8 @@ struct InstalledTab: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.isPaired || activeApps.isEmpty || model.isLoading)
-
-                        if !model.unmanagedInstalledApps.isEmpty {
-                            PillBadge(text: "\(model.unmanagedInstalledApps.count) unmanaged", color: .slWarning)
-                        }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 20)
 
                     // MARK: - Installed Apps
                     if model.isLoading && model.installedApps.isEmpty {
@@ -112,8 +95,8 @@ struct InstalledTab: View {
                             SkeletonRow(lineCount: 2)
                             SkeletonRow(lineCount: 2)
                         }
-                        .padding(.horizontal)
-                    } else if model.installedApps.isEmpty && model.unmanagedInstalledApps.isEmpty {
+                        .padding(.horizontal, 20)
+                    } else if model.installedApps.isEmpty {
                         // Empty state illustration
                         VStack(spacing: 16) {
                             ZStack {
@@ -137,14 +120,13 @@ struct InstalledTab: View {
                         .padding(.vertical, 40)
                     } else if !activeApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Active Installs")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                            SidelinkSectionIntro(eyebrow: "Installed", title: "Active installs", subtitle: "Apps currently managed by Sidelink, with expiry and refresh actions front and center.")
+                                .padding(.horizontal, 20)
 
                             LazyVStack(spacing: 12) {
                                 ForEach(activeApps) { install in
                                     installedAppCard(install)
-                                        .padding(.horizontal)
+                                        .padding(.horizontal, 20)
                                 }
                             }
                         }
@@ -152,57 +134,27 @@ struct InstalledTab: View {
 
                     if !deactivatedApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Deactivated")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                            SidelinkSectionIntro(eyebrow: "Archive", title: "Deactivated", subtitle: "Keep rarely used apps nearby without spending an active free-account slot.")
+                                .padding(.horizontal, 20)
 
                             LazyVStack(spacing: 12) {
                                 ForEach(deactivatedApps) { install in
                                     installedAppCard(install)
-                                        .padding(.horizontal)
+                                        .padding(.horizontal, 20)
                                 }
                             }
                         }
                     }
-
-                    if !model.unmanagedInstalledApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(activeApps.isEmpty ? "Installed On Device" : "Other Apps On Device")
-                                .sectionHeader()
-                                .padding(.horizontal)
-
-                            LazyVStack(spacing: 10) {
-                                ForEach(model.unmanagedInstalledApps) { app in
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(app.name)
-                                                .font(.subheadline.bold())
-                                            Text(app.bundleId)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        PillBadge(text: activeApps.isEmpty ? "Installed" : "External", color: .slMuted, small: true)
-                                    }
-                                    .sidelinkCard()
-                                    .padding(.horizontal)
-                                }
-                            }
-                        }
-                    }
-
-
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Library")
-                            .sectionHeader()
-                            .padding(.horizontal)
+                        SidelinkSectionIntro(eyebrow: "Library", title: "Ready to install", subtitle: "Your imported IPAs stay here so you can jump back into signing without leaving this tab.")
+                            .padding(.horizontal, 20)
 
                         if model.ipas.isEmpty {
                             Text("Imported IPAs and uploaded files live here once you add them from the plus button.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal)
+                                .padding(.horizontal, 20)
                         } else {
                             LazyVStack(spacing: 0) {
                                 ForEach(model.ipas) { ipa in
@@ -212,19 +164,24 @@ struct InstalledTab: View {
                                         libraryRow(ipa)
                                     }
                                     .buttonStyle(.plain)
-                                    .padding(.horizontal)
+                                    .padding(.horizontal, 20)
                                 }
                             }
                         }
                     }
                 }
-                .padding(.vertical)
+                .padding(.vertical, 20)
+                }
             }
             .refreshable {
                 await model.refreshAll()
             }
-            .navigationTitle("Installed")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Installed")
+                        .font(.headline.weight(.semibold))
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         Task { await model.refreshAll() }
@@ -280,6 +237,20 @@ struct InstalledTab: View {
                 handleImportSelection(result)
             }
         }
+    }
+
+    private var installedHero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SidelinkSectionIntro(eyebrow: "Installed", title: "A sharper view of what Sidelink manages", subtitle: "Active installs, expiry risk, and your ready-to-sign library stay visible without the clutter of every unrelated device app.")
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Active", value: "\(activeApps.count)")
+                SidelinkMetricTile(label: "Library", value: "\(model.ipas.count)", tint: .slAccent2)
+                SidelinkMetricTile(label: "Archived", value: "\(deactivatedApps.count)", tint: .slWarning)
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
     }
 
     private func handleImportSelection(_ result: Result<[URL], Error>) {
@@ -414,7 +385,7 @@ struct InstalledTab: View {
                 .controlSize(.small)
             }
         }
-        .sidelinkCard()
+        .liquidPanel()
     }
 
     // MARK: - Helpers

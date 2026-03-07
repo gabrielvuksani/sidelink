@@ -21,6 +21,7 @@ import type {
 const BASE = '/api';
 
 interface ApiRes<T = unknown> { ok: boolean; data?: T; error?: string }
+interface ApiErrorShape { error?: string; ok?: boolean }
 
 export interface AppleAppIdRecord {
   id: string;
@@ -78,6 +79,40 @@ function getCsrfToken(): string | undefined {
   return document.cookie.split('; ').find(c => c.startsWith('_csrf='))?.split('=')[1];
 }
 
+function isMutationMethod(method: string): boolean {
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+}
+
+function isLikelySessionExpiryError(errorText: string): boolean {
+  const normalized = errorText.toLowerCase();
+  return normalized.includes('session')
+    || normalized.includes('authentication required')
+    || normalized.includes('invalid or expired session')
+    || normalized.includes('not authenticated');
+}
+
+function createApiError(status: number, error: string, data?: unknown): Error & { status: number; data?: unknown } {
+  return Object.assign(new Error(error), { status, data });
+}
+
+async function parseJsonResponse<T>(res: Response): Promise<ApiRes<T> | null> {
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    return null;
+  }
+  return res.json() as Promise<ApiRes<T>>;
+}
+
+async function parseResponsePayload<T>(res: Response): Promise<{ json: ApiRes<T> | null; text: string | null }> {
+  const json = await parseJsonResponse<T>(res).catch(() => null);
+  if (json) {
+    return { json, text: null };
+  }
+
+  const text = await res.text().catch(() => '');
+  return { json: null, text: text.trim() || null };
+}
+
 // ── Core request ─────────────────────────────────────────────────────
 async function request<T = unknown>(
   method: string,
@@ -91,7 +126,7 @@ async function request<T = unknown>(
     signal: opts?.signal,
   };
   const csrfHeaders: Record<string, string> = {};
-  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+  if (isMutationMethod(method)) {
     const csrf = getCsrfToken();
     if (csrf) csrfHeaders['X-CSRF-Token'] = csrf;
   }
@@ -103,7 +138,9 @@ async function request<T = unknown>(
   }
 
   const res = await fetch(`${BASE}${path}`, init);
-  const json: ApiRes<T> = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+  const { json, text } = await parseResponsePayload<T>(res);
+  const fallbackError = text ?? `HTTP ${res.status}`;
+  const payload = json ?? { ok: res.ok, error: res.ok ? undefined : fallbackError };
 
   // Intercept 401 only when it is truly a session/auth expiration case.
   // Apple credential failures also return 401 and must not force logout.
@@ -112,32 +149,23 @@ async function request<T = unknown>(
     && !path.startsWith('/auth/')
     && !opts?.suppressSessionExpiryHandling
   ) {
-    const errText = (json.error ?? '').toLowerCase();
-    const likelySessionError =
-      errText.includes('session')
-      || errText.includes('authentication required')
-      || errText.includes('invalid or expired session')
-      || errText.includes('not authenticated');
-
-    if (likelySessionError) {
+    const errText = payload.error ?? fallbackError;
+    if (isLikelySessionExpiryError(errText)) {
       onSessionExpired?.();
-      throw Object.assign(new Error('Session expired'), { status: 401, data: json });
+      throw createApiError(401, 'Session expired', payload);
     }
   }
-  if (!json.ok) {
-    const err = Object.assign(new Error(json.error ?? 'Request failed'), {
-      data: json,
-      status: res.status,
-    });
-    throw err;
+  if (!res.ok || !payload.ok) {
+    throw createApiError(res.status, payload.error ?? fallbackError, payload);
   }
-  return json;
+  return payload;
 }
 
 async function requestRawJson<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
+  opts?: { suppressSessionExpiryHandling?: boolean },
 ): Promise<T> {
   const init: RequestInit = {
     method,
@@ -145,7 +173,7 @@ async function requestRawJson<T = unknown>(
   };
 
   const csrfHeaders: Record<string, string> = {};
-  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+  if (isMutationMethod(method)) {
     const csrf = getCsrfToken();
     if (csrf) csrfHeaders['X-CSRF-Token'] = csrf;
   }
@@ -158,13 +186,23 @@ async function requestRawJson<T = unknown>(
   }
 
   const res = await fetch(`${BASE}${path}`, init);
-  const data = await res.json().catch(() => null);
+  const data = await res.json().catch(() => null) as ApiErrorShape | T | null;
+  const errorText = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
+    ? data.error
+    : `HTTP ${res.status}`;
+
+  if (
+    res.status === 401
+    && !path.startsWith('/auth/')
+    && !opts?.suppressSessionExpiryHandling
+    && isLikelySessionExpiryError(errorText)
+  ) {
+    onSessionExpired?.();
+    throw createApiError(401, 'Session expired', data);
+  }
+
   if (!res.ok) {
-    const err = Object.assign(new Error(`HTTP ${res.status}`), {
-      status: res.status,
-      data,
-    });
-    throw err;
+    throw createApiError(res.status, errorText, data);
   }
   return data as T;
 }
@@ -194,14 +232,14 @@ export const api = {
       suppressSessionExpiryHandling: true,
     }),
   listAppleAccounts: () => request<AppleAccount[]>('GET', '/apple/accounts'),
-  getAppleAccount: (id: string) => request<AppleAccount>('GET', `/apple/accounts/${id}`),
-  removeAppleAccount: (id: string) => request('DELETE', `/apple/accounts/${id}`),
+  getAppleAccount: (id: string) => request<AppleAccount>('GET', `/apple/accounts/${encodeURIComponent(id)}`),
+  removeAppleAccount: (id: string) => request('DELETE', `/apple/accounts/${encodeURIComponent(id)}`),
   reAuthAccount: (id: string) =>
-    request<AppleAccount | { requires2FA: boolean; authType: string }>('POST', `/apple/accounts/${id}/reauth`, undefined, {
+    request<AppleAccount | { requires2FA: boolean; authType: string }>('POST', `/apple/accounts/${encodeURIComponent(id)}/reauth`, undefined, {
       suppressSessionExpiryHandling: true,
     }),
   reAuthSubmit2FA: (id: string, code: string) =>
-    request<AppleAccount>('POST', `/apple/accounts/${id}/reauth/2fa`, { code }, {
+    request<AppleAccount>('POST', `/apple/accounts/${encodeURIComponent(id)}/reauth/2fa`, { code }, {
       suppressSessionExpiryHandling: true,
     }),
 
@@ -221,16 +259,23 @@ export const api = {
         if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
       };
       xhr.onload = () => {
-        if (xhr.status === 401) {
-          onSessionExpired?.();
-          return reject(Object.assign(new Error('Session expired'), { status: 401 }));
-        }
         try {
           const json = JSON.parse(xhr.responseText) as ApiRes<IpaArtifact>;
-          if (json.ok) resolve(json);
-          else reject(new Error(json.error ?? `Upload failed: ${xhr.status}`));
+          if (xhr.status === 401 && isLikelySessionExpiryError(json.error ?? '')) {
+            onSessionExpired?.();
+            return reject(createApiError(401, 'Session expired', json));
+          }
+          if (xhr.status >= 400 || !json.ok) {
+            return reject(createApiError(xhr.status, json.error ?? `Upload failed: ${xhr.status}`, json));
+          }
+          resolve(json);
         } catch {
-          reject(new Error(`Upload failed: ${xhr.status}`));
+          if (xhr.status === 401) {
+            onSessionExpired?.();
+            reject(createApiError(401, 'Session expired'));
+            return;
+          }
+          reject(createApiError(xhr.status, `Upload failed: ${xhr.status}`));
         }
       };
       xhr.onerror = () => reject(new Error('Network error during upload'));
@@ -243,8 +288,8 @@ export const api = {
       xhr.send(form);
     });
   },
-  getIpa: (id: string) => request<IpaArtifact>('GET', `/ipas/${id}`),
-  deleteIpa: (id: string) => request('DELETE', `/ipas/${id}`),
+  getIpa: (id: string) => request<IpaArtifact>('GET', `/ipas/${encodeURIComponent(id)}`),
+  deleteIpa: (id: string) => request('DELETE', `/ipas/${encodeURIComponent(id)}`),
   importIpaFromUrl: (url: string) => request<IpaArtifact>('POST', '/ipas/import-url', { url }),
 
   // ── Sources ────────────────────────────────────────────────────────
@@ -263,18 +308,18 @@ export const api = {
   startInstall: (params: { accountId: string; ipaId: string; deviceUdid: string; includeExtensions?: boolean }) =>
     request<InstallJob>('POST', '/install', params),
   listJobs: () => request<InstallJob[]>('GET', '/install/jobs'),
-  getJob: (id: string) => request<InstallJob>('GET', `/install/jobs/${id}`),
-  getJobLogs: (id: string) => request<JobLogEntry[]>('GET', `/install/jobs/${id}/logs`),
+  getJob: (id: string) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`),
+  getJobLogs: (id: string) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`),
   submitJob2FA: (jobId: string, code: string) =>
     request('POST', `/install/jobs/${encodeURIComponent(jobId)}/2fa`, { code }),
   listInstalledApps: () => request<InstalledApp[]>('GET', '/install/apps'),
-  removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${id}`),
-  deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${id}/deactivate`),
-  reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${id}/reactivate`),
+  removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${encodeURIComponent(id)}`),
+  deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${encodeURIComponent(id)}/deactivate`),
+  reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${encodeURIComponent(id)}/reactivate`),
 
   // ── System ──────────────────────────────────────────────────────────
   dashboard: () => request<DashboardState>('GET', '/system/dashboard'),
-  listLogs: (level?: string) => request<LogEntry[]>('GET', `/system/logs${level ? `?level=${level}` : ''}`),
+  listLogs: (level?: string) => request<LogEntry[]>('GET', `/system/logs${level ? `?level=${encodeURIComponent(level)}` : ''}`),
   clearLogs: () => request('DELETE', '/system/logs'),
   getScheduler: () => request<SchedulerSnapshot>('GET', '/system/scheduler'),
   updateScheduler: (config: Partial<{ enabled: boolean; checkIntervalMs: number }>) =>
@@ -310,7 +355,7 @@ export const api = {
 
   listAppleAppIds: (sync = false) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`),
   listAppleAppIdUsage: () => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage'),
-  deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${id}`),
+  deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${encodeURIComponent(id)}`),
   listAppleCertificates: () => request<AppleCertificateRecord[]>('GET', '/apple/certificates'),
   health: () => request<{ status: string; uptime: number }>('GET', '/health'),
 };

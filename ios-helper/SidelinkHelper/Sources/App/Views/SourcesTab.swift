@@ -4,134 +4,95 @@ struct SourcesTab: View {
     @ObservedObject var model: HelperViewModel
     @State private var showImportSheet = false
     @State private var showTrustedSources = false
+    @Environment(\.colorScheme) private var colorScheme
 
-    private var featuredTrustedSources: [TrustedSourceDTO] {
-        Array(model.trustedSources.prefix(3))
+    private var officialCatalog: SourceCatalog? {
+        model.sourceCatalogs.first(where: { model.isOfficialSourceURL($0.sourceURL) })
+    }
+
+    private var customCatalogs: [SourceCatalog] {
+        model.sourceCatalogs.filter { !model.isOfficialSourceURL($0.sourceURL) }
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Import AltStore-compatible sources and browse them here.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent2)
+                    .ignoresSafeArea()
 
-                        Text("Source browsing works even before helper pairing.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                ScrollView {
+                    VStack(spacing: 24) {
+                        sourceHero
 
-                        HStack(spacing: 12) {
-                            Button {
-                                showImportSheet = true
-                            } label: {
-                                Label("Import Source", systemImage: "square.and.arrow.down")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            Button {
-                                showTrustedSources = true
-                            } label: {
-                                Label("Trusted", systemImage: "checkmark.shield")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
+                        if let validationMessage = sourceValidationMessage {
+                            Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Color.slDanger)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                                .background((colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.82)), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .padding(.horizontal, 20)
                         }
-                    }
-                    .padding(.horizontal)
-                    .sidelinkCard()
-                    .padding(.horizontal)
 
-                    if !model.trustedSources.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("Trusted Sources")
-                                    .sectionHeader()
-                                Spacer()
-                                Button("View All") {
-                                    showTrustedSources = true
+                        if !model.sourceCatalogFailures.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                SidelinkSectionIntro(eyebrow: "Needs Attention", title: "Some feeds did not load", subtitle: "The official source will stay pinned. Broken feeds will stop being noisy once fixed or removed.")
+                                ForEach(model.sourceCatalogFailures, id: \.self) { failure in
+                                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                                        .font(.footnote)
+                                        .foregroundStyle(Color.slWarning)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .font(.subheadline.weight(.semibold))
                             }
+                            .liquidPanel()
+                            .padding(.horizontal, 20)
+                        }
 
-                            ForEach(featuredTrustedSources) { source in
-                                trustedSourceRow(source)
+                        if model.isLoading && model.sourceCatalogs.isEmpty {
+                            VStack(spacing: 12) {
+                                SkeletonRow(lineCount: 2)
+                                SkeletonRow(lineCount: 2)
+                                SkeletonRow(lineCount: 2)
                             }
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    if let validationMessage = sourceValidationMessage {
-                        Label(validationMessage, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(Color.slDanger)
-                            .padding(.horizontal)
-                    }
-
-                    if !model.sourceCatalogFailures.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Needs Attention")
-                                .sectionHeader()
-
-                            ForEach(model.sourceCatalogFailures, id: \.self) { failure in
-                                Label(failure, systemImage: "exclamationmark.triangle")
-                                    .font(.footnote)
-                                    .foregroundStyle(Color.slWarning)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    // MARK: - Source Cards
-                    if model.isLoading && model.sourceCatalogs.isEmpty {
-                        VStack(spacing: 12) {
-                            SkeletonRow(lineCount: 2)
-                            SkeletonRow(lineCount: 2)
-                            SkeletonRow(lineCount: 2)
-                        }
-                        .padding(.horizontal)
-                    } else if model.sourceCatalogs.isEmpty {
-                        VStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(.secondary.opacity(0.08))
-                                    .frame(width: 100, height: 100)
-                                Image(systemName: "books.vertical.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundStyle(.secondary.opacity(0.4))
-                            }
-                            Text("No sources")
-                                .font(.title3.bold())
-                                .foregroundStyle(.secondary)
-                            Text("Import a source to discover and install apps from community repositories.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(model.sourceCatalogs) { catalog in
-                                NavigationLink(value: catalog.id) {
-                                    sourceCard(catalog)
+                            .padding(.horizontal, 20)
+                        } else {
+                            if let officialCatalog {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    SidelinkSectionIntro(eyebrow: "Pinned", title: "Official Source", subtitle: "This feed is always kept in place so Sidelink never starts empty.")
+                                    NavigationLink(value: officialCatalog.id) {
+                                        sourceCard(officialCatalog)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.horizontal, 20)
                             }
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                SidelinkSectionIntro(eyebrow: "Library", title: customCatalogs.isEmpty ? "Your added sources" : "Added sources", subtitle: customCatalogs.isEmpty ? "Trusted sources live one tap away. Add feeds only when you actually want them." : "Only the sources you explicitly added stay here.")
+
+                                if customCatalogs.isEmpty {
+                                    emptySourcesState
+                                } else {
+                                    LazyVStack(spacing: 12) {
+                                        ForEach(customCatalogs) { catalog in
+                                            NavigationLink(value: catalog.id) {
+                                                sourceCard(catalog)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal)
                     }
+                    .padding(.vertical, 20)
                 }
-                .padding(.vertical)
             }
             .refreshable {
                 await model.refreshAll()
             }
-            .navigationTitle("Sources")
+            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await model.refreshTrustedSources()
             }
@@ -141,12 +102,9 @@ struct SourcesTab: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showImportSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+                ToolbarItem(placement: .principal) {
+                    Text("Sources")
+                        .font(.headline.weight(.semibold))
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -165,6 +123,37 @@ struct SourcesTab: View {
                 }
             }
         }
+    }
+
+    private var sourceHero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SidelinkSectionIntro(eyebrow: "Sources", title: "A quieter source library", subtitle: "The official feed stays pinned, trusted feeds stay out of the way, and you can add more only when you need them.")
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Feeds", value: "\(model.sourceCatalogs.count)")
+                SidelinkMetricTile(label: "Trusted", value: "\(model.trustedSources.count)", tint: .slAccent2)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    showImportSheet = true
+                } label: {
+                    Label("Add Source", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.sidelinkQuickAction)
+
+                Button {
+                    showTrustedSources = true
+                } label: {
+                    Label("Trusted Sources", systemImage: "checkmark.shield")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.sidelinkQuickAction(tint: .slAccent2))
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
     }
 
     private var importSheet: some View {
@@ -236,43 +225,11 @@ struct SourcesTab: View {
         SidelinkNetworkUtil.isLocalHost(host)
     }
 
-    private func trustedSourceRow(_ source: TrustedSourceDTO) -> some View {
-        HStack(spacing: 12) {
-            SidelinkAsyncImage(url: source.iconURL, size: 42)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(source.name)
-                    .font(.subheadline.bold())
-                if let description = source.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-
-            Spacer()
-
-            Button {
-                Task { await model.addTrustedSource(source) }
-            } label: {
-                Text("Add")
-                    .font(.caption.bold())
-                    .padding(.horizontal, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .sidelinkCard()
-    }
-
     // MARK: - Source Card
     private func sourceCard(_ catalog: SourceCatalog) -> some View {
         let tint = Color(hex: catalog.manifest.tintColor) ?? .slAccent
-        let lowerURL = catalog.sourceURL.lowercased()
-        let isBuiltIn = lowerURL == "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source.json" ||
-            lowerURL == "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json" ||
-            lowerURL == "https://cdn.altstore.io/file/altstore/apps.json"
+        let isBuiltIn = model.isOfficialSourceURL(catalog.sourceURL) ||
+            catalog.sourceURL.caseInsensitiveCompare("https://cdn.altstore.io/file/altstore/apps.json") == .orderedSame
 
         return HStack(spacing: 14) {
             SidelinkAsyncImage(url: catalog.manifest.iconURL, size: 48)
@@ -306,9 +263,9 @@ struct SourcesTab: View {
                 .font(.caption)
                 .foregroundStyle(.secondary.opacity(0.5))
         }
-        .sidelinkCard()
+        .liquidPanel()
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(tint.opacity(0.3), lineWidth: 1)
         )
         .contextMenu {
@@ -322,110 +279,125 @@ struct SourcesTab: View {
         }
     }
 
+    private var emptySourcesState: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("No custom sources yet")
+                .font(.headline)
+            Text("Use Trusted Sources for curated picks, or paste any AltStore-compatible source URL when you actually want it in your library.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .liquidPanel()
+    }
+
     // MARK: - Source Detail View
     @ViewBuilder
     private func sourceDetailView(_ catalog: SourceCatalog) -> some View {
         let tint = Color(hex: catalog.manifest.tintColor) ?? .slAccent
+        ZStack {
+            SidelinkBackdrop(accent: tint)
+                .ignoresSafeArea()
 
-        ScrollView {
-            VStack(spacing: 20) {
-                // Header image
-                if let headerURL = catalog.manifest.headerURL,
-                   let url = URL(string: headerURL) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image.resizable().aspectRatio(contentMode: .fill)
-                        default:
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [tint, tint.opacity(0.5)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
-                    }
-                    .frame(height: 160)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.horizontal)
-                }
-
-                // Source info
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 12) {
-                        SidelinkAsyncImage(url: catalog.manifest.iconURL, size: 48)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(catalog.manifest.name)
-                                .font(.title3.bold())
-                            Text("\(catalog.manifest.apps.count) apps")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if let desc = catalog.manifest.description, !desc.isEmpty {
-                        Text(desc)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let website = catalog.manifest.website,
-                       let url = URL(string: website) {
-                        Link(destination: url) {
-                            Label("Visit Source Website", systemImage: "safari")
-                                .font(.caption.bold())
-                        }
-                        .padding(.top, 2)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-                // MARK: - News Carousel
-                if let news = catalog.manifest.news, !news.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("News")
-                            .sectionHeader()
-                            .padding(.horizontal)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 12) {
-                                ForEach(news) { item in
-                                    newsCard(item, tint: tint)
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if let headerURL = catalog.manifest.headerURL,
+                           let url = URL(string: headerURL) {
+                            AsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                default:
+                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [tint, tint.opacity(0.5)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
                                 }
                             }
-                            .padding(.horizontal)
+                            .frame(height: 170)
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         }
-                    }
-                }
 
-                // MARK: - App Grid
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Apps")
-                        .sectionHeader()
-                        .padding(.horizontal)
+                        HStack(alignment: .top, spacing: 14) {
+                            SidelinkAsyncImage(url: catalog.manifest.iconURL, size: 58)
+                            SidelinkSectionIntro(
+                                eyebrow: "Source",
+                                title: catalog.manifest.name,
+                                subtitle: catalog.manifest.subtitle ?? catalog.manifest.description ?? catalog.sourceURL
+                            )
+                        }
 
-                    let columns = [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                    ]
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(catalog.manifest.apps) { app in
-                            NavigationLink {
-                                SourceAppDetailView(model: model, catalog: catalog, app: app)
-                            } label: {
-                                sourceAppGridItem(app, tint: tint)
+                        HStack(spacing: 12) {
+                            SidelinkMetricTile(label: "Apps", value: "\(catalog.manifest.apps.count)")
+                            SidelinkMetricTile(label: "News", value: "\(catalog.manifest.news?.count ?? 0)", tint: .slAccent2)
+                        }
+
+                        if let website = catalog.manifest.website,
+                           let url = URL(string: website) {
+                            Link(destination: url) {
+                                Label("Visit Source Website", systemImage: "safari")
+                                    .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.sidelinkQuickAction(tint: tint))
                         }
                     }
-                    .padding(.horizontal)
+                    .liquidPanel()
+                    .padding(.horizontal, 20)
+
+                    if let news = catalog.manifest.news, !news.isEmpty {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Updates",
+                                title: "Source news",
+                                subtitle: "Recent notes and announcements published by this feed."
+                            )
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 12) {
+                                    ForEach(news) { item in
+                                        newsCard(item, tint: tint)
+                                    }
+                                }
+                            }
+                        }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
+                    }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        SidelinkSectionIntro(
+                            eyebrow: "Catalog",
+                            title: "Available apps",
+                            subtitle: "Everything currently exposed by this source, laid out as a browsable shelf."
+                        )
+
+                        let columns = [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                        ]
+                        LazyVGrid(columns: columns, spacing: 14) {
+                            ForEach(catalog.manifest.apps) { app in
+                                NavigationLink {
+                                    SourceAppDetailView(model: model, catalog: catalog, app: app)
+                                } label: {
+                                    sourceAppGridItem(app, tint: tint)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .liquidPanel()
+                    .padding(.horizontal, 20)
                 }
+                .padding(.vertical, 20)
             }
-            .padding(.vertical)
         }
         .navigationTitle(catalog.manifest.name)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - News Card
@@ -455,7 +427,7 @@ struct SourcesTab: View {
                     .lineLimit(2)
             }
             if let dateStr = item.date {
-                Text(dateStr)
+                Text(SidelinkDateFormatting.relativeDate(dateStr))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -464,7 +436,7 @@ struct SourcesTab: View {
         .padding(10)
         .background {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.74))
         }
     }
 
@@ -519,12 +491,8 @@ struct SourcesTab: View {
         .padding(10)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.74))
         }
-    }
-
-    private func formatSize(_ bytes: Double) -> String {
-        SidelinkFormatting.fileSize(bytes)
     }
 }
 
@@ -533,6 +501,7 @@ private struct SourceAppDetailView: View {
     let catalog: SourceCatalog
     let app: SourceAppDTO
     @State private var showFullDescription = false
+    @Environment(\.colorScheme) private var colorScheme
 
     private var isInstalled: Bool {
         model.installedApps.contains {
@@ -548,195 +517,211 @@ private struct SourceAppDetailView: View {
         isInstalled ? "Reinstall" : "Install"
     }
 
+    private var appSubtitle: String {
+        if let subtitle = app.subtitle, !subtitle.isEmpty {
+            return subtitle
+        }
+        return app.bundleIdentifier
+    }
+
+    private var heroSubtitle: String {
+        [app.developerName, "From \(catalog.manifest.name)"]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    LinearGradient(
-                        colors: [tint, tint.opacity(0.55), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .frame(height: 220)
+        ZStack {
+            SidelinkBackdrop(accent: tint)
+                .ignoresSafeArea()
 
-                    HStack(spacing: 16) {
-                        SidelinkAsyncImage(url: app.iconURL, size: 82)
-                            .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top, spacing: 16) {
+                            SidelinkAsyncImage(url: app.iconURL, size: 82)
+                                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(app.name)
-                                .font(.title2.bold())
-                                .foregroundStyle(.white)
-                            Text(app.bundleIdentifier)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.74))
-                            Text([app.developerName, "From \(catalog.manifest.name)"]
-                                .compactMap { value in
-                                    guard let value, !value.isEmpty else { return nil }
-                                    return value
-                                }
-                                .joined(separator: " · "))
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.7))
+                            VStack(alignment: .leading, spacing: 6) {
+                                SidelinkSectionIntro(
+                                    eyebrow: "Source App",
+                                    title: app.name,
+                                    subtitle: appSubtitle
+                                )
+                                Text(heroSubtitle)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer(minLength: 0)
                         }
-                        Spacer()
+
+                        HStack(spacing: 12) {
+                            SidelinkMetricTile(label: "Version", value: app.displayVersion)
+                            SidelinkMetricTile(label: "Source", value: catalog.manifest.name, tint: .slAccent2)
+                            if let size = app.versions?.first?.size ?? app.size, size > 0 {
+                                SidelinkMetricTile(label: "Size", value: formatFileSize(size), tint: .slWarning)
+                            }
+                        }
                     }
+                    .liquidPanel()
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
-
-                VStack(spacing: 20) {
-                    HStack(spacing: 0) {
-                        infoCell("Version", app.displayVersion)
-                        Divider().frame(height: 28)
-                        infoCell("Source", catalog.manifest.name)
-                        if let size = app.versions?.first?.size ?? app.size, size > 0 {
-                            Divider().frame(height: 28)
-                            infoCell("Size", formatFileSize(size))
-                        }
-                    }
-                    .padding(.vertical, 8)
-
-                    if let subtitle = app.subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal)
-                    }
 
                     if let desc = app.localizedDescription, !desc.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Overview",
+                                title: subtitleTitle,
+                                subtitle: "The source-provided summary and metadata for this app."
+                            )
+
                             Text(desc)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(showFullDescription ? nil : 4)
+
                             Button(showFullDescription ? "Show Less" : "Read More") {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     showFullDescription.toggle()
                                 }
                             }
-                            .font(.subheadline.bold())
+                            .font(.subheadline.weight(.semibold))
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     if let screenshots = preferredScreenshots, !screenshots.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Screenshots")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Preview",
+                                title: "Screenshots",
+                                subtitle: "Source artwork for a quick visual check before installing."
+                            )
 
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 10) {
+                                HStack(spacing: 12) {
                                     ForEach(screenshots) { screenshot in
                                         AsyncImage(url: URL(string: screenshot.imageURL)) { phase in
                                             switch phase {
                                             case .success(let image):
                                                 image.resizable().aspectRatio(contentMode: .fit)
                                             default:
-                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
                                                     .fill(.secondary.opacity(0.1))
                                             }
                                         }
                                         .frame(width: screenshotWidth, height: screenshotHeight)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                                     }
                                 }
-                                .padding(.horizontal)
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     if let versions = app.versions, !versions.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Version History")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "History",
+                                title: "Version timeline",
+                                subtitle: "Release notes and compatibility data from the feed."
+                            )
 
-                            ForEach(versions.prefix(6)) { version in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(version.marketingVersion ?? version.version)
-                                            .font(.subheadline.bold())
-                                        Spacer()
-                                        if let date = version.date {
-                                            Text(date)
+                            VStack(spacing: 10) {
+                                ForEach(versions.prefix(6)) { version in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(alignment: .top, spacing: 12) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(version.marketingVersion ?? version.version)
+                                                    .font(.subheadline.weight(.semibold))
+                                                if let date = version.date, !date.isEmpty {
+                                                    Text(SidelinkDateFormatting.relativeDate(date))
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                            if let minOS = version.minOSVersion, !minOS.isEmpty {
+                                                PillBadge(text: "Min iOS \(minOS)", color: .slMuted, small: true)
+                                            }
+                                            if let size = version.size, size > 0 {
+                                                PillBadge(text: formatFileSize(size), color: tint, small: true)
+                                            }
+                                        }
+                                        if let description = version.localizedDescription, !description.isEmpty {
+                                            Text(description)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
-                                    if let description = version.localizedDescription, !description.isEmpty {
-                                        Text(description)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    HStack(spacing: 8) {
-                                        if let minOS = version.minOSVersion, !minOS.isEmpty {
-                                            PillBadge(text: "Min iOS \(minOS)", color: .slMuted, small: true)
-                                        }
-                                        if let size = version.size, size > 0 {
-                                            PillBadge(text: formatFileSize(size), color: tint, small: true)
-                                        }
-                                    }
+                                    .sidelinkInsetPanel()
                                 }
-                                .padding(.horizontal)
-                                Divider().padding(.horizontal)
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     if hasPermissions {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Permissions")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Security",
+                                title: "Permissions",
+                                subtitle: "Entitlements and privacy descriptions surfaced by the source."
+                            )
 
                             if let entitlements = app.appPermissions?.entitlements, !entitlements.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
+                                VStack(spacing: 10) {
                                     ForEach(entitlements, id: \.self) { entitlement in
                                         Label(entitlement, systemImage: "lock.shield")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .sidelinkInsetPanel()
                                     }
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal)
                             }
 
                             if let privacy = app.appPermissions?.privacy, !privacy.isEmpty {
-                                ForEach(privacy.keys.sorted(), id: \.self) { key in
-                                    HStack(alignment: .top) {
-                                        Text(key)
-                                            .font(.caption.bold())
-                                        Spacer()
-                                        Text(privacy[key] ?? "")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .multilineTextAlignment(.trailing)
+                                VStack(spacing: 10) {
+                                    ForEach(privacy.keys.sorted(), id: \.self) { key in
+                                        HStack(alignment: .top, spacing: 12) {
+                                            Text(key)
+                                                .font(.caption.weight(.semibold))
+                                            Spacer(minLength: 12)
+                                            Text(privacy[key] ?? "")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                        .sidelinkInsetPanel()
                                     }
-                                    .padding(.horizontal)
                                 }
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     if let website = catalog.manifest.website, let url = URL(string: website) {
                         Link(destination: url) {
                             Label("Open Source Website", systemImage: "safari")
-                                .font(.subheadline.bold())
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
-                        .padding(.horizontal)
+                        .buttonStyle(.sidelinkQuickAction(tint: tint))
+                        .padding(.horizontal, 20)
                     }
 
-                    Spacer(minLength: 80)
+                    Spacer(minLength: 96)
                 }
-                .padding(.top, 16)
+                .padding(.vertical, 20)
             }
         }
-        .ignoresSafeArea(edges: .top)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let readiness = model.installReadinessMessage {
@@ -744,9 +729,18 @@ private struct SourceAppDetailView: View {
                         .font(.caption2)
                         .foregroundStyle(Color.slWarning)
                 }
+                Text("A live signing console opens immediately so you can follow every install step and verbose log here.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
 
                 Button {
-                    Task { await model.installFromSource(app) }
+                    Task {
+                        await model.installFromSource(
+                            app,
+                            sourceName: catalog.manifest.name,
+                            subtitle: "Installing from \(catalog.manifest.name)"
+                        )
+                    }
                 } label: {
                     Label(installLabel, systemImage: isInstalled ? "arrow.clockwise" : "arrow.down.app.fill")
                         .font(.headline)
@@ -759,7 +753,7 @@ private struct SourceAppDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(.ultraThinMaterial)
+            .background(colorScheme == .dark ? Color.black.opacity(0.88) : Color.white.opacity(0.82))
         }
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -776,6 +770,13 @@ private struct SourceAppDetailView: View {
 
     private var hasPermissions: Bool {
         !(app.appPermissions?.entitlements?.isEmpty ?? true) || !(app.appPermissions?.privacy?.isEmpty ?? true)
+    }
+
+    private var subtitleTitle: String {
+        if let subtitle = app.subtitle, !subtitle.isEmpty {
+            return subtitle
+        }
+        return "About this app"
     }
 
     private func infoCell(_ label: String, _ value: String) -> some View {

@@ -4,6 +4,18 @@ struct CertificatesView: View {
     @ObservedObject var model: HelperViewModel
     @State private var searchText = ""
 
+    private var healthyCount: Int {
+        filteredCertificates.filter { expiryHealth($0.expiresAt) == .healthy }.count
+    }
+
+    private var expiringCount: Int {
+        filteredCertificates.filter { expiryHealth($0.expiresAt) == .expiring }.count
+    }
+
+    private var expiredCount: Int {
+        filteredCertificates.filter { expiryHealth($0.expiresAt) == .expired }.count
+    }
+
     private var filteredCertificates: [HelperCertificateDTO] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return model.certificates }
@@ -15,79 +27,90 @@ struct CertificatesView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // MARK: - Summary
-                HStack(spacing: 10) {
-                    let healthy = filteredCertificates.filter { expiryHealth($0.expiresAt) == .healthy }.count
-                    let warning = filteredCertificates.filter { expiryHealth($0.expiresAt) == .expiring }.count
-                    let expired = filteredCertificates.filter { expiryHealth($0.expiresAt) == .expired }.count
-                    statPill(title: "Healthy", value: "\(healthy)", color: .slSuccess)
-                    statPill(title: "Expiring", value: "\(warning)", color: .slWarning)
-                    statPill(title: "Expired", value: "\(expired)", color: .slDanger)
-                }
-                .sidelinkCard()
+        ZStack {
+            SidelinkBackdrop(accent: .slWarning)
+                .ignoresSafeArea()
 
-                // MARK: - Certificate cards
-                if filteredCertificates.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "checkmark.shield")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.secondary)
-                        Text(searchText.isEmpty ? "No Certificates" : "No matching certificates")
-                            .font(.headline)
-                        Text(searchText.isEmpty
-                             ? "Certificates are created automatically when you sign in with an Apple ID."
-                             : "Try a broader search query.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        SidelinkSectionIntro(
+                            eyebrow: "Signing",
+                            title: "Certificates",
+                            subtitle: "Track certificate health and expiry without dropping back into a plain utility screen."
+                        )
+
+                        HStack(spacing: 12) {
+                            SidelinkMetricTile(label: "Healthy", value: "\(healthyCount)", tint: .slSuccess)
+                            SidelinkMetricTile(label: "Expiring", value: "\(expiringCount)", tint: .slWarning)
+                            SidelinkMetricTile(label: "Expired", value: "\(expiredCount)", tint: .slDanger)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                    .sidelinkCard()
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredCertificates) { cert in
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(alignment: .top) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(cert.commonName)
-                                            .font(.subheadline.bold())
-                                        Text(cert.serialNumber)
-                                            .font(.caption.monospaced())
+                    .liquidPanel()
+
+                    if filteredCertificates.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "checkmark.shield")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.secondary)
+                            Text(searchText.isEmpty ? "No Certificates" : "No matching certificates")
+                                .font(.headline)
+                            Text(searchText.isEmpty
+                                 ? "Certificates are created automatically when you sign in with an Apple ID."
+                                 : "Try a broader search query.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                        .liquidPanel()
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            ForEach(filteredCertificates) { cert in
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack(alignment: .top) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(cert.commonName)
+                                                .font(.subheadline.bold())
+                                            Text(cert.serialNumber)
+                                                .font(.caption.monospaced())
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        expiryBadge(for: cert.expiresAt)
+                                    }
+
+                                    HStack(spacing: 14) {
+                                        if let appleId = cert.accountAppleId {
+                                            Label(appleId, systemImage: "person.circle")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Label(SidelinkDateFormatting.formattedDate(cert.expiresAt), systemImage: "calendar")
+                                            .font(.caption2)
                                             .foregroundStyle(.secondary)
                                     }
-                                    Spacer()
-                                    expiryBadge(for: cert.expiresAt)
                                 }
-
-                                Divider()
-
-                                HStack(spacing: 14) {
-                                    if let appleId = cert.accountAppleId {
-                                        Label(appleId, systemImage: "person.circle")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-                                    Label(SidelinkDateFormatting.formattedDate(cert.expiresAt), systemImage: "calendar")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
+                                .liquidPanel()
                             }
-                            .sidelinkCard()
                         }
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
             }
-            .padding()
         }
-        .navigationTitle("Certificates")
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "Search certificates")
         .refreshable { await model.loadCertificates() }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Certificates")
+                    .font(.headline.weight(.semibold))
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await model.loadCertificates() }
@@ -123,17 +146,4 @@ struct CertificatesView: View {
         }
     }
 
-    private func statPill(title: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.headline.bold())
-                .foregroundStyle(color)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
 }

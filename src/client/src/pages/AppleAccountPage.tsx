@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord, type AppleCertificateRecord } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { StatusBadge, PageLoader, EmptyState } from '../components/Shared';
@@ -35,7 +36,7 @@ export default function AppleAccountPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   return (
     <div className="space-y-6 animate-fadeIn">

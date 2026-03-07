@@ -6,13 +6,26 @@ struct PairingCodeEntryView: View {
     var isLoading: Bool
     var autoFocus: Bool = false
     var focusTrigger: Int = 0
+    var showsHeader: Bool = true
+    var buttonTitle: String = "Connect"
 
     @FocusState private var isFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     private let digitCount = 6
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
+            if showsHeader {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Enter the pairing code")
+                        .font(.headline)
+                    Text("The desktop app generates a 6-digit code. Sidelink connects as soon as all digits are entered.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // Hidden text field to capture keyboard input
             TextField("", text: $code)
                 .keyboardType(.numberPad)
@@ -35,12 +48,12 @@ struct PairingCodeEntryView: View {
                     let char = digitAt(index)
                     ZStack {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.ultraThinMaterial)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.76))
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .stroke(
                                 index == code.count && isFocused
                                     ? Color.slAccent
-                                    : Color.secondary.opacity(0.2),
+                                    : (colorScheme == .dark ? Color.white.opacity(0.10) : Color.secondary.opacity(0.2)),
                                 lineWidth: index == code.count && isFocused ? 2 : 1
                             )
                         Text(char)
@@ -51,6 +64,8 @@ struct PairingCodeEntryView: View {
                 }
             }
             .onTapGesture { isFocused = true }
+            .padding(14)
+            .background((colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
             Button {
                 onSubmit()
@@ -60,7 +75,7 @@ struct PairingCodeEntryView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Text("Connect")
+                        Text(buttonTitle)
                             .font(.headline)
                     }
                 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BrowseTab: View {
     @ObservedObject var model: HelperViewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     private var featuredSourceApps: [SourceAppDTO] {
         var seen = Set<String>()
@@ -32,19 +33,24 @@ struct BrowseTab: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                homeBackground
+                SidelinkBackdrop()
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 28) {
                         homeHero
 
                         if let readiness = model.installReadinessMessage {
                             attentionBanner(readiness)
                         }
 
+                        if !model.sourceCatalogs.isEmpty || !model.ipas.isEmpty {
+                            summaryRail
+                                .padding(.horizontal, 20)
+                        }
+
                         if !newsCards.isEmpty {
-                            sectionHeader("What’s New", subtitle: "Updates from your connected sources")
+                            sectionHeader("Updates", subtitle: "Fresh notes from the sources you trust")
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 14) {
@@ -57,7 +63,7 @@ struct BrowseTab: View {
                         }
 
                         if !featuredSourceApps.isEmpty {
-                            sectionHeader("Featured Apps", subtitle: "Handpicked from source feeds")
+                            sectionHeader("Featured Apps", subtitle: "A storefront view of what matters right now")
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 14) {
@@ -75,7 +81,7 @@ struct BrowseTab: View {
                         }
 
                         if let latest = model.latestUploadedIpa {
-                            sectionHeader("Latest Upload", subtitle: "Continue from your own library")
+                            sectionHeader("Your Library", subtitle: "Pick up from the latest IPA you added")
 
                             NavigationLink {
                                 AppDetailView(model: model, ipa: latest)
@@ -87,7 +93,7 @@ struct BrowseTab: View {
                         }
 
                         if !recentLibrary.isEmpty {
-                            sectionHeader("Library Highlights", subtitle: "Recent IPAs ready to sign")
+                            sectionHeader("Recent IPAs", subtitle: "Ready to sign whenever you are")
 
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 14) {
@@ -105,7 +111,7 @@ struct BrowseTab: View {
                         }
 
                         if !model.sourceCatalogs.isEmpty {
-                            sectionHeader("Collections", subtitle: "Browse by source catalog")
+                            sectionHeader("Collections", subtitle: "Browse your source catalogs like curated shelves")
 
                             VStack(spacing: 14) {
                                 ForEach(model.sourceCatalogs) { catalog in
@@ -121,22 +127,22 @@ struct BrowseTab: View {
                         }
 
                         if model.sourceCatalogs.isEmpty && model.ipas.isEmpty {
-                            EmptyStateCard(
-                                icon: "square.stack.3d.up.slash",
-                                title: "Nothing Connected Yet",
-                                message: "Add a source or upload an IPA from Installed to start building your library."
-                            )
-                            .padding(.horizontal, 20)
+                            emptyHomeState
+                                .padding(.horizontal, 20)
                         }
                     }
-                    .padding(.vertical, 18)
+                    .padding(.vertical, 20)
                 }
                 .refreshable {
                     await model.refreshAll()
                 }
             }
-            .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Home")
+                        .font(.headline.weight(.semibold))
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await model.refreshAll() }
@@ -148,55 +154,39 @@ struct BrowseTab: View {
         }
     }
 
-    private var homeBackground: some View {
-        LinearGradient(
-            colors: [Color(red: 0.93, green: 0.97, blue: 1.0), Color.white, Color(red: 0.96, green: 0.99, blue: 0.98)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(Color.slAccent.opacity(0.1))
-                .frame(width: 240, height: 240)
-                .blur(radius: 18)
-                .offset(x: 70, y: -50)
+    private var homeHero: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("A calmer control center for sideloading")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+
+                    Text("Browse sources, track installs, and keep signing status visible without wading through noise.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 16)
+
+                SidelinkBrandIcon(size: 54)
+            }
+
+            HStack(spacing: 10) {
+                statusChip(systemImage: "person.crop.circle.fill", text: model.selectedAccount?.appleId ?? "No Apple ID")
+                statusChip(systemImage: "iphone.gen3", text: model.selectedDevice?.name ?? "No Device")
+            }
         }
+        .liquidPanel()
+        .padding(.horizontal, 20)
     }
 
-    private var homeHero: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Your sideloading home base")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Track installs, browse trusted sources, and keep your library ready without jumping between screens.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.84))
-
-            HStack(spacing: 12) {
-                overviewPill(title: "Sources", value: "\(model.sourceCatalogs.count)")
-                overviewPill(title: "Library", value: "\(model.ipas.count)")
-                overviewPill(title: "Slots", value: "\(model.activeAppSlotUsage)/\(model.maxActiveAppSlots)")
-            }
-
-            HStack(spacing: 12) {
-                Label(model.selectedAccount?.appleId ?? "No Apple ID selected", systemImage: "person.crop.circle")
-                Spacer()
-                Label(model.selectedDevice?.name ?? "No Device", systemImage: "iphone")
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.82))
+    private var summaryRail: some View {
+        HStack(spacing: 12) {
+            SidelinkMetricTile(label: "Sources", value: "\(model.sourceCatalogs.count)")
+            SidelinkMetricTile(label: "Library", value: "\(model.ipas.count)", tint: .slAccent2)
+            SidelinkMetricTile(label: "Slots", value: "\(model.activeAppSlotUsage)/\(model.maxActiveAppSlots)", tint: .slWarning)
         }
-        .padding(24)
-        .background(
-            LinearGradient(
-                colors: [Color.slAccent, Color.slAccent2, Color(red: 0.06, green: 0.2, blue: 0.28)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 30, style: .continuous)
-        )
-        .padding(.horizontal, 20)
     }
 
     private func attentionBanner(_ message: String) -> some View {
@@ -208,20 +198,39 @@ struct BrowseTab: View {
                 .foregroundStyle(.primary)
             Spacer()
         }
-        .padding(16)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(18)
+        .background((colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.82)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 20)
     }
 
     private func sectionHeader(_ title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.title3.bold())
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        SidelinkSectionIntro(title: title, subtitle: subtitle)
         .padding(.horizontal, 20)
+    }
+
+    private var emptyHomeState: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SidelinkSectionIntro(eyebrow: "Get Started", title: "Build your first collection", subtitle: "Add the official source or upload an IPA to make Home feel alive.")
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Sources", value: "0")
+                SidelinkMetricTile(label: "Library", value: "0", tint: .slAccent2)
+            }
+        }
+        .liquidPanel()
+    }
+
+    private func statusChip(systemImage: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(Color.slAccent)
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background((colorScheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.76)), in: Capsule())
     }
 
     private func newsCard(_ item: SourceNewsDTO) -> some View {
@@ -242,7 +251,7 @@ struct BrowseTab: View {
         }
         .frame(width: 260, height: 170, alignment: .topLeading)
         .padding(18)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func featuredAppCard(_ app: SourceAppDTO) -> some View {
@@ -272,7 +281,7 @@ struct BrowseTab: View {
         }
         .frame(width: 220, height: 250, alignment: .topLeading)
         .padding(18)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func latestUploadCard(_ ipa: IpaArtifactDTO) -> some View {
@@ -288,7 +297,7 @@ struct BrowseTab: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let uploadedAt = ipa.uploadedAt {
-                    Text("Uploaded \(uploadedAt)")
+                    Text("Uploaded \(SidelinkDateFormatting.relativeDate(uploadedAt))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -300,7 +309,7 @@ struct BrowseTab: View {
                 .foregroundStyle(.secondary)
         }
         .padding(18)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func libraryCard(_ ipa: IpaArtifactDTO) -> some View {
@@ -325,7 +334,7 @@ struct BrowseTab: View {
         }
         .frame(width: 190, height: 210, alignment: .topLeading)
         .padding(16)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func sourceCollectionCard(_ catalog: SourceCatalog) -> some View {
@@ -349,7 +358,7 @@ struct BrowseTab: View {
             PillBadge(text: "\(catalog.manifest.apps.count) apps", color: tint, small: true)
         }
         .padding(16)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     @ViewBuilder
@@ -371,19 +380,6 @@ struct BrowseTab: View {
         }
     }
 
-    private func overviewPill(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.74))
-            Text(value)
-                .font(.headline.bold())
-                .foregroundStyle(.white)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
 }
 
 struct SearchTab: View {
@@ -398,6 +394,7 @@ struct SearchTab: View {
     @ObservedObject var model: HelperViewModel
     @State private var query = ""
     @State private var scope: Scope = .all
+    @Environment(\.colorScheme) private var colorScheme
 
     private var sourceApps: [SourceAppDTO] {
         model.sourceApps
@@ -424,63 +421,138 @@ struct SearchTab: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var shouldShowLibrarySection: Bool {
+        (scope == .all || scope == .library) && !filteredIpas.isEmpty
+    }
+
+    private var shouldShowSourceSection: Bool {
+        (scope == .all || scope == .sources) && !filteredSourceApps.isEmpty
+    }
+
+    private var hasResults: Bool {
+        shouldShowLibrarySection || shouldShowSourceSection
+    }
+
+    private var searchHeroTitle: String {
+        queryTrimmed.isEmpty ? "Find apps without digging" : "Results for \"\(queryTrimmed)\""
+    }
+
+    private var searchHeroSubtitle: String {
+        if queryTrimmed.isEmpty {
+            return "Search spans uploaded IPAs and source catalogs in one place, with less list noise."
+        }
+
+        let libraryLabel = filteredIpas.count == 1 ? "library match" : "library matches"
+        let sourceLabel = filteredSourceApps.count == 1 ? "source match" : "source matches"
+        return "\(filteredIpas.count) \(libraryLabel) and \(filteredSourceApps.count) \(sourceLabel) so far."
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Picker("Scope", selection: $scope) {
-                        ForEach(Scope.allCases) { item in
-                            Text(item.rawValue).tag(item)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
-                }
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent2)
+                    .ignoresSafeArea()
 
-                if (scope == .all || scope == .library) && !filteredIpas.isEmpty {
-                    Section("Library") {
-                        ForEach(filteredIpas) { ipa in
-                            NavigationLink {
-                                AppDetailView(model: model, ipa: ipa)
-                            } label: {
-                                ipaResultRow(ipa)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        searchHero
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Search Scope")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("Scope", selection: $scope) {
+                                ForEach(Scope.allCases) { item in
+                                    Text(item.rawValue).tag(item)
+                                }
                             }
+                            .pickerStyle(.segmented)
                         }
-                    }
-                }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
 
-                if (scope == .all || scope == .sources) && !filteredSourceApps.isEmpty {
-                    Section("Sources") {
-                        ForEach(filteredSourceApps) { app in
-                            NavigationLink {
-                                SourceAppShowcaseView(model: model, app: app)
-                            } label: {
-                                sourceResultRow(app)
+                        if shouldShowLibrarySection {
+                            SidelinkSectionIntro(
+                                eyebrow: "Library",
+                                title: "Uploaded IPAs",
+                                subtitle: queryTrimmed.isEmpty ? "Everything in your signed-app library stays searchable here." : "Matching uploads from your local library."
+                            )
+                            .padding(.horizontal, 20)
+
+                            LazyVStack(spacing: 12) {
+                                ForEach(filteredIpas) { ipa in
+                                    NavigationLink {
+                                        AppDetailView(model: model, ipa: ipa)
+                                    } label: {
+                                        ipaResultRow(ipa)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .padding(.horizontal, 20)
+                        }
+
+                        if shouldShowSourceSection {
+                            SidelinkSectionIntro(
+                                eyebrow: "Sources",
+                                title: "Source apps",
+                                subtitle: queryTrimmed.isEmpty ? "Browse every app exposed by your connected feeds." : "Matching apps from your connected source catalogs."
+                            )
+                            .padding(.horizontal, 20)
+
+                            LazyVStack(spacing: 12) {
+                                ForEach(filteredSourceApps) { app in
+                                    NavigationLink {
+                                        SourceAppShowcaseView(model: model, app: app)
+                                    } label: {
+                                        sourceResultRow(app)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+
+                        if !hasResults {
+                            EmptyStateCard(
+                                icon: "magnifyingglass",
+                                title: queryTrimmed.isEmpty ? "Search your library and sources" : "No matches",
+                                message: queryTrimmed.isEmpty
+                                    ? "Search across uploaded IPAs and every app exposed by your connected AltStore-compatible feeds."
+                                    : "Try another app name, bundle identifier, or developer name."
+                            )
+                            .padding(.horizontal, 20)
                         }
                     }
-                }
-
-                if filteredIpas.isEmpty && filteredSourceApps.isEmpty {
-                    Section {
-                        EmptyStateCard(
-                            icon: "magnifyingglass",
-                            title: queryTrimmed.isEmpty ? "Search Your Library And Sources" : "No Matches",
-                            message: queryTrimmed.isEmpty
-                                ? "Search across uploaded IPAs and apps from connected AltStore-compatible feeds."
-                                : "Try another app name, bundle identifier, or developer name."
-                        )
-                        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
-                        .listRowBackground(Color.clear)
-                    }
+                    .padding(.vertical, 20)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Search")
+                        .font(.headline.weight(.semibold))
+                }
+            }
             .searchable(text: $query, prompt: "Search apps and sources")
         }
+    }
+
+    private var searchHero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SidelinkSectionIntro(
+                eyebrow: "Search",
+                title: searchHeroTitle,
+                subtitle: searchHeroSubtitle
+            )
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Library", value: "\(filteredIpas.count)")
+                SidelinkMetricTile(label: "Sources", value: "\(filteredSourceApps.count)", tint: .slAccent2)
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
     }
 
     private func ipaResultRow(_ ipa: IpaArtifactDTO) -> some View {
@@ -513,6 +585,7 @@ struct SearchTab: View {
             Spacer()
             PillBadge(text: "Library", color: .slAccent, small: true)
         }
+        .liquidPanel()
     }
 
     private func sourceResultRow(_ app: SourceAppDTO) -> some View {
@@ -533,6 +606,7 @@ struct SearchTab: View {
             Spacer()
             PillBadge(text: "Source", color: tint, small: true)
         }
+        .liquidPanel()
     }
 }
 
@@ -540,6 +614,7 @@ private struct EmptyStateCard: View {
     let icon: String
     let title: String
     let message: String
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 14) {
@@ -555,13 +630,14 @@ private struct EmptyStateCard: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
 private struct SourceCatalogShowcaseView: View {
     @ObservedObject var model: HelperViewModel
     let catalog: SourceCatalog
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
@@ -604,7 +680,7 @@ private struct SourceCatalogShowcaseView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .padding(16)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -622,6 +698,7 @@ private struct SourceCatalogShowcaseView: View {
 private struct SourceAppShowcaseView: View {
     @ObservedObject var model: HelperViewModel
     let app: SourceAppDTO
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
@@ -710,7 +787,7 @@ private struct SourceAppShowcaseView: View {
                                     }
                                 }
                                 .padding(16)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                             }
                         }
                         .padding(.horizontal, 20)
@@ -744,7 +821,7 @@ private struct SourceAppShowcaseView: View {
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .padding(.horizontal, 20)
                     }
                 }
@@ -764,7 +841,7 @@ private struct SourceAppShowcaseView: View {
             .tint(Color(hex: app.tintColor) ?? .slAccent)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(.ultraThinMaterial)
+            .background(colorScheme == .dark ? Color.black.opacity(0.88) : Color.white.opacity(0.82))
             .disabled(!model.canStartInstall || app.primaryDownloadURL.isEmpty)
         }
         .background(Color(uiColor: .systemGroupedBackground))

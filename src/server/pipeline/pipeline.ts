@@ -33,7 +33,7 @@ import type {
   LogLevel,
 } from '../../shared/types';
 import { PIPELINE_STEPS, LOG_CODES } from '../../shared/constants';
-import { PipelineError, DeviceError, SigningError, Apple2FARequiredError } from '../utils/errors';
+import { PipelineError, DeviceError, SigningError, Apple2FARequiredError, ProvisioningError } from '../utils/errors';
 
 // ─── Per-device Mutex ────────────────────────────────────────────────
 
@@ -64,6 +64,17 @@ type PipelineJobLogListener = (entry: JobLogEntry) => void;
 const logListeners: PipelineJobLogListener[] = [];
 const jobLogs = new Map<string, JobLogEntry[]>();
 const MAX_JOB_LOG_LINES = 300;
+
+function isExpiredDeveloperSessionError(error: unknown): boolean {
+  if (!(error instanceof ProvisioningError)) {
+    return false;
+  }
+
+  const normalized = `${error.code} ${error.message}`.toLowerCase();
+  return error.code === 'APPLE_SESSION_EXPIRED'
+    || normalized.includes('session has expired')
+    || normalized.includes('code: 1100');
+}
 
 export function onPipelineUpdate(listener: PipelineListener): () => void {
   listeners.push(listener);
@@ -172,6 +183,45 @@ function waitFor2FACode(jobId: string): Promise<string> {
 
     pending2FA.set(jobId, { resolve, reject, timer });
   });
+}
+
+async function pauseForTwoFactor(
+  deps: Pick<PipelineDeps, 'db' | 'logs' | 'accounts'>,
+  job: InstallJob,
+  stepName: PipelineStepName,
+  reason: string,
+): Promise<AppleAccount> {
+  const { db, logs, accounts } = deps;
+
+  job.status = 'waiting_2fa' as JobStatus;
+  job.updatedAt = new Date().toISOString();
+  db.updateJob(job);
+  notifyListeners(job);
+  logJobLine(job, 'warn', reason, stepName, { timeoutMs: TWO_FA_TIMEOUT_MS });
+  logs.info(LOG_CODES.JOB_WAITING_2FA, `Waiting for 2FA code: ${job.id}`, {
+    jobId: job.id,
+    step: stepName,
+  });
+
+  const code = await waitFor2FACode(job.id);
+
+  await accounts.complete2FAForAccount(job.accountId, code);
+  const account = accounts.get(job.accountId);
+  if (!account) {
+    throw new PipelineError('ACCOUNT_NOT_FOUND', 'Apple account not found after 2FA completion');
+  }
+
+  job.status = 'running';
+  job.updatedAt = new Date().toISOString();
+  db.updateJob(job);
+  notifyListeners(job);
+  logJobLine(job, 'info', '2FA accepted, resuming pipeline', stepName);
+  logs.info(LOG_CODES.APPLE_AUTH_2FA_SUBMITTED, `2FA accepted, pipeline resuming: ${job.id}`, {
+    jobId: job.id,
+    step: stepName,
+  });
+
+  return account;
 }
 
 // ─── Pipeline Orchestrator ───────────────────────────────────────────
@@ -333,51 +383,63 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
         account = accounts.get(job.accountId) ?? undefined;
       } catch (error) {
         if (!(error instanceof Apple2FARequiredError)) throw error;
-
-        // ── 2FA Required – pause pipeline and wait for user input ──
-        job.status = 'waiting_2fa' as JobStatus;
-        job.updatedAt = new Date().toISOString();
-        db.updateJob(job);
-        notifyListeners(job);
-        logJobLine(job, 'warn', 'Waiting for 2FA code', 'authenticate', { timeoutMs: TWO_FA_TIMEOUT_MS });
-        logs.info(LOG_CODES.JOB_WAITING_2FA, `Waiting for 2FA code: ${job.id}`, { jobId: job.id });
-
-        const code = await waitFor2FACode(job.id);
-
-        // Submit 2FA and complete authentication
-        await accounts.complete2FAForAccount(job.accountId, code);
-        account = accounts.get(job.accountId) ?? undefined;
-
-        // Resume pipeline
-        job.status = 'running';
-        job.updatedAt = new Date().toISOString();
-        db.updateJob(job);
-        notifyListeners(job);
-        logJobLine(job, 'info', '2FA accepted, resuming pipeline', 'authenticate');
-        logs.info(LOG_CODES.APPLE_AUTH_2FA_SUBMITTED, `2FA accepted, pipeline resuming: ${job.id}`, { jobId: job.id });
+        account = await pauseForTwoFactor(deps, job, 'authenticate', 'Waiting for 2FA code');
       }
     });
 
     // ── Step 3: Provision ─────────────────────────────────────────
     await runStep(db, job, 'provision', async () => {
       if (!account || !ipa) throw new PipelineError('MISSING_CONTEXT', 'Missing context');
+      const currentAccount = account;
+      const currentIpa = ipa;
 
-      const devClient = await accounts.getDevClient(job.accountId);
+      const runProvisionAttempt = async (forceRefresh: boolean) => {
+        const devClient = await accounts.getDevClient(job.accountId, { forceRefresh });
 
-      // Only pass extension bundle IDs if the user opted in
-      const extensionBundleIds = job.includeExtensions
-        ? (ipa.extensions ?? []).map(e => e.bundleId)
-        : [];
+        const extensionBundleIds = job.includeExtensions
+          ? (currentIpa.extensions ?? []).map(e => e.bundleId)
+          : [];
 
-      provisionResult = await provisioning.provision(
-        devClient,
-        account,
-        job.deviceUdid,
-        devices.get(job.deviceUdid)?.name ?? 'Unknown Device',
-        ipa.bundleId,
-        ipa.bundleName,
-        extensionBundleIds,
-      );
+        return provisioning.provision(
+          devClient,
+          currentAccount,
+          job.deviceUdid,
+          devices.get(job.deviceUdid)?.name ?? 'Unknown Device',
+          currentIpa.bundleId,
+          currentIpa.bundleName,
+          extensionBundleIds,
+        );
+      };
+
+      try {
+        provisionResult = await runProvisionAttempt(false);
+      } catch (error) {
+        if (!isExpiredDeveloperSessionError(error)) {
+          throw error;
+        }
+
+        logs.warn(LOG_CODES.APPLE_SESSION_REFRESHED, `Developer session expired during provisioning, retrying: ${job.id}`, {
+          jobId: job.id,
+          accountId: job.accountId,
+        });
+        logJobLine(job, 'warn', 'Apple developer session expired during provisioning, refreshing authentication and retrying once.', 'provision');
+
+        try {
+          provisionResult = await runProvisionAttempt(true);
+        } catch (retryError) {
+          if (!(retryError instanceof Apple2FARequiredError)) {
+            throw retryError;
+          }
+
+          account = await pauseForTwoFactor(
+            deps,
+            job,
+            'provision',
+            'Apple needs a fresh verification code before provisioning can continue.',
+          );
+          provisionResult = await runProvisionAttempt(false);
+        }
+      }
     });
 
     // ── Step 4: Sign ──────────────────────────────────────────────

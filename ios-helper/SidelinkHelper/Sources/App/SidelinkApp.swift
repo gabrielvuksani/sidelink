@@ -77,6 +77,13 @@ struct SidelinkAppRootView: View {
                 }
             )
         }
+        .sheet(isPresented: $model.installConsolePresented) {
+            InstallConsoleSheet(
+                model: model
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .alert("Message", isPresented: Binding(
             get: { model.toastMessage != nil },
             set: { _ in model.toastMessage = nil }
@@ -85,6 +92,199 @@ struct SidelinkAppRootView: View {
         } message: {
             Text(model.toastMessage ?? "")
         }
+    }
+}
+
+private struct InstallConsoleSheet: View {
+    @ObservedObject var model: HelperViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent)
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        heroCard
+
+                        if let error = model.errorMessage {
+                            issueCard(title: "Install blocked", message: error, tint: .slDanger, systemImage: "xmark.octagon.fill")
+                        }
+
+                        if let readiness = model.installReadinessMessage,
+                           model.activeInstallJob == nil,
+                           !model.isLoading,
+                           model.errorMessage == nil {
+                            issueCard(title: "Before you install", message: readiness, tint: .slWarning, systemImage: "info.circle.fill")
+                        }
+
+                        if model.isLoading && model.activeInstallJob == nil {
+                            preparingCard
+                        }
+
+                        if let job = model.activeInstallJob {
+                            InstallProgressView(
+                                job: job,
+                                logs: model.activeInstallLogs,
+                                twoFACode: $model.activeInstall2FACode,
+                                onSubmitTwoFA: {
+                                    Task { await model.submitActiveInstall2FA() }
+                                },
+                                onRetry: {
+                                    Task { await model.retryLastInstallRequest() }
+                                },
+                                isSubmitting: model.isLoading,
+                                showsVerboseLogs: false
+                            )
+                        } else if !model.isLoading && model.errorMessage == nil {
+                            idleCard
+                        }
+
+                        actionBar
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 20)
+                }
+            }
+            .navigationTitle("Install Console")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        model.dismissInstallConsole()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Live installation")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(model.installConsoleResolvedTitle)
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                    Text(model.installConsoleResolvedSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                statusChip
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Progress")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ProgressView(value: model.activeInstallProgressFraction)
+                    .tint(.slAccent)
+                if model.activeInstallJob != nil {
+                    InstallVerboseLogConsole(logs: model.activeInstallLogs, maxHeight: 168)
+                }
+            }
+        }
+        .liquidPanel()
+    }
+
+    private var preparingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Preparing secure install", systemImage: "hourglass.and.lock")
+                .font(.headline)
+            Text("Importing the IPA if needed, choosing your account and device, then opening the live signing console.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            ProgressView()
+                .tint(.slAccent)
+        }
+        .liquidPanel()
+    }
+
+    private var idleCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("No active install", systemImage: "checkmark.circle")
+                .font(.headline)
+            Text("Start an install from a source page or your library and the full signing workflow will stay here until it finishes.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .liquidPanel()
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 10) {
+            if model.errorMessage != nil || model.activeInstallJob?.status == "failed" {
+                Button {
+                    Task { await model.retryLastInstallRequest() }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.sidelinkQuickAction)
+            }
+        }
+    }
+
+    private var statusChip: some View {
+        Text(statusText)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(statusColor)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(statusColor.opacity(0.12), in: Capsule())
+    }
+
+    private var statusText: String {
+        if let job = model.activeInstallJob {
+            return job.status.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+        if model.isLoading {
+            return "Preparing"
+        }
+        if model.errorMessage != nil {
+            return "Blocked"
+        }
+        return "Ready"
+    }
+
+    private var statusColor: Color {
+        if let job = model.activeInstallJob {
+            switch job.status {
+            case "completed": return .green
+            case "failed": return .red
+            case "waiting_2fa": return .orange
+            case "running": return .blue
+            default: return .slAccent
+            }
+        }
+        if model.errorMessage != nil {
+            return .red
+        }
+        return .slAccent
+    }
+
+    private func issueCard(title: String, message: String, tint: Color, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .liquidPanel()
     }
 }
 

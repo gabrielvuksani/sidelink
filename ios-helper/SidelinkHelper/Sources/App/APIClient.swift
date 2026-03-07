@@ -98,16 +98,31 @@ struct APIClient {
         throw HelperAPIError.server(envelope.error ?? "Request failed")
     }
 
+    private func helperURL(
+        baseURL: String,
+        pathComponents: [String],
+        queryItems: [URLQueryItem] = []
+    ) -> URL? {
+        guard let base = URL(string: baseURL) else {
+            return nil
+        }
+
+        let url = pathComponents.reduce(base) { partial, component in
+            partial.appendingPathComponent(component)
+        }
+
+        guard !queryItems.isEmpty else {
+            return url
+        }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = queryItems
+        return components?.url
+    }
+
     func fetchStatus(baseURL: String, token: String, deviceId: String?) async throws -> HelperStatusResponse {
-        guard var components = URLComponents(string: baseURL + "/api/helper/status") else {
-            throw HelperAPIError.invalidURL
-        }
-
-        if let deviceId {
-            components.queryItems = [URLQueryItem(name: "deviceId", value: deviceId)]
-        }
-
-        guard let url = components.url else {
+        let queryItems = deviceId.map { [URLQueryItem(name: "deviceId", value: $0)] } ?? []
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "status"], queryItems: queryItems) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -331,7 +346,7 @@ struct APIClient {
     }
 
     func getInstallJob(baseURL: String, token: String, jobId: String) async throws -> InstallJobDetailDTO {
-        guard let url = URL(string: baseURL + "/api/helper/jobs/\(jobId)") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId]) else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
@@ -352,7 +367,7 @@ struct APIClient {
     }
 
     func getInstallJobLogs(baseURL: String, token: String, jobId: String) async throws -> [InstallJobLogDTO] {
-        guard let url = URL(string: baseURL + "/api/helper/jobs/\(jobId)/logs") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId, "logs"]) else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
@@ -373,7 +388,7 @@ struct APIClient {
     }
 
     func submitInstallJob2FA(baseURL: String, token: String, jobId: String, code: String) async throws {
-        guard let url = URL(string: baseURL + "/api/helper/jobs/\(jobId)/2fa") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId, "2fa"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -424,7 +439,7 @@ struct APIClient {
     }
 
     func deleteInstalledApp(baseURL: String, token: String, appId: String) async throws {
-        guard let url = URL(string: baseURL + "/api/helper/apps/\(appId)") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apps", appId]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -445,7 +460,7 @@ struct APIClient {
     }
 
     func deactivateInstalledApp(baseURL: String, token: String, appId: String) async throws -> InstalledAppDTO {
-        guard let url = URL(string: baseURL + "/api/helper/apps/\(appId)/deactivate") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apps", appId, "deactivate"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -468,7 +483,7 @@ struct APIClient {
     }
 
     func reactivateInstalledApp(baseURL: String, token: String, appId: String) async throws -> InstallJobDTO {
-        guard let url = URL(string: baseURL + "/api/helper/apps/\(appId)/reactivate") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apps", appId, "reactivate"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -491,7 +506,7 @@ struct APIClient {
     }
 
     func listAllDeviceApps(baseURL: String, token: String, deviceUdid: String) async throws -> DeviceAppInventoryDTO {
-        guard let url = URL(string: baseURL + "/api/helper/devices/\(deviceUdid)/all-apps") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "devices", deviceUdid, "all-apps"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -586,7 +601,7 @@ struct APIClient {
     }
 
     func deleteAppId(baseURL: String, token: String, appId: String) async throws {
-        guard let url = URL(string: baseURL + "/api/helper/app-ids/\(appId)") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "app-ids", appId]) else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
@@ -723,7 +738,7 @@ struct APIClient {
     }
 
     func fetchSourceManifest(urlString: String) async throws -> SourceManifestDTO {
-        guard let url = URL(string: urlString) else {
+        guard let url = URL(string: SidelinkSourceURLUtil.normalized(urlString)) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -805,7 +820,7 @@ struct APIClient {
     }
 
     func reauthenticateAppleAccount(baseURL: String, token: String, accountId: String) async throws -> HelperAppleAuthPayloadDTO {
-        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)/reauth") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apple", "accounts", accountId, "reauth"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -828,7 +843,7 @@ struct APIClient {
     }
 
     func submitAppleAccountReauth2FA(baseURL: String, token: String, accountId: String, code: String) async throws -> AccountDTO {
-        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)/reauth/2fa") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apple", "accounts", accountId, "reauth", "2fa"]) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -855,7 +870,7 @@ struct APIClient {
     }
 
     func deleteAppleAccount(baseURL: String, token: String, accountId: String) async throws {
-        guard let url = URL(string: baseURL + "/api/helper/apple/accounts/\(accountId)") else {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apple", "accounts", accountId]) else {
             throw HelperAPIError.invalidURL
         }
 

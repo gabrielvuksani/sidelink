@@ -4,6 +4,7 @@ struct AppDetailView: View {
     @ObservedObject var model: HelperViewModel
     let ipa: IpaArtifactDTO
     @State private var showFullDescription = false
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Check if this IPA is already installed
     private var isInstalled: Bool {
@@ -15,246 +16,280 @@ struct AppDetailView: View {
         return "Install"
     }
 
+    private var matchingSourceCatalog: SourceCatalog? {
+        model.sourceCatalogs.first { catalog in
+            catalog.manifest.apps.contains { $0.bundleIdentifier == ipa.bundleId }
+        }
+    }
+
+    private var heroSubtitle: String {
+        [matchingSourceApp?.developerName, matchingSourceCatalog?.manifest.name]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                // MARK: - Hero Gradient + Icon
-                ZStack(alignment: .bottom) {
-                    LinearGradient(
-                        colors: [.slAccent, .slAccent2.opacity(0.6), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 200)
+        ZStack {
+            SidelinkBackdrop(accent: .slAccent)
+                .ignoresSafeArea()
 
-                    HStack(spacing: 16) {
-                        if let iconData = ipa.iconData,
-                           let data = Data(base64Encoded: iconData),
-                           let uiImage = UIImage(data: data) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .appIconStyle(size: 80)
-                                .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                        } else {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.secondary.opacity(0.15))
-                                .frame(width: 80, height: 80)
-                                .overlay {
-                                    Image(systemName: "app.fill")
-                                        .font(.title)
-                                        .foregroundStyle(.secondary)
-                                }
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(ipa.bundleName)
-                                .font(.title2.bold())
-                                .foregroundStyle(.white)
-                            Text(ipa.bundleId)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                            if let version = ipa.bundleVersion {
-                                Text("v\(ipa.bundleShortVersion) (\(version))")
-                                    .font(.caption2)
-                                    .foregroundStyle(.white.opacity(0.6))
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
-                }
+            ScrollView {
+                VStack(spacing: 24) {
+                    heroCard
 
-                VStack(spacing: 20) {
-                    // MARK: - Quick Info Row
-                    HStack(spacing: 0) {
-                        infoCell("Version", ipa.bundleShortVersion)
-                        Divider().frame(height: 30)
-                        if let size = ipa.fileSize, size > 0 {
-                            infoCell("Size", formatFileSize(size))
-                            Divider().frame(height: 30)
-                        }
-                        if let minOS = ipa.minOsVersion, !minOS.isEmpty {
-                            infoCell("Min iOS", minOS)
-                        }
-                    }
-                    .padding(.vertical, 8)
-
-                    // MARK: - Description (expandable)
                     if let desc = matchingSourceApp?.localizedDescription, !desc.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Overview",
+                                title: "About this build",
+                                subtitle: "This is the library copy you can install, reinstall, and audit before signing."
+                            )
+
                             Text(desc)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                                .lineLimit(showFullDescription ? nil : 3)
-                            Button(showFullDescription ? "Show Less" : "More") {
-                                withAnimation { showFullDescription.toggle() }
+                                .lineLimit(showFullDescription ? nil : 4)
+
+                            Button(showFullDescription ? "Show Less" : "Read More") {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    showFullDescription.toggle()
+                                }
                             }
-                            .font(.subheadline.bold())
+                            .font(.subheadline.weight(.semibold))
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
-                    // MARK: - Screenshot Carousel
                     if let screenshots = matchingSourceApp?.screenshots?.iphone, !screenshots.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Screenshots")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Preview",
+                                title: "Screenshots",
+                                subtitle: "Reference captures from the source listing for this app."
+                            )
 
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 10) {
-                                    ForEach(screenshots) { ss in
-                                        AsyncImage(url: URL(string: ss.imageURL)) { phase in
-                                            if case .success(let image) = phase {
+                                HStack(spacing: 12) {
+                                    ForEach(screenshots) { screenshot in
+                                        AsyncImage(url: URL(string: screenshot.imageURL)) { phase in
+                                            switch phase {
+                                            case .success(let image):
                                                 image.resizable().aspectRatio(contentMode: .fit)
-                                            } else {
-                                                RoundedRectangle(cornerRadius: 12)
+                                            default:
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
                                                     .fill(.secondary.opacity(0.1))
                                             }
                                         }
                                         .frame(width: screenshotWidth, height: screenshotHeight)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                                     }
                                 }
-                                .padding(.horizontal)
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
-                    // MARK: - Version History
                     if let versions = matchingSourceApp?.versions, versions.count > 1 {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Version History")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "History",
+                                title: "Version timeline",
+                                subtitle: "Recent release notes from the source feed, grouped in readable cards."
+                            )
 
-                            ForEach(versions.prefix(5)) { ver in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text("v\(ver.version)")
-                                            .font(.subheadline.bold())
-                                        Spacer()
-                                        if let date = ver.date {
-                                            Text(date)
+                            VStack(spacing: 12) {
+                                ForEach(versions.prefix(5)) { version in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(alignment: .top, spacing: 12) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(version.marketingVersion ?? version.version)
+                                                    .font(.subheadline.weight(.semibold))
+                                                if let date = version.date, !date.isEmpty {
+                                                    Text(SidelinkDateFormatting.relativeDate(date))
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                            if let minOS = version.minOSVersion, !minOS.isEmpty {
+                                                PillBadge(text: "Min iOS \(minOS)", color: .slMuted, small: true)
+                                            }
+                                            if let size = version.size, size > 0 {
+                                                PillBadge(text: formatFileSize(size), color: .slAccent2, small: true)
+                                            }
+                                        }
+
+                                        if let description = version.localizedDescription, !description.isEmpty {
+                                            Text(description)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
-                                    if let desc = ver.localizedDescription, !desc.isEmpty {
-                                        Text(desc)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(3)
-                                    }
+                                    .sidelinkInsetPanel()
                                 }
-                                .padding(.horizontal)
-                                Divider().padding(.horizontal)
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
-                    // MARK: - Details
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Details")
-                            .sectionHeader()
-                            .padding(.horizontal)
+                    VStack(alignment: .leading, spacing: 14) {
+                        SidelinkSectionIntro(
+                            eyebrow: "Package",
+                            title: "Build details",
+                            subtitle: "The bundle metadata Sidelink will use while installing this IPA."
+                        )
 
-                        VStack(spacing: 0) {
+                        VStack(spacing: 10) {
+                            DetailRow(label: "Bundle ID", value: ipa.bundleId, icon: "shippingbox")
                             DetailRow(label: "File", value: ipa.originalName, icon: "doc.zipper")
                             if let build = ipa.bundleVersion, build != ipa.bundleShortVersion {
                                 DetailRow(label: "Build", value: build, icon: "hammer")
+                            }
+                            if let minOS = ipa.minOsVersion, !minOS.isEmpty {
+                                DetailRow(label: "Minimum iOS", value: minOS, icon: "iphone")
                             }
                             if let exts = ipa.extensions, !exts.isEmpty {
                                 DetailRow(label: "Extensions", value: "\(exts.count)", icon: "puzzlepiece.extension")
                             }
                         }
-                        .padding(.horizontal)
+                    }
+                    .liquidPanel()
+                    .padding(.horizontal, 20)
+
+                    if let exts = ipa.extensions, !exts.isEmpty {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Extension Targets",
+                                title: "Embedded extensions",
+                                subtitle: "Extra extension bundles packaged inside this IPA."
+                            )
+
+                            VStack(spacing: 10) {
+                                ForEach(exts) { ext in
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Image(systemName: "puzzlepiece.extension")
+                                            .foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(ext.name)
+                                                .font(.subheadline.weight(.semibold))
+                                            Text(ext.bundleId)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .sidelinkInsetPanel()
+                                }
+                            }
+                        }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
-                    // MARK: - App Extensions
-                    if let exts = ipa.extensions, !exts.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("App Extensions")
-                                .sectionHeader()
-                                .padding(.horizontal)
+                    if let entitlements = ipa.entitlements, !entitlements.isEmpty {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Security",
+                                title: "Entitlements",
+                                subtitle: "Capabilities declared inside the IPA payload."
+                            )
 
-                            ForEach(exts) { ext in
-                                HStack {
-                                    Image(systemName: "puzzlepiece")
-                                        .foregroundStyle(.secondary)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(ext.name).font(.subheadline)
-                                        Text(ext.bundleId)
-                                            .font(.caption2)
+                            VStack(spacing: 10) {
+                                ForEach(Array(entitlements.keys).sorted(), id: \.self) { key in
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Text(key)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                        Spacer(minLength: 12)
+                                        Text(describeEntitlement(entitlements[key]?.value))
+                                            .font(.caption)
                                             .foregroundStyle(.secondary)
+                                            .multilineTextAlignment(.trailing)
+                                    }
+                                    .sidelinkInsetPanel()
+                                }
+                            }
+                        }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
+                    }
+
+                    if let perms = matchingSourceApp?.appPermissions,
+                       (!(perms.entitlements?.isEmpty ?? true) || !(perms.privacy?.isEmpty ?? true)) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Source Review",
+                                title: "Permissions summary",
+                                subtitle: "What the source feed says this app expects at runtime."
+                            )
+
+                            if let ents = perms.entitlements, !ents.isEmpty {
+                                VStack(spacing: 10) {
+                                    ForEach(ents, id: \.self) { entitlement in
+                                        Label(entitlement, systemImage: "lock.shield")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .sidelinkInsetPanel()
                                     }
                                 }
-                                .padding(.horizontal)
                             }
-                        }
-                    }
 
-                    // MARK: - Permissions / Entitlements
-                    if let entitlements = ipa.entitlements, !entitlements.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Entitlements")
-                                .sectionHeader()
-                                .padding(.horizontal)
-
-                            ForEach(Array(entitlements.keys).sorted(), id: \.self) { key in
-                                HStack {
-                                    Text(key)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(describeEntitlement(entitlements[key]?.value))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                    }
-
-                    // MARK: - Source Permissions
-                    if let perms = matchingSourceApp?.appPermissions {
-                        if let ents = perms.entitlements, !ents.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("App Permissions")
-                                    .sectionHeader()
-                                    .padding(.horizontal)
-                                ForEach(ents, id: \.self) { ent in
-                                    Label(ent, systemImage: "lock.shield")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal)
+                            if let privacy = perms.privacy, !privacy.isEmpty {
+                                VStack(spacing: 10) {
+                                    ForEach(privacy.keys.sorted(), id: \.self) { key in
+                                        HStack(alignment: .top, spacing: 12) {
+                                            Text(key)
+                                                .font(.caption.weight(.semibold))
+                                            Spacer(minLength: 12)
+                                            Text(privacy[key] ?? "")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                        .sidelinkInsetPanel()
+                                    }
                                 }
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
                     if !ipa.warnings.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Warnings")
-                                .sectionHeader()
-                                .padding(.horizontal)
-                            ForEach(ipa.warnings, id: \.self) { warning in
-                                Label(warning, systemImage: "exclamationmark.triangle")
-                                    .font(.footnote)
-                                    .foregroundStyle(.orange)
-                                    .padding(.horizontal)
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Warnings",
+                                title: "Things to review",
+                                subtitle: "Signals detected while reading this IPA before install."
+                            )
+
+                            VStack(spacing: 10) {
+                                ForEach(ipa.warnings, id: \.self) { warning in
+                                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                        .font(.footnote)
+                                        .foregroundStyle(Color.slWarning)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(16)
+                                        .background(Color.orange.opacity(colorScheme == .dark ? 0.16 : 0.10), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                }
                             }
                         }
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
                     }
 
-                    Spacer(minLength: 80)
+                    Spacer(minLength: 96)
                 }
-                .padding(.top, 16)
+                .padding(.vertical, 20)
             }
         }
-        .ignoresSafeArea(edges: .top)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if model.isAtFreeSlotLimit && !isInstalled {
@@ -265,8 +300,17 @@ struct AppDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
                 }
+                Text("A live signing console opens immediately and stays with the install until it finishes.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 Button {
-                    Task { await model.startInstall(ipaId: ipa.id) }
+                    Task {
+                        await model.startInstall(
+                            ipaId: ipa.id,
+                            appName: ipa.bundleName,
+                            subtitle: "Installing from your library"
+                        )
+                    }
                 } label: {
                     Label(installButtonLabel, systemImage: isInstalled ? "arrow.clockwise" : "arrow.down.app.fill")
                         .font(.headline)
@@ -280,7 +324,7 @@ struct AppDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(.ultraThinMaterial)
+            .background(colorScheme == .dark ? Color.black.opacity(0.88) : Color.white.opacity(0.82))
         }
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -299,8 +343,66 @@ struct AppDetailView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.subheadline.bold())
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                appIcon
+
+                VStack(alignment: .leading, spacing: 6) {
+                    SidelinkSectionIntro(
+                        eyebrow: "Library",
+                        title: ipa.bundleName,
+                        subtitle: ipa.bundleId
+                    )
+
+                    if !heroSubtitle.isEmpty {
+                        Text(heroSubtitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Version", value: ipa.bundleShortVersion)
+                if let size = ipa.fileSize, size > 0 {
+                    SidelinkMetricTile(label: "Size", value: formatFileSize(size), tint: .slAccent2)
+                }
+                if let minOS = ipa.minOsVersion, !minOS.isEmpty {
+                    SidelinkMetricTile(label: "Min iOS", value: minOS, tint: .slWarning)
+                }
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var appIcon: some View {
+        if let iconData = ipa.iconData,
+           let data = Data(base64Encoded: iconData),
+           let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .appIconStyle(size: 80)
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.secondary.opacity(0.15))
+                .frame(width: 80, height: 80)
+                .overlay {
+                    Image(systemName: "app.fill")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                }
+        }
     }
 
     private func formatFileSize(_ bytes: Double) -> String {
@@ -339,7 +441,8 @@ private struct DetailRow: View {
             Spacer()
             Text(value)
                 .font(.subheadline)
+                .multilineTextAlignment(.trailing)
         }
-        .padding(.vertical, 4)
+        .sidelinkInsetPanel()
     }
 }

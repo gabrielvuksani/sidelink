@@ -10,339 +10,51 @@ struct SettingsTab: View {
     @State private var showPairingSheet = false
     @State private var appleSheetMode: AppleAccountSheetMode?
     @State private var deleteConfirmation: DestructiveConfirmation?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 12) {
-                        Image(systemName: model.isPaired ? "checkmark.shield.fill" : "iphone.slash")
-                            .font(.title2)
-                            .foregroundStyle(model.isPaired ? Color.slSuccess : Color.slWarning)
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent)
+                    .ignoresSafeArea()
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(model.isPaired ? "Helper Connected" : "Helper Not Paired")
-                                .font(.headline)
-                            Text(model.serverName.isEmpty ? "Use the desktop pairing code or a discovered server to connect." : model.serverName)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
+                ScrollView {
+                    VStack(spacing: 24) {
+                        settingsHero
+                        helperCard
+                        appleAccountsCard
+                        managementCard
+                        backgroundRefreshCard
+                        currentSetupCard
+                        aboutCard
 
-                        Spacer()
-
-                        if model.isPaired {
-                            VStack(alignment: .trailing, spacing: 4) {
-                                HStack(spacing: 4) {
-                                    StatusDot(color: model.sseConnected ? .slSuccess : .slWarning)
-                                    Text(model.sseConnected ? "Live" : "Polling")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if !model.serverVersion.isEmpty {
-                                    Text("v\(model.serverVersion)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    Button {
-                        showPairingSheet = true
-                    } label: {
-                        Label(model.isPaired ? "Re-pair Helper" : "Pair Helper", systemImage: "key.horizontal")
-                    }
-                } header: {
-                    Text("Helper")
-                } footer: {
-                    Text(model.isPaired
-                         ? "Your iPhone is connected. Use Sources, Browse, and Installed for the day-to-day stuff."
-                         : "Pair once, then browse sources, install apps, refresh signing, and monitor the helper directly from iPhone.")
-                }
-
-                Section("Discovered Servers") {
-                    if model.discoveredBackends.isEmpty {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Scanning your local network…")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        ForEach(model.discoveredBackends) { backend in
-                            Button {
-                                SidelinkHaptics.selection()
-                                model.applyDiscoveredBackend(backend)
-                                showPairingSheet = true
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "desktopcomputer")
-                                        .foregroundStyle(Color.slAccent)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(backend.name)
-                                            .foregroundStyle(.primary)
-                                        Text(backend.url)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Section("Apple IDs") {
-                    if model.pendingAppleAuth != nil || !model.accountsNeedingAttention.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(
-                                model.pendingAppleAuth != nil
-                                    ? "Verification code needed for \(model.pendingAppleAuth?.appleId ?? "your Apple ID")"
-                                    : "One or more Apple IDs need attention before they can sign apps reliably.",
-                                systemImage: "exclamationmark.shield"
-                            )
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.slWarning)
-
-                            Button {
-                                if let pending = model.pendingAppleAuth, let accountId = pending.accountId {
-                                    appleSheetMode = .reauth(accountId: accountId)
-                                }
-                            } label: {
-                                Text("Finish Verification")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.slWarning)
-                            .disabled(model.pendingAppleAuth?.accountId == nil)
-                        }
-                        .padding(.vertical, 6)
-                    }
-
-                    if model.accounts.isEmpty {
-                        Text(model.isPaired
-                             ? "Add an Apple ID to sign and refresh apps directly from the helper."
-                             : "Pair the helper first, then add an Apple ID here.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Default Signing Account", selection: $model.selectedAccountId) {
-                            ForEach(model.activeAccounts) { account in
-                                Text(account.appleId).tag(account.id)
-                            }
-                        }
-
-                        ForEach(model.accounts) { account in
+                        if let error = model.errorMessage {
                             VStack(alignment: .leading, spacing: 10) {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: account.id == model.selectedAccountId ? "checkmark.circle.fill" : "person.crop.circle")
-                                        .foregroundStyle(account.id == model.selectedAccountId ? Color.slAccent : .secondary)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(account.appleId)
-                                            .font(.subheadline.weight(.semibold))
-                                        Text("\(account.teamName) · \(account.accountType.capitalized)")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    PillBadge(
-                                        text: appleStatusLabel(for: account),
-                                        color: appleStatusColor(for: account),
-                                        small: true
-                                    )
-                                }
-
-                                if let lastAuthAt = account.lastAuthAt, !lastAuthAt.isEmpty {
-                                    Label("Last verified \(relativeDate(lastAuthAt))", systemImage: "clock.badge.checkmark")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Label("This Apple ID has not completed verification in Sidelink yet.", systemImage: "clock.badge.exclamationmark")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                if model.pendingAppleAuth?.accountId == account.id {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "number.square")
-                                            .foregroundStyle(Color.slWarning)
-                                        Text("Waiting for a 6-digit verification code.")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(Color.slWarning)
-                                    }
-                                }
-
-                                HStack(spacing: 10) {
-                                    Button {
-                                        appleSheetMode = .reauth(accountId: account.id)
-                                    } label: {
-                                        Label(account.status == "active" ? "Re-auth" : "Verify", systemImage: "arrow.clockwise")
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                    .buttonStyle(.bordered)
-
-                                    Button(role: .destructive) {
-                                        deleteConfirmation = DestructiveConfirmation(
-                                            title: "Remove Apple ID",
-                                            message: "Remove \(account.appleId)?",
-                                            buttonLabel: "Remove"
-                                        ) {
-                                            Task { await model.deleteAppleAccount(account.id) }
-                                        }
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
+                                Text("Attention Needed")
+                                    .font(.headline)
+                                Label(error, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Color.slDanger)
+                                    .font(.footnote)
                             }
-                            .padding(.vertical, 6)
+                            .liquidPanel()
+                            .padding(.horizontal, 20)
                         }
-                    }
 
-                    Button {
-                        appleSheetMode = .add
-                    } label: {
-                        Label(model.accounts.isEmpty ? "Add Apple ID" : "Add Another Apple ID", systemImage: "person.badge.plus")
+                        connectionCard
                     }
-                    .disabled(!model.isPaired)
-                }
-
-                Section("Management") {
-                    NavigationLink {
-                        LogsView(model: model)
-                    } label: {
-                        settingsLinkRow("Logs", systemImage: "text.alignleft")
-                    }
-
-                    NavigationLink {
-                        AppIDsView(model: model)
-                    } label: {
-                        settingsLinkRow("App IDs", systemImage: "app.badge")
-                    }
-
-                    NavigationLink {
-                        CertificatesView(model: model)
-                    } label: {
-                        settingsLinkRow("Certificates", systemImage: "checkmark.seal")
-                    }
-
-                    if let interval = model.config?.schedulerCheckIntervalMs {
-                        HStack {
-                            Label("Scheduler", systemImage: model.config?.schedulerEnabled == true ? "play.fill" : "pause.fill")
-                            Spacer()
-                            Text("\(interval / 60_000) min")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section("Background Refresh") {
-                    Toggle(isOn: $backgroundRefreshEnabled) {
-                        Label("Enable Background Refresh", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .onChange(of: backgroundRefreshEnabled) { enabled in
-                        if enabled {
-                            Task {
-                                await BackgroundRefreshCoordinator.shared.requestNotificationAuthorizationIfNeeded()
-                                BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(true)
-                            }
-                        } else {
-                            BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(false)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Interval: \(backgroundRefreshIntervalMinutes) min")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Slider(
-                            value: Binding(
-                                get: { Double(backgroundRefreshIntervalMinutes) },
-                                set: { backgroundRefreshIntervalMinutes = Int($0) }
-                            ),
-                            in: 15...180,
-                            step: 15
-                        )
-                        .tint(.slAccent)
-                    }
-                    .onChange(of: backgroundRefreshIntervalMinutes) { _ in
-                        guard backgroundRefreshEnabled else { return }
-                        BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
-                    }
-                }
-
-                Section("Current Signing Setup") {
-                    if let selected = model.selectedAccount {
-                        HStack {
-                            Label("Using Apple ID", systemImage: "person.crop.circle")
-                            Spacer()
-                            Text(selected.appleId)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    if let selected = model.selectedDevice {
-                        HStack {
-                            Label("Using Device", systemImage: "iphone")
-                            Spacer()
-                            Text(selected.name)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-
-                Section("About") {
-                    aboutRow("App", "Sidelink")
-                    aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
-                    aboutRow("Build", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                    aboutRow("Platform", UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
-                }
-
-                if let error = model.errorMessage {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(Color.slDanger)
-                            .font(.footnote)
-                    }
-                }
-
-                Section("Connection") {
-                    Button {
-                        Task { await model.refreshAll() }
-                    } label: {
-                        Label("Reload Data", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(model.isLoading || !model.isPaired)
-
-                    Button(role: .destructive) {
-                        SidelinkHaptics.impact(.light)
-                        deleteConfirmation = DestructiveConfirmation(
-                            title: "Disconnect Helper",
-                            message: "Disconnect from the Sidelink server? You will need to pair again.",
-                            buttonLabel: "Disconnect"
-                        ) {
-                            model.clearPairing()
-                        }
-                    } label: {
-                        Label("Disconnect Helper", systemImage: "link.badge.plus")
-                    }
+                    .padding(.vertical, 20)
                 }
             }
             .refreshable {
                 await model.refreshAll()
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Settings")
+                        .font(.headline.weight(.semibold))
+                }
+            }
             .sheet(isPresented: $showPairingSheet) {
                 PairingSheet(model: model)
             }
@@ -367,6 +79,352 @@ struct SettingsTab: View {
         }
     }
 
+    private var settingsHero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SidelinkSectionIntro(eyebrow: "Settings", title: "Control center", subtitle: "Pairing, Apple ID health, helper diagnostics, and refresh behavior all live in one calmer place.")
+
+            HStack(spacing: 12) {
+                SidelinkMetricTile(label: "Accounts", value: "\(model.accounts.count)")
+                SidelinkMetricTile(label: "Devices", value: "\(model.devices.count)", tint: .slAccent2)
+                SidelinkMetricTile(label: "Status", value: model.isPaired ? "Connected" : "Unpaired", tint: model.isPaired ? .slSuccess : .slWarning)
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var helperCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "Sidelink" : model.serverName)." : "Use the desktop pairing QR, the 6-digit code, or a discovered server to connect.")
+
+            HStack(spacing: 12) {
+                Label(model.sseConnected ? "Live" : (model.isPaired ? "Polling" : "Offline"), systemImage: model.isPaired ? "checkmark.shield.fill" : "iphone.slash")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(model.isPaired ? Color.slSuccess : Color.slWarning)
+                if !model.serverVersion.isEmpty {
+                    Text("v\(model.serverVersion)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                showPairingSheet = true
+            } label: {
+                Label(model.isPaired ? "Re-pair Helper" : "Pair Helper", systemImage: "key.horizontal")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.sidelinkQuickAction)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Discovered Servers")
+                    .font(.headline)
+                if model.discoveredBackends.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Scanning your local network…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(model.discoveredBackends) { backend in
+                        Button {
+                            SidelinkHaptics.selection()
+                            model.applyDiscoveredBackend(backend)
+                            showPairingSheet = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "desktopcomputer")
+                                    .foregroundStyle(Color.slAccent)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(backend.name)
+                                        .foregroundStyle(.primary)
+                                    Text(backend.url)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(14)
+                            .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var appleAccountsCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SidelinkSectionIntro(eyebrow: "Apple IDs", title: "Signing identity", subtitle: model.isPaired ? "Keep your default account visible and surface any verification issues immediately." : "Pair first, then add the Apple IDs you want to use for signing.")
+
+            if model.pendingAppleAuth != nil || !model.accountsNeedingAttention.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(
+                        model.pendingAppleAuth != nil
+                            ? "Verification code needed for \(model.pendingAppleAuth?.appleId ?? "your Apple ID")"
+                            : "One or more Apple IDs need attention before they can sign apps reliably.",
+                        systemImage: "exclamationmark.shield.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.slWarning)
+
+                    Button {
+                        if let pending = model.pendingAppleAuth, let accountId = pending.accountId {
+                            appleSheetMode = .reauth(accountId: accountId)
+                        }
+                    } label: {
+                        Text("Finish Verification")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.sidelinkQuickAction(tint: .slWarning))
+                    .disabled(model.pendingAppleAuth?.accountId == nil)
+                }
+                .padding(16)
+                .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+
+            if model.accounts.isEmpty {
+                Text(model.isPaired ? "Add an Apple ID to sign and refresh apps directly from the helper." : "Pair the helper first, then add an Apple ID here.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                if !model.activeAccounts.isEmpty {
+                    Picker("Default Signing Account", selection: $model.selectedAccountId) {
+                        ForEach(model.activeAccounts) { account in
+                            Text(account.appleId).tag(account.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                ForEach(model.accounts) { account in
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: account.id == model.selectedAccountId ? "checkmark.circle.fill" : "person.crop.circle")
+                                .foregroundStyle(account.id == model.selectedAccountId ? Color.slAccent : .secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(account.appleId)
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(account.teamName) · \(account.accountType.capitalized)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            PillBadge(text: appleStatusLabel(for: account), color: appleStatusColor(for: account), small: true)
+                        }
+
+                        if let lastAuthAt = account.lastAuthAt, !lastAuthAt.isEmpty {
+                            Label("Last verified \(relativeDate(lastAuthAt))", systemImage: "clock.badge.checkmark")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Label("This Apple ID has not completed verification in Sidelink yet.", systemImage: "clock.badge.exclamationmark")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        HStack(spacing: 10) {
+                            Button {
+                                appleSheetMode = .reauth(accountId: account.id)
+                            } label: {
+                                Label(account.status == "active" ? "Re-auth" : "Verify", systemImage: "arrow.clockwise")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.sidelinkQuickAction)
+
+                            Button(role: .destructive) {
+                                deleteConfirmation = DestructiveConfirmation(
+                                    title: "Remove Apple ID",
+                                    message: "Remove \(account.appleId)?",
+                                    buttonLabel: "Remove"
+                                ) {
+                                    Task { await model.deleteAppleAccount(account.id) }
+                                }
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.sidelinkQuickAction(tint: .slDanger))
+                        }
+                    }
+                    .padding(16)
+                    .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                }
+            }
+
+            Button {
+                appleSheetMode = .add
+            } label: {
+                Label(model.accounts.isEmpty ? "Add Apple ID" : "Add Another Apple ID", systemImage: "person.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.sidelinkQuickAction(tint: .slAccent2))
+            .disabled(!model.isPaired)
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var managementCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SidelinkSectionIntro(eyebrow: "Management", title: "Diagnostics and signing details", subtitle: "Jump into logs, App IDs, certificates, and scheduler state from one card.")
+
+            NavigationLink {
+                LogsView(model: model)
+            } label: {
+                settingsLinkRow("Logs", systemImage: "text.alignleft")
+            }
+
+            NavigationLink {
+                AppIDsView(model: model)
+            } label: {
+                settingsLinkRow("App IDs", systemImage: "app.badge")
+            }
+
+            NavigationLink {
+                CertificatesView(model: model)
+            } label: {
+                settingsLinkRow("Certificates", systemImage: "checkmark.seal")
+            }
+
+            if let interval = model.config?.schedulerCheckIntervalMs {
+                HStack {
+                    Label("Scheduler", systemImage: model.config?.schedulerEnabled == true ? "play.fill" : "pause.fill")
+                    Spacer()
+                    Text("\(interval / 60_000) min")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var backgroundRefreshCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SidelinkSectionIntro(eyebrow: "Automation", title: "Background refresh", subtitle: "Keep refreshes alive without making this screen feel like a utility form.")
+
+            Toggle(isOn: $backgroundRefreshEnabled) {
+                Label("Enable Background Refresh", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .onChange(of: backgroundRefreshEnabled) { enabled in
+                if enabled {
+                    Task {
+                        await BackgroundRefreshCoordinator.shared.requestNotificationAuthorizationIfNeeded()
+                        BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(true)
+                    }
+                } else {
+                    BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(false)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Interval: \(backgroundRefreshIntervalMinutes) min")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Slider(
+                    value: Binding(
+                        get: { Double(backgroundRefreshIntervalMinutes) },
+                        set: { backgroundRefreshIntervalMinutes = Int($0) }
+                    ),
+                    in: 15...180,
+                    step: 15
+                )
+                .tint(.slAccent)
+            }
+            .onChange(of: backgroundRefreshIntervalMinutes) { _ in
+                guard backgroundRefreshEnabled else { return }
+                BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var currentSetupCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SidelinkSectionIntro(eyebrow: "Current Setup", title: "What Sidelink will use", subtitle: "Keep your active signing context visible before you start any install or refresh job.")
+
+            if let selected = model.selectedAccount {
+                HStack {
+                    Label("Apple ID", systemImage: "person.crop.circle")
+                    Spacer()
+                    Text(selected.appleId)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if let selected = model.selectedDevice {
+                HStack {
+                    Label("Device", systemImage: "iphone")
+                    Spacer()
+                    Text(selected.name)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SidelinkSectionIntro(eyebrow: "About", title: "App details", subtitle: "Versioning and platform information, presented without the default settings-list noise.")
+            aboutRow("App", "Sidelink")
+            aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
+            aboutRow("Build", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+            aboutRow("Platform", UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var connectionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SidelinkSectionIntro(eyebrow: "Connection", title: "Reload or disconnect", subtitle: "Use these only when you actually need to re-sync or intentionally clear the pairing state.")
+
+            Button {
+                Task { await model.refreshAll() }
+            } label: {
+                Label("Reload Data", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.sidelinkQuickAction)
+            .disabled(model.isLoading || !model.isPaired)
+
+            Button(role: .destructive) {
+                SidelinkHaptics.impact(.light)
+                deleteConfirmation = DestructiveConfirmation(
+                    title: "Disconnect Helper",
+                    message: "Disconnect from the Sidelink server? You will need to pair again.",
+                    buttonLabel: "Disconnect"
+                ) {
+                    model.clearPairing()
+                }
+            } label: {
+                Label("Disconnect Helper", systemImage: "link.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.sidelinkQuickAction(tint: .slDanger))
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
     private func aboutRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
@@ -376,6 +434,7 @@ struct SettingsTab: View {
             Text(value)
                 .font(.caption)
         }
+        .padding(.vertical, 2)
     }
 
     private func settingsLinkRow(_ title: String, systemImage: String) -> some View {
@@ -386,6 +445,8 @@ struct SettingsTab: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .padding(14)
+        .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
     }
 
@@ -430,33 +491,25 @@ private enum AppleAccountSheetMode: Identifiable {
 
 struct PairingPayloadActions: View {
     let onScanned: (String) -> Void
-    let onPasted: (String) -> Void
     @State private var showScanner = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Button {
-                    showScanner = true
-                } label: {
-                    Label("Scan QR", systemImage: "qrcode.viewfinder")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.slAccent)
-                .disabled(!PairingQRScannerSheet.isSupported)
+            Text("Instant Pairing")
+                .font(.headline)
 
-                Button {
-                    onPasted(UIPasteboard.general.string ?? "")
-                } label: {
-                    Label("Paste Payload", systemImage: "doc.on.clipboard")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+            pairingActionButton(
+                title: "Scan Desktop QR",
+                subtitle: "Open the pairing card on the desktop app and scan to fill the helper address and code instantly.",
+                systemImage: "qrcode.viewfinder",
+                tint: .slAccent,
+                disabled: !PairingQRScannerSheet.isSupported
+            ) {
+                showScanner = true
             }
 
             if !PairingQRScannerSheet.isSupported {
-                Text("QR scanning is unavailable on this device. Paste the pairing payload from the desktop app instead.")
+                Text("QR scanning is unavailable on this device. Use the detected helper or the 6-digit pairing code instead.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -467,6 +520,34 @@ struct PairingPayloadActions: View {
                 onScanned(payload)
             }
         }
+    }
+
+    private func pairingActionButton(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, minHeight: 136, alignment: .topLeading)
+        }
+        .buttonStyle(.sidelinkQuickAction(tint: tint))
+        .disabled(disabled)
+        .opacity(disabled ? 0.55 : 1)
     }
 }
 
@@ -497,7 +578,7 @@ struct PairingQRScannerSheet: View {
                             .foregroundStyle(.secondary)
                         Text("Scanner Unavailable")
                             .font(.headline)
-                        Text("Use Paste Payload instead on this device.")
+                        Text("Use the detected helper or the 6-digit pairing code on this device.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -585,98 +666,118 @@ private struct PairingSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pairingFocusTrigger = 0
     @State private var localError: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Enter the 6-digit pairing code from the desktop app.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            ZStack {
+                SidelinkBackdrop(accent: .slAccent)
+                    .ignoresSafeArea()
 
-                    PairingPayloadActions(
-                        onScanned: { payload in
-                            Task {
-                                localError = nil
-                                let didPair = await model.pairUsingPayload(payload)
-                                if didPair {
-                                    dismiss()
-                                } else {
-                                    localError = model.errorMessage
-                                }
-                            }
-                        },
-                        onPasted: { payload in
-                            Task {
-                                localError = nil
-                                let didPair = await model.pairUsingPayload(payload)
-                                if didPair {
-                                    dismiss()
-                                } else {
-                                    localError = model.errorMessage
-                                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Pair Helper",
+                                title: model.isPaired ? "Repair your connection" : "Connect in one pass",
+                                subtitle: "Scan the desktop QR first, or choose the helper manually with its address and 6-digit code."
+                            )
+
+                            HStack(spacing: 12) {
+                                SidelinkMetricTile(label: "Connection", value: model.isPaired ? "Paired" : "Waiting", tint: model.isPaired ? .slSuccess : .slWarning)
+                                SidelinkMetricTile(label: "Discovery", value: model.discoveredBackends.isEmpty ? "Scanning" : "\(model.discoveredBackends.count) found", tint: .slAccent2)
                             }
                         }
-                    )
+                        .liquidPanel()
 
-                    Divider()
-
-                    Text("Or enter the backend URL and 6-digit code manually.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField("Backend URL", text: $model.backendURL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .textFieldStyle(.roundedBorder)
-
-                    if !model.discoveredBackends.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Discovered Servers")
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-
-                            ForEach(model.discoveredBackends) { backend in
-                                Button {
-                                    model.applyDiscoveredBackend(backend)
-                                    pairingFocusTrigger += 1
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(backend.name)
-                                                .font(.subheadline)
-                                            Text(backend.url)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "checkmark.circle")
-                                            .foregroundStyle(Color.slAccent)
+                        PairingPayloadActions(
+                            onScanned: { payload in
+                                Task {
+                                    localError = nil
+                                    let didPair = await model.pairUsingPayload(payload)
+                                    if didPair {
+                                        dismiss()
+                                    } else {
+                                        localError = model.errorMessage
                                     }
                                 }
                             }
-                        }
-                    }
+                        )
+                        .liquidPanel()
 
-                    PairingCodeEntryView(code: $model.pairingCode, onSubmit: {
-                        Task {
-                            localError = nil
-                            await model.pair()
-                            if model.isPaired {
-                                dismiss()
-                            } else {
-                                localError = model.errorMessage
+                        VStack(alignment: .leading, spacing: 14) {
+                            SidelinkSectionIntro(
+                                eyebrow: "Manual Pairing",
+                                title: "Direct desktop address",
+                                subtitle: "Use this when you want explicit control over the backend URL and the 6-digit code from the desktop app."
+                            )
+
+                            TextField("Backend URL", text: $model.backendURL)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .sidelinkField()
+
+                            if !model.discoveredBackends.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Discovered Servers")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+
+                                    ForEach(model.discoveredBackends) { backend in
+                                        Button {
+                                            model.applyDiscoveredBackend(backend)
+                                            pairingFocusTrigger += 1
+                                        } label: {
+                                            HStack(spacing: 14) {
+                                                Image(systemName: "desktopcomputer")
+                                                    .font(.headline)
+                                                    .foregroundStyle(Color.slAccent)
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    Text(backend.name)
+                                                        .font(.subheadline.weight(.semibold))
+                                                        .foregroundStyle(.primary)
+                                                    Text(backend.url)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                        .lineLimit(1)
+                                                }
+                                                Spacer()
+                                                Image(systemName: model.backendURL == backend.url ? "checkmark.circle.fill" : "arrow.up.left.and.arrow.down.right")
+                                                    .foregroundStyle(model.backendURL == backend.url ? Color.slSuccess : Color.secondary.opacity(0.6))
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .sidelinkInsetPanel()
+                                    }
+                                }
                             }
-                        }
-                    }, isLoading: model.isLoading, autoFocus: false, focusTrigger: pairingFocusTrigger)
 
-                    if let error = localError {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(Color.slDanger)
-                            .font(.footnote)
+                            PairingCodeEntryView(code: $model.pairingCode, onSubmit: {
+                                Task {
+                                    localError = nil
+                                    await model.pair()
+                                    if model.isPaired {
+                                        dismiss()
+                                    } else {
+                                        localError = model.errorMessage
+                                    }
+                                }
+                            }, isLoading: model.isLoading, autoFocus: false, focusTrigger: pairingFocusTrigger, showsHeader: false, buttonTitle: "Pair helper")
+                        }
+                        .liquidPanel()
+
+                        if let error = localError {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Color.slDanger)
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background((colorScheme == .dark ? Color.red.opacity(0.16) : Color.red.opacity(0.10)), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
                 }
-                .padding(20)
             }
             .navigationTitle("Pair Helper")
             .navigationBarTitleDisplayMode(.inline)

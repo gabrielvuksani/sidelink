@@ -3,7 +3,14 @@ import SwiftUI
 
 @MainActor
 final class HelperViewModel: ObservableObject {
-    private static let officialSourceURL = "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json"
+    private enum LastInstallRequest {
+        case library(ipaId: String, appName: String, subtitle: String)
+        case source(app: SourceAppDTO, sourceName: String, subtitle: String)
+    }
+
+    private static let officialSourceURL = SidelinkSourceURLUtil.canonicalOfficialSourceURL
+    private static let installPollingTimeout: TimeInterval = 20 * 60
+    private static let maxInstallLogEntries = 300
     private static let bundledTrustedSources: [TrustedSourceDTO] = [
         TrustedSourceDTO(
             id: "altstore-classic",
@@ -30,7 +37,7 @@ final class HelperViewModel: ObservableObject {
 
     @AppStorage("backendURL") var backendURL = ""
     @AppStorage("helperToken") private var legacyHelperToken = ""
-    @Published var helperToken = ""
+    @Published private(set) var helperToken = ""
     @AppStorage("serverName") var serverName = ""
     @AppStorage("serverVersion") var serverVersion = ""
     @AppStorage("deviceId") var deviceId = ""
@@ -63,6 +70,9 @@ final class HelperViewModel: ObservableObject {
     @Published var discoveredBackends: [DiscoveredBackend] = []
     @Published var activeInstallJob: InstallJobDetailDTO?
     @Published var activeInstallLogs: [InstallJobLogDTO] = []
+    @Published var installConsolePresented = false
+    @Published var installConsoleTitle = ""
+    @Published var installConsoleSubtitle = ""
     @Published var pendingAppleAuth: PendingAppleAuthContext?
     @Published var helperLogs: [HelperLogEntryDTO] = []
     @Published var localActivityLogs: [HelperLogEntryDTO] = []
@@ -80,6 +90,8 @@ final class HelperViewModel: ObservableObject {
     private var activeJobPollingTask: Task<Void, Never>?
     private var sseReconnectTask: Task<Void, Never>?
     private var sseReconnectAttempt = 0
+    private var lastInstallRequest: LastInstallRequest?
+    private var installConsoleAutoPresentationSuppressed = false
 
     init() {
         if let stored = KeychainStore.get("helperToken"), !stored.isEmpty {
@@ -202,6 +214,36 @@ final class HelperViewModel: ObservableObject {
         isPaired && selectedActiveAccount != nil && selectedDevice != nil && !isAtFreeSlotLimit
     }
 
+    var installConsoleResolvedTitle: String {
+        if !installConsoleTitle.isEmpty {
+            return installConsoleTitle
+        }
+
+        if let job = activeInstallJob {
+            return inferredInstallName(for: job)
+        }
+
+        return "Install"
+    }
+
+    var installConsoleResolvedSubtitle: String {
+        if !installConsoleSubtitle.isEmpty {
+            return installConsoleSubtitle
+        }
+
+        if let job = activeInstallJob {
+            return inferredInstallSubtitle(for: job)
+        }
+
+        return "Signing, provisioning, and device installation happen here in one place."
+    }
+
+    var activeInstallProgressFraction: Double {
+        guard let job = activeInstallJob, !job.steps.isEmpty else { return isLoading ? 0.08 : 0 }
+        let finished = job.steps.filter { $0.status == "completed" || $0.status == "skipped" }.count
+        return min(1, max(Double(finished) / Double(job.steps.count), job.status == "completed" ? 1 : 0.08))
+    }
+
     var selectedAccount: AccountDTO? {
         accounts.first(where: { $0.id == selectedAccountId })
     }
@@ -220,6 +262,10 @@ final class HelperViewModel: ObservableObject {
 
     var sourceApps: [SourceAppDTO] {
         sourceCatalogs.flatMap { $0.manifest.apps }
+    }
+
+    func isOfficialSourceURL(_ url: String) -> Bool {
+        SidelinkSourceURLUtil.normalized(url).caseInsensitiveCompare(Self.officialSourceURL) == .orderedSame
     }
 
     var latestUploadedIpa: IpaArtifactDTO? {
@@ -326,12 +372,23 @@ final class HelperViewModel: ObservableObject {
             return nil
         }
 
+        guard (url.path.isEmpty || url.path == "/"), url.query == nil, url.fragment == nil else {
+            return nil
+        }
+
         if scheme == "http", let host = url.host, !isLocalHost(host) {
             return nil
         }
 
-        let normalized = value.hasSuffix("/") ? String(value.dropLast()) : value
-        return normalized
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+
+        let normalized = components.string ?? value
+        return normalized.hasSuffix("/") ? String(normalized.dropLast()) : normalized
     }
 
     func refreshAll() async {
@@ -345,6 +402,8 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
+            let previousSelectedAccountId = selectedAccountId
+            let previousSelectedDeviceUdid = selectedDeviceUdid
             async let statusCall = api.fetchStatus(baseURL: backendURL, token: helperToken, deviceId: selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid)
             async let configCall = api.fetchConfig(baseURL: backendURL, token: helperToken)
             async let accountCall = api.listAccounts(baseURL: backendURL, token: helperToken)
@@ -362,12 +421,22 @@ final class HelperViewModel: ObservableObject {
             devices = deviceResponse
             ipas = ipaResponse
 
-            if selectedAccountId.isEmpty || !activeAccounts.contains(where: { $0.id == selectedAccountId }) {
-                selectedAccountId = activeAccounts.first?.id ?? ""
-            }
-            if selectedDeviceUdid.isEmpty || !devices.contains(where: { $0.id == selectedDeviceUdid }) {
-                selectedDeviceUdid = devices.first?.id ?? ""
-            }
+            let nextSelectedAccountId = activeAccounts.contains(where: { $0.id == previousSelectedAccountId })
+                ? previousSelectedAccountId
+                : (activeAccounts.first?.id ?? "")
+            let nextSelectedDeviceUdid = devices.contains(where: { $0.id == previousSelectedDeviceUdid })
+                ? previousSelectedDeviceUdid
+                : (devices.first?.id ?? "")
+
+            let invalidatedAccountSelection = !previousSelectedAccountId.isEmpty
+                && previousSelectedAccountId != nextSelectedAccountId
+                && !activeAccounts.contains(where: { $0.id == previousSelectedAccountId })
+            let invalidatedDeviceSelection = !previousSelectedDeviceUdid.isEmpty
+                && previousSelectedDeviceUdid != nextSelectedDeviceUdid
+                && !devices.contains(where: { $0.id == previousSelectedDeviceUdid })
+
+            selectedAccountId = nextSelectedAccountId
+            selectedDeviceUdid = nextSelectedDeviceUdid
 
             let installedDeviceFilter = selectedDeviceUdid.isEmpty ? (deviceId.isEmpty ? nil : deviceId) : selectedDeviceUdid
             do {
@@ -390,6 +459,21 @@ final class HelperViewModel: ObservableObject {
             await refreshDeviceInventory()
             connectSSEIfPossible()
             errorMessage = nil
+
+            var recoveryMessages: [String] = []
+            if invalidatedAccountSelection {
+                recoveryMessages.append(activeAccounts.isEmpty
+                    ? "Your selected Apple ID is no longer available."
+                    : "Your selected Apple ID was removed, so Sidelink switched to another active account.")
+            }
+            if invalidatedDeviceSelection {
+                recoveryMessages.append(devices.isEmpty
+                    ? "Your selected device is no longer available."
+                    : "Your selected device was removed, so Sidelink switched to another connected device.")
+            }
+            if !recoveryMessages.isEmpty {
+                toastMessage = recoveryMessages.joined(separator: " ")
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -491,7 +575,12 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    func startInstall(ipaId: String) async {
+    func startInstall(ipaId: String, appName: String? = nil, subtitle: String? = nil) async {
+        let resolvedName = appName ?? ipas.first(where: { $0.id == ipaId })?.bundleName ?? "Library App"
+        let resolvedSubtitle = subtitle ?? "Installing from your library"
+        prepareInstallConsole(title: resolvedName, subtitle: resolvedSubtitle)
+        lastInstallRequest = .library(ipaId: ipaId, appName: resolvedName, subtitle: resolvedSubtitle)
+
         guard requireInstallReadiness() else {
             return
         }
@@ -509,7 +598,6 @@ final class HelperViewModel: ObservableObject {
                 accountId: selectedAccountId,
                 deviceUdid: selectedDeviceUdid
             )
-            toastMessage = "Install job queued"
             await refreshLatestInstallJob()
             await refreshAll()
         } catch {
@@ -517,7 +605,12 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    func installFromSource(_ app: SourceAppDTO) async {
+    func installFromSource(_ app: SourceAppDTO, sourceName: String? = nil, subtitle: String? = nil) async {
+        let resolvedSourceName = sourceName ?? sourceCatalogs.first(where: { $0.manifest.apps.contains(where: { $0.id == app.id }) })?.manifest.name ?? "Source"
+        let resolvedSubtitle = subtitle ?? "Installing from \(resolvedSourceName)"
+        prepareInstallConsole(title: app.name, subtitle: resolvedSubtitle)
+        lastInstallRequest = .source(app: app, sourceName: resolvedSourceName, subtitle: resolvedSubtitle)
+
         guard requireInstallReadiness() else {
             return
         }
@@ -542,7 +635,6 @@ final class HelperViewModel: ObservableObject {
                 accountId: selectedAccountId,
                 deviceUdid: selectedDeviceUdid
             )
-            toastMessage = "Queued install for \(app.name)"
             await refreshLatestInstallJob()
             await refreshAll()
         } catch {
@@ -551,14 +643,14 @@ final class HelperViewModel: ObservableObject {
     }
 
     func addSourceFromDeepLink(_ urlString: String) async {
-        let raw = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = SidelinkSourceURLUtil.normalized(urlString)
         guard !raw.isEmpty, isValidRemoteURL(raw) else {
             recordLocalActivity(level: "warn", code: "source.import.invalid", message: "Rejected an invalid source URL.")
             toastMessage = "Invalid source URL"
             return
         }
 
-        if customSourceURLs.contains(raw) {
+        if customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == raw }) {
             recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             toastMessage = "Source already configured"
             return
@@ -579,7 +671,7 @@ final class HelperViewModel: ObservableObject {
 
     func addCustomSource() async {
         errorMessage = nil
-        let raw = sourceURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = SidelinkSourceURLUtil.normalized(sourceURLInput)
         guard !raw.isEmpty else {
             recordLocalActivity(level: "warn", code: "source.import.empty", message: "Tried to import a source without entering a URL.")
             errorMessage = "Enter a source URL"
@@ -592,7 +684,7 @@ final class HelperViewModel: ObservableObject {
             return
         }
 
-        if customSourceURLs.contains(raw) {
+        if customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == raw }) {
             recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             errorMessage = "Source already added"
             return
@@ -616,7 +708,8 @@ final class HelperViewModel: ObservableObject {
     }
 
     func removeCustomSource(_ url: String) async {
-        customSourceURLs.removeAll { $0 == url }
+        let normalized = SidelinkSourceURLUtil.normalized(url)
+        customSourceURLs.removeAll { SidelinkSourceURLUtil.normalized($0) == normalized }
         persistCustomSources()
         await refreshSourceCatalogs()
     }
@@ -647,6 +740,11 @@ final class HelperViewModel: ObservableObject {
         unmanagedInstalledApps = []
         sourceCatalogFailures = []
         activeInstall2FACode = ""
+        installConsoleTitle = ""
+        installConsoleSubtitle = ""
+        installConsolePresented = false
+        installConsoleAutoPresentationSuppressed = false
+        lastInstallRequest = nil
         selectedAccountId = ""
         selectedDeviceUdid = ""
     }
@@ -774,17 +872,17 @@ final class HelperViewModel: ObservableObject {
         var mergedByURL: [String: TrustedSourceDTO] = [:]
 
         for source in Self.bundledTrustedSources {
-            mergedByURL[source.url.lowercased()] = source
+            mergedByURL[SidelinkSourceURLUtil.normalized(source.url).lowercased()] = source
         }
 
         for source in remoteSources {
-            mergedByURL[source.url.lowercased()] = source
+            mergedByURL[SidelinkSourceURLUtil.normalized(source.url).lowercased()] = source
         }
 
-        let remoteURLs = Set(remoteSources.map { $0.url.lowercased() })
+        let remoteURLs = Set(remoteSources.map { SidelinkSourceURLUtil.normalized($0.url).lowercased() })
         return mergedByURL.values.sorted { lhs, rhs in
-            let lhsRemote = remoteURLs.contains(lhs.url.lowercased())
-            let rhsRemote = remoteURLs.contains(rhs.url.lowercased())
+            let lhsRemote = remoteURLs.contains(SidelinkSourceURLUtil.normalized(lhs.url).lowercased())
+            let rhsRemote = remoteURLs.contains(SidelinkSourceURLUtil.normalized(rhs.url).lowercased())
             if lhsRemote != rhsRemote {
                 return lhsRemote && !rhsRemote
             }
@@ -822,6 +920,7 @@ final class HelperViewModel: ObservableObject {
             return
         }
 
+        installConsolePresented = true
         errorMessage = nil
 
         let code = activeInstall2FACode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -833,16 +932,43 @@ final class HelperViewModel: ObservableObject {
         do {
             try await api.submitInstallJob2FA(baseURL: backendURL, token: helperToken, jobId: job.id, code: code)
             activeInstall2FACode = ""
-            toastMessage = "2FA code submitted"
             let updated = try await api.getInstallJob(baseURL: backendURL, token: helperToken, jobId: job.id)
-            activeInstallJob = updated
-            await refreshActiveInstallLogs(jobId: updated.id)
-            if updated.status == "running" || updated.status == "queued" {
-                beginPollingInstallJob(jobId: updated.id)
+            let logs = await refreshActiveInstallLogs(jobId: updated.id)
+            let resolved = applyInstallSnapshot(updated, logs: logs)
+            if resolved.status == "running" || resolved.status == "queued" {
+                beginPollingInstallJob(jobId: resolved.id)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func retryLastInstallRequest() async {
+        guard let lastInstallRequest else {
+            if let job = activeInstallJob {
+                await startInstall(ipaId: job.ipaId, appName: inferredInstallName(for: job), subtitle: "Retrying install")
+            }
+            return
+        }
+
+        switch lastInstallRequest {
+        case .library(let ipaId, let appName, let subtitle):
+            await startInstall(ipaId: ipaId, appName: appName, subtitle: subtitle)
+        case .source(let app, let sourceName, let subtitle):
+            await installFromSource(app, sourceName: sourceName, subtitle: subtitle)
+        }
+    }
+
+    func openInstallConsole() {
+        installConsoleAutoPresentationSuppressed = false
+        installConsolePresented = true
+    }
+
+    func dismissInstallConsole() {
+        if let activeInstallJob, isInstallJobInFlight(activeInstallJob) {
+            installConsoleAutoPresentationSuppressed = true
+        }
+        installConsolePresented = false
     }
 
     func applyDiscoveredBackend(_ backend: DiscoveredBackend) {
@@ -1047,18 +1173,18 @@ final class HelperViewModel: ObservableObject {
             customSourceURLs = []
             return
         }
-        customSourceURLs = decoded
+        customSourceURLs = Array(Set(decoded.map(SidelinkSourceURLUtil.normalized))).sorted()
     }
 
     private func ensureDefaultSourcePresent() {
-        if !customSourceURLs.contains(Self.officialSourceURL) {
+        if !customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == Self.officialSourceURL }) {
             customSourceURLs.append(Self.officialSourceURL)
             persistCustomSources()
         }
     }
 
     private func persistCustomSources() {
-        let unique = Array(Set(customSourceURLs)).sorted()
+        let unique = Array(Set(customSourceURLs.map(SidelinkSourceURLUtil.normalized))).sorted()
         customSourceURLs = unique
         let encoded = (try? JSONEncoder().encode(unique)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         customSourceURLsJSON = encoded
@@ -1082,8 +1208,8 @@ final class HelperViewModel: ObservableObject {
     }
 
     private func refreshSourceCatalogs() async {
-        let feedURLs = (config?.sourceFeeds.map { $0.url } ?? []) + customSourceURLs
-        let uniqueURLs = Array(Set(feedURLs)).sorted()
+        let feedURLs = ((config?.sourceFeeds.map { $0.url } ?? []) + customSourceURLs).map(SidelinkSourceURLUtil.normalized)
+        let uniqueURLs = Array(Set(feedURLs + [Self.officialSourceURL])).sorted()
 
         var catalogs: [SourceCatalog] = []
         var failures: [String] = []
@@ -1098,6 +1224,35 @@ final class HelperViewModel: ObservableObject {
 
         sourceCatalogFailures = failures
         sourceCatalogs = catalogs.sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
+    }
+
+    private func prepareInstallConsole(title: String, subtitle: String) {
+        installConsoleTitle = title
+        installConsoleSubtitle = subtitle
+        installConsoleAutoPresentationSuppressed = false
+        installConsolePresented = true
+        activeInstall2FACode = ""
+        errorMessage = nil
+    }
+
+    private func inferredInstallName(for job: InstallJobDetailDTO) -> String {
+        if let ipa = ipas.first(where: { $0.id == job.ipaId }) {
+            return ipa.bundleName
+        }
+
+        if let install = installedApps.first(where: { $0.id == job.ipaId || $0.bundleId == job.ipaId || $0.originalBundleId == job.ipaId }) {
+            return install.appName ?? install.bundleId
+        }
+
+        return "App Install"
+    }
+
+    private func inferredInstallSubtitle(for job: InstallJobDetailDTO) -> String {
+        if let device = devices.first(where: { $0.id == job.deviceUdid })?.name {
+            return "Signing and installing to \(device)"
+        }
+
+        return "Signing, provisioning, and device installation happen here in one place."
     }
 
     private func recordLocalActivity(level: String, code: String, message: String) {
@@ -1122,12 +1277,22 @@ final class HelperViewModel: ObservableObject {
             guard let latest = jobs.max(by: { $0.updatedAt < $1.updatedAt }) else {
                 activeInstallJob = nil
                 activeInstallLogs = []
+                installConsoleAutoPresentationSuppressed = false
                 return
             }
-            activeInstallJob = latest
-            await refreshActiveInstallLogs(jobId: latest.id)
-            if latest.status == "queued" || latest.status == "running" || latest.status == "waiting_2fa" {
-                beginPollingInstallJob(jobId: latest.id)
+            let logs = await refreshActiveInstallLogs(jobId: latest.id)
+            let resolved = applyInstallSnapshot(latest, logs: logs)
+            if installConsoleTitle.isEmpty {
+                installConsoleTitle = inferredInstallName(for: resolved)
+            }
+            if installConsoleSubtitle.isEmpty {
+                installConsoleSubtitle = inferredInstallSubtitle(for: resolved)
+            }
+            if isInstallJobInFlight(resolved) && !installConsoleAutoPresentationSuppressed {
+                installConsolePresented = true
+            }
+            if isInstallJobInFlight(resolved) {
+                beginPollingInstallJob(jobId: resolved.id)
             }
         } catch {
             // Non-fatal for the main dashboard; install progress is best-effort.
@@ -1140,7 +1305,7 @@ final class HelperViewModel: ObservableObject {
             guard let self else { return }
             let startedAt = Date()
             while !Task.isCancelled {
-                if Date().timeIntervalSince(startedAt) > 300 {
+                if Date().timeIntervalSince(startedAt) > Self.installPollingTimeout {
                     await MainActor.run {
                         self.activeJobPollingTask = nil
                     }
@@ -1148,12 +1313,20 @@ final class HelperViewModel: ObservableObject {
                 }
                 do {
                     let job = try await self.api.getInstallJob(baseURL: self.backendURL, token: self.helperToken, jobId: jobId)
-                    await MainActor.run {
-                        self.activeInstallJob = job
-                    }
-                    await self.refreshActiveInstallLogs(jobId: job.id)
+                    let logs = await self.refreshActiveInstallLogs(jobId: job.id)
 
-                    if job.status == "completed" || job.status == "failed" {
+                    let resolved = await MainActor.run {
+                        let snapshot = self.applyInstallSnapshot(job, logs: logs)
+                        if self.installConsoleTitle.isEmpty {
+                            self.installConsoleTitle = self.inferredInstallName(for: snapshot)
+                        }
+                        if self.installConsoleSubtitle.isEmpty {
+                            self.installConsoleSubtitle = self.inferredInstallSubtitle(for: snapshot)
+                        }
+                        return snapshot
+                    }
+
+                    if resolved.status == "completed" || resolved.status == "failed" {
                         await MainActor.run {
                             self.activeJobPollingTask = nil
                         }
@@ -1232,7 +1405,16 @@ final class HelperViewModel: ObservableObject {
                     do {
                         let job = try await api.getInstallJob(baseURL: backendURL, token: helperToken, jobId: jobId)
                         await MainActor.run {
-                            self.activeInstallJob = job
+                            let snapshot = self.applyInstallSnapshot(job)
+                            if self.installConsoleTitle.isEmpty {
+                                self.installConsoleTitle = self.inferredInstallName(for: snapshot)
+                            }
+                            if self.installConsoleSubtitle.isEmpty {
+                                self.installConsoleSubtitle = self.inferredInstallSubtitle(for: snapshot)
+                            }
+                            if self.isInstallJobInFlight(snapshot) && !self.installConsoleAutoPresentationSuppressed {
+                                self.installConsolePresented = true
+                            }
                         }
                     } catch {
                         // Leave existing progress state intact.
@@ -1259,8 +1441,11 @@ final class HelperViewModel: ObservableObject {
                 return
             }
             activeInstallLogs.append(entry)
-            if activeInstallLogs.count > 300 {
-                activeInstallLogs.removeFirst(activeInstallLogs.count - 300)
+            if activeInstallLogs.count > Self.maxInstallLogEntries {
+                activeInstallLogs.removeFirst(activeInstallLogs.count - Self.maxInstallLogEntries)
+            }
+            if let activeInstallJob {
+                self.activeInstallJob = reconcileInstallJob(activeInstallJob, logs: activeInstallLogs)
             }
             return
         }
@@ -1287,15 +1472,111 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    private func refreshActiveInstallLogs(jobId: String) async {
+    private func refreshActiveInstallLogs(jobId: String) async -> [InstallJobLogDTO] {
         do {
             let logs = try await api.getInstallJobLogs(baseURL: backendURL, token: helperToken, jobId: jobId)
             await MainActor.run {
                 self.activeInstallLogs = logs
             }
+            return logs
         } catch {
             // Keep existing logs if refresh fails.
+            return activeInstallLogs
         }
+    }
+
+    private func isInstallJobInFlight(_ job: InstallJobDetailDTO) -> Bool {
+        job.status == "queued" || job.status == "running" || job.status == "waiting_2fa"
+    }
+
+    @discardableResult
+    private func applyInstallSnapshot(_ job: InstallJobDetailDTO, logs: [InstallJobLogDTO]? = nil) -> InstallJobDetailDTO {
+        let previous = activeInstallJob
+        let resolved = reconcileInstallJob(job, logs: logs ?? activeInstallLogs)
+        activeInstallJob = resolved
+
+        if previous?.id == resolved.id,
+           previous?.status != resolved.status,
+           (resolved.status == "completed" || resolved.status == "failed") {
+            installConsoleAutoPresentationSuppressed = false
+            if !installConsolePresented {
+                if resolved.status == "completed" {
+                    toastMessage = "\(installConsoleResolvedTitle) installed successfully"
+                } else {
+                    let failureMessage = resolved.error.map(SidelinkLogRedaction.sanitize)
+                    toastMessage = failureMessage.map { "Install failed: \($0)" } ?? "Install failed"
+                }
+            }
+        }
+
+        return resolved
+    }
+
+    private func reconcileInstallJob(_ job: InstallJobDetailDTO, logs: [InstallJobLogDTO]) -> InstallJobDetailDTO {
+        let failedStep = job.steps.first(where: { $0.status == "failed" })
+        let existingError = job.error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let logError = latestInstallFailureMessage(from: logs)
+        let effectiveError = failedStep?.error.map(SidelinkLogRedaction.sanitize)
+            ?? ((existingError?.isEmpty == false) ? existingError.map(SidelinkLogRedaction.sanitize) : nil)
+            ?? logError.map(SidelinkLogRedaction.sanitize)
+
+        let shouldSynthesizeFailure = job.status != "failed"
+            && (failedStep != nil || ((job.status == "queued" || job.status == "running") && effectiveError != nil))
+
+        guard shouldSynthesizeFailure else {
+            return job
+        }
+
+        let resolvedSteps = job.steps.map { step in
+            guard failedStep == nil,
+                  step.name == job.currentStep,
+                  step.status == "running"
+            else {
+                return step
+            }
+
+            return PipelineStepDTO(
+                name: step.name,
+                status: "failed",
+                startedAt: step.startedAt,
+                completedAt: logs.last?.at ?? step.completedAt,
+                error: effectiveError
+            )
+        }
+
+        return InstallJobDetailDTO(
+            id: job.id,
+            ipaId: job.ipaId,
+            deviceUdid: job.deviceUdid,
+            accountId: job.accountId,
+            includeExtensions: job.includeExtensions,
+            status: "failed",
+            currentStep: job.currentStep,
+            steps: resolvedSteps,
+            error: effectiveError,
+            createdAt: job.createdAt,
+            updatedAt: logs.last?.at ?? job.updatedAt
+        )
+    }
+
+    private func latestInstallFailureMessage(from logs: [InstallJobLogDTO]) -> String? {
+        for entry in logs.reversed() where entry.level.lowercased() == "error" {
+            let message = entry.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message.isEmpty {
+                continue
+            }
+
+            if let range = message.range(of: " - ", options: .backwards) {
+                let suffix = String(message[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !suffix.isEmpty {
+                    return suffix
+                }
+            }
+
+            return SidelinkLogRedaction.sanitize(message)
+        }
+
+        return nil
     }
 
     private func parseJSONDictionary(_ raw: String) -> [String: Any]? {

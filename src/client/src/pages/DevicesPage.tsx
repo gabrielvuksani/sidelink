@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { PageLoader, EmptyState } from '../components/Shared';
 import type { DeviceInfo } from '../../../shared/types';
@@ -18,7 +19,7 @@ export default function DevicesPage() {
     api.listDevices().then(r => setDevices(r.data ?? [])).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   useSSE({ 'device-update': (data) => setDevices(Array.isArray(data) ? data as DeviceInfo[] : []) });
 

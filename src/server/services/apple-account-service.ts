@@ -198,10 +198,11 @@ export class AppleAccountService {
    * Reuses a cached session if it's still fresh (< 30 min old).
    * Otherwise performs a full GSA re-auth with stored credentials.
    */
-  async refreshAuth(accountId: string): Promise<AuthSession> {
+  async refreshAuth(accountId: string, options?: { forceRefresh?: boolean }): Promise<AuthSession> {
+    const forceRefresh = options?.forceRefresh ?? false;
     // Check in-memory cache first — avoid unnecessary GSA round-trips
     const cached = sessionCache.get(accountId);
-    if (cached && (Date.now() - cached.cachedAt) < SESSION_FRESHNESS_MS) {
+    if (!forceRefresh && cached && (Date.now() - cached.cachedAt) < SESSION_FRESHNESS_MS) {
       return cached.session;
     }
 
@@ -282,8 +283,8 @@ export class AppleAccountService {
    * Get a Developer Services client for a specific account.
    * Reuses cached session when fresh, otherwise refreshes.
    */
-  async getDevClient(accountId: string): Promise<AppleDeveloperServicesClient> {
-    const session = await this.refreshAuth(accountId);
+  async getDevClient(accountId: string, options?: { forceRefresh?: boolean }): Promise<AppleDeveloperServicesClient> {
+    const session = await this.refreshAuth(accountId, options);
     return new AppleDeveloperServicesClient(session);
   }
 

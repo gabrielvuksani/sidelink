@@ -73,6 +73,64 @@ enum SidelinkNetworkUtil {
     }
 }
 
+enum SidelinkSourceURLUtil {
+    static let canonicalOfficialSourceURL = "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json"
+    private static let legacyOfficialSourceURL = "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source.json"
+
+    static func normalized(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.caseInsensitiveCompare(legacyOfficialSourceURL) == .orderedSame || isLegacyOfficialGitHubSourceURL(trimmed) {
+            return canonicalOfficialSourceURL
+        }
+        return trimmed
+    }
+
+    private static func isLegacyOfficialGitHubSourceURL(_ raw: String) -> Bool {
+        guard let url = URL(string: raw), url.host?.caseInsensitiveCompare("raw.githubusercontent.com") == .orderedSame else {
+            return false
+        }
+
+        let segments = url.path.split(separator: "/").map(String.init)
+        guard segments.count >= 5 else {
+            return false
+        }
+
+        let owner = segments[0]
+        let sourcePath = segments[3...].joined(separator: "/")
+        guard owner.caseInsensitiveCompare("gabrielvuksani") == .orderedSame else {
+            return false
+        }
+
+        return sourcePath.caseInsensitiveCompare("docs/source.json") == .orderedSame ||
+            sourcePath.caseInsensitiveCompare("docs/source/source.json") == .orderedSame
+    }
+}
+
+enum SidelinkLogRedaction {
+    static func sanitize(_ raw: String) -> String {
+        var sanitized = raw
+        let replacements: [(String, String)] = [
+            ("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s,;]+", "$1[redacted]"),
+            ("(?i)(password[\"']?\\s*[:=]\\s*[\"']?)[^\"'\\s,}]+", "$1[redacted]"),
+            ("(?i)(token[\"']?\\s*[:=]\\s*[\"']?)[^\"'\\s,}]+", "$1[redacted]"),
+            ("(?i)(session[\"']?\\s*[:=]\\s*[\"']?)[^\"'\\s,}]+", "$1[redacted]"),
+            ("(?i)(apple\\s*id\\s*[:=]\\s*)[^\\s,;]+@[^\\s,;]+", "$1[redacted]"),
+            ("(?i)([A-Z0-9._%+-]+)@([A-Z0-9.-]+\\.[A-Z]{2,})", "[redacted-email]"),
+            ("(?i)((?:verification|pairing|2fa|two-factor|auth)\\s*(?:code)?\\s*[:=]?\\s*)(\\d{6})", "$1[redacted]")
+        ]
+
+        for (pattern, template) in replacements {
+            sanitized = sanitized.replacingOccurrences(
+                of: pattern,
+                with: template,
+                options: .regularExpression
+            )
+        }
+
+        return sanitized
+    }
+}
+
 // MARK: - Confirmation Dialog Helper
 
 struct DestructiveConfirmation: Identifiable {

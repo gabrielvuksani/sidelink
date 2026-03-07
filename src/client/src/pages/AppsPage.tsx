@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
@@ -27,7 +28,7 @@ export default function AppsPage() {
     api.listIpas().then(r => setIpas(r.data ?? [])).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   const upload = async (file: File) => {
     if (uploading) return;

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { formatJobError } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useInstallModal } from '../components/InstallModal';
 import { StatusBadge, PageLoader } from '../components/Shared';
@@ -28,7 +29,7 @@ export default function InstallPage() {
     }
   }, [toast]);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   const hydrateJobLogs = useCallback(async (jobId: string) => {
     try {

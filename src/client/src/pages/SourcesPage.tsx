@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type TrustedSourceRecord } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { EmptyState, PageLoader } from '../components/Shared';
@@ -51,9 +52,7 @@ export default function SourcesPage() {
     }
   };
 
-  useEffect(() => {
-    void reload();
-  }, []);
+  usePageRefresh(reload);
 
   const enabledSources = useMemo(() => sources.filter((s) => s.enabled), [sources]);
   const totalApps = useMemo(() => enabledSources.reduce((sum, s) => sum + (s.appCount ?? 0), 0), [enabledSources]);

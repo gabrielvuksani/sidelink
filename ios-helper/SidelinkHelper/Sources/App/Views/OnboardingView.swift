@@ -27,11 +27,12 @@ struct OnboardingView: View {
     @State private var pairingFocusTrigger = 0
     @State private var notificationsRequested = false
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
             ZStack {
-                onboardingBackground
+                SidelinkBackdrop(accent: .slAccent)
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
@@ -53,24 +54,18 @@ struct OnboardingView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 HStack(spacing: 14) {
-                    SidelinkBrandIcon(size: 54)
+                    SidelinkBrandIcon(size: 44)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Sidelink")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
                         Text("iPhone companion")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.slAccent)
                     }
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("A calmer setup for sideloading from your iPhone.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if step != .finish {
@@ -87,7 +82,7 @@ struct OnboardingView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Capsule()
                             .fill(item.rawValue <= step.rawValue ? Color.slAccent : Color.secondary.opacity(0.18))
-                            .frame(height: 6)
+                            .frame(height: 5)
                         Text(item.title)
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(item == step ? .primary : .secondary)
@@ -96,8 +91,8 @@ struct OnboardingView: View {
             }
         }
         .padding(.horizontal, 24)
-        .padding(.top, 20)
-        .padding(.bottom, 10)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
     }
 
     private var footer: some View {
@@ -130,36 +125,23 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.top, 10)
-        .padding(.bottom, 20)
-        .background(.ultraThinMaterial)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+        .background(colorScheme == .dark ? Color.black.opacity(0.82) : Color.white.opacity(0.72))
     }
 
     private var welcomeStep: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 36, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.slAccent, Color.slAccent2, Color(red: 0.04, green: 0.17, blue: 0.25)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(height: 300)
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
+                    SidelinkSectionIntro(eyebrow: "Welcome", title: "Sideloading should feel deliberate", subtitle: "Sidelink turns your iPhone into a premium control center for the desktop helper you already trust.")
 
-                    VStack(alignment: .leading, spacing: 18) {
-                        SidelinkBrandIcon(size: 64)
-                        Text("Install, refresh, and manage apps without leaving your phone.")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text("Sidelink turns your iPhone into a polished control center for the desktop helper you already trust.")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.82))
+                    HStack(spacing: 12) {
+                        SidelinkMetricTile(label: "Home", value: "Curated")
+                        SidelinkMetricTile(label: "Sources", value: "Pinned", tint: .slAccent2)
                     }
-                    .padding(28)
                 }
+                .liquidPanel()
 
                 VStack(spacing: 12) {
                     onboardingFeatureRow(icon: "sparkles", title: "Beautiful discovery", message: "A real home feed, separate search, and source-powered app discovery.")
@@ -229,15 +211,8 @@ struct OnboardingView: View {
     }
 
     private var permissionsIntroCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Only the permissions Sidelink actually uses.")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-            Text("We request notification access directly here. Camera and local network prompts appear only when you use the pairing tools that need them.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(22)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        SidelinkSectionIntro(eyebrow: "Permissions", title: "Only what Sidelink really uses", subtitle: "Notifications can be requested now. Camera and local-network prompts appear only when you use pairing tools that actually need them.")
+            .liquidPanel()
     }
 
     private var pairingStep: some View {
@@ -246,68 +221,21 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Pair with your desktop helper")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("Choose a discovered server, scan the QR payload, or paste the payload directly from the desktop app.")
+                    Text("Use the desktop QR for the fastest setup, or choose a detected helper and enter its 6-digit code manually.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Discovered Servers")
-                        .font(.headline)
-
-                    if model.discoveredBackends.isEmpty {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                            Text("Scanning your local network…")
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(18)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    } else {
-                        ForEach(model.discoveredBackends) { backend in
-                            Button {
-                                model.applyDiscoveredBackend(backend)
-                                pairingFocusTrigger += 1
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "desktopcomputer")
-                                        .foregroundStyle(Color.slAccent)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(backend.name)
-                                            .font(.subheadline.bold())
-                                        Text(backend.url)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(16)
-                                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .padding(.horizontal, 24)
-
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Fast Pair")
-                        .font(.headline)
+                    SidelinkSectionIntro(
+                        eyebrow: "Fastest Route",
+                        title: "Scan the desktop pairing QR",
+                        subtitle: "This fills the helper address and the 6-digit code in one move, so you can get into the app without typing."
+                    )
 
                     PairingPayloadActions(
                         onScanned: { payload in
-                            Task {
-                                let didPair = await model.pairUsingPayload(payload)
-                                if didPair {
-                                    step = .finish
-                                }
-                            }
-                        },
-                        onPasted: { payload in
                             Task {
                                 let didPair = await model.pairUsingPayload(payload)
                                 if didPair {
@@ -318,17 +246,63 @@ struct OnboardingView: View {
                     )
                 }
                 .padding(22)
-                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .liquidPanel()
                 .padding(.horizontal, 24)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Manual Pairing")
-                        .font(.headline)
+                    SidelinkSectionIntro(
+                        eyebrow: "Manual Pairing",
+                        title: "Choose the helper, then enter its code",
+                        subtitle: "Use this when scanning is unavailable or when you want explicit control over the backend URL."
+                    )
+
+                    if model.discoveredBackends.isEmpty {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Scanning for nearby desktop helpers…")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .sidelinkInsetPanel()
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Detected nearby")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            ForEach(model.discoveredBackends) { backend in
+                                Button {
+                                    model.applyDiscoveredBackend(backend)
+                                    pairingFocusTrigger += 1
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "desktopcomputer")
+                                            .foregroundStyle(Color.slAccent)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(backend.name)
+                                                .font(.subheadline.bold())
+                                            Text(backend.url)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Image(systemName: model.backendURL == backend.url ? "checkmark.circle.fill" : "arrow.up.left.and.arrow.down.right")
+                                            .foregroundStyle(model.backendURL == backend.url ? Color.slSuccess : Color.secondary)
+                                    }
+                                    .padding(16)
+                                    .sidelinkInsetPanel()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
 
                     TextField("http://your-computer-ip:4010", text: $model.backendURL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                        .textFieldStyle(.roundedBorder)
+                        .sidelinkField()
 
                     PairingCodeEntryView(
                         code: $model.pairingCode,
@@ -342,11 +316,13 @@ struct OnboardingView: View {
                         },
                         isLoading: model.isLoading,
                         autoFocus: false,
-                        focusTrigger: pairingFocusTrigger
+                        focusTrigger: pairingFocusTrigger,
+                        showsHeader: false,
+                        buttonTitle: "Pair helper"
                     )
                 }
                 .padding(22)
-                .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .liquidPanel()
                 .padding(.horizontal, 24)
             }
             .padding(.top, 8)
@@ -443,7 +419,7 @@ struct OnboardingView: View {
             Spacer()
         }
         .padding(18)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func permissionCard(
@@ -479,6 +455,6 @@ struct OnboardingView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

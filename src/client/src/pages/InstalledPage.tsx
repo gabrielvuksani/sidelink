@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
@@ -30,7 +31,7 @@ export default function InstalledPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   const triggerRefresh = async (appId: string) => {
     try {

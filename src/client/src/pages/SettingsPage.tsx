@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { useToast } from '../components/Toast';
 import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
-import { HelperPairingPanel } from '../components/HelperPairingPanel';
+import { HelperControlPanel } from '../components/HelperControlPanel';
 import type { SchedulerSnapshot } from '../../../shared/types';
 
 
@@ -14,35 +14,66 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--sl-text)]">Settings</h2>
-        <p className="text-[13px] text-[var(--sl-muted)] mt-0.5">Auto-refresh, desktop updates, and helper automation</p>
-      </div>
+      <section className="relative overflow-hidden rounded-[26px] border border-[var(--sl-border)] bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.18),transparent_34%),radial-gradient(circle_at_top_right,rgba(99,102,241,0.24),transparent_40%),linear-gradient(180deg,#171d27_0%,#11161d_100%)] px-6 py-6 shadow-[var(--sl-shadow)]">
+        <div className="absolute inset-y-0 right-0 w-56 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.05))]" />
+        <div className="relative space-y-5">
+          <div className="max-w-2xl">
+            <p className="sl-section-label !text-sky-200/70">Control Center</p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight text-white">Settings that explain themselves</h2>
+            <p className="mt-2 max-w-xl text-[14px] leading-6 text-slate-300">
+              Auto-refresh, helper automation, desktop updates, and runtime diagnostics are grouped by intent so the page feels like a real control surface instead of a dump of forms.
+            </p>
+          </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricChip label="Refresh" value="Automation" tone="sky" />
+            <MetricChip label="Security" value="Credentials" tone="violet" />
+            <MetricChip label="Helper" value="Build + Pair" tone="emerald" />
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <SchedulerSettings />
-        <PasswordChange />
+        <HelperControlPanel />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {isElectron && <AppUpdateSection />}
-        <HelperSection />
+        <PasswordChange />
+        {isElectron ? <AppUpdateSection /> : <SystemInfo />}
       </div>
 
-      <SystemInfo />
+      {isElectron && <SystemInfo />}
     </div>
   );
 }
 
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="sl-card p-5">
-      <div className="mb-4">
-        <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">{title}</h3>
-        {subtitle && <p className="mt-1 text-[12px] text-[var(--sl-muted)]">{subtitle}</p>}
+    <section className="sl-card overflow-hidden p-0">
+      <div className="border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] px-5 py-4">
+        <h3 className="text-[14px] font-semibold tracking-tight text-[var(--sl-text)]">{title}</h3>
+        {subtitle && <p className="mt-1 max-w-lg text-[12px] leading-5 text-[var(--sl-muted)]">{subtitle}</p>}
       </div>
-      {children}
+      <div className="p-5">
+        {children}
+      </div>
     </section>
+  );
+}
+
+function MetricChip({ label, value, tone }: { label: string; value: string; tone: 'sky' | 'violet' | 'emerald' }) {
+  const toneClass = {
+    sky: 'border-sky-400/20 bg-sky-400/10 text-sky-100',
+    violet: 'border-violet-400/20 bg-violet-400/10 text-violet-100',
+    emerald: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
+  }[tone];
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 backdrop-blur-sm ${toneClass}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
+      <p className="mt-1 text-[15px] font-semibold">{value}</p>
+    </div>
   );
 }
 
@@ -158,172 +189,6 @@ function PasswordChange() {
         </button>
       </div>
     </Panel>
-  );
-}
-
-function HelperSection() {
-  const { toast } = useToast();
-  const { info } = useElectron();
-  const [teamId, setTeamId] = useState('');
-  const [overrideTeamId, setOverrideTeamId] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [doctor, setDoctor] = useState<null | {
-    platform: string;
-    helperIpaPath: string;
-    helperIpaExists: boolean;
-    helperProjectDir: string;
-    xcodeProjectExists: boolean;
-    projectYmlExists: boolean;
-    hasXcodebuild: boolean;
-    hasXcodegen: boolean;
-    detectedTeamId?: string | null;
-    detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
-    helperPaired?: boolean;
-  }>(null);
-
-  const refreshDoctor = async () => {
-    setLoading(true);
-    try {
-      const res = await api.helperDoctor();
-      setDoctor(res.data ?? null);
-      const detected = res.data?.detectedTeamId;
-      if (detected && !teamId) setTeamId(detected);
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Failed to fetch helper diagnostics'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refreshDoctor();
-  }, []);
-
-  const ensureHelper = async () => {
-    setRunning(true);
-    try {
-      const res = await api.ensureHelperIpa(overrideTeamId ? teamId.trim() || undefined : undefined);
-      const data = res.data;
-      if (data?.built) {
-        toast('success', `Helper built and imported as ${data.importedIpa.bundleName}`);
-      } else {
-        toast('success', `Helper imported as ${data?.importedIpa.bundleName ?? 'SidelinkHelper'}`);
-      }
-      await refreshDoctor();
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Failed to ensure helper IPA'));
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const platform = doctor?.platform ?? info.platform;
-  const canBuild = platform === 'darwin';
-  const teamSourceLabel: Record<string, string> = {
-    request: 'Manual override',
-    env: 'Environment',
-    'apple-account-authenticated': 'Connected Apple account',
-    'apple-account-any': 'Saved Apple account',
-    'xcode-signing-identity': 'Xcode signing identity',
-    none: 'Not detected',
-  };
-
-  return (
-    <Panel title="iOS Helper" subtitle="One click helper IPA import, and macOS build/export when required.">
-      <div className="space-y-3">
-        {loading ? (
-          <p className="text-xs text-[var(--sl-muted)]">Loading helper diagnostics...</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <Status label="Helper IPA" ok={!!doctor?.helperIpaExists} />
-              <Status label="xcodebuild" ok={!!doctor?.hasXcodebuild || !canBuild} />
-              <Status label="Xcode Project" ok={!!doctor?.xcodeProjectExists || !!doctor?.projectYmlExists} />
-              <Status label="xcodegen" ok={!!doctor?.hasXcodegen || !!doctor?.xcodeProjectExists || !canBuild} />
-            </div>
-
-            {canBuild && (
-              <div className="space-y-2">
-                <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs">
-                  <p className="text-[var(--sl-muted)]">Auto-detected Team ID</p>
-                  <p className="mt-1 font-mono text-sm text-[var(--sl-text)]">{doctor?.detectedTeamId ?? 'Unavailable'}</p>
-                  <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Source: {teamSourceLabel[doctor?.detectedTeamIdSource ?? 'none']}</p>
-                </div>
-
-                <label className="flex items-center gap-2 text-xs text-[var(--sl-muted)]">
-                  <input
-                    type="checkbox"
-                    checked={overrideTeamId}
-                    onChange={e => setOverrideTeamId(e.target.checked)}
-                    className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
-                  />
-                  Use manual Team ID override
-                </label>
-
-                {overrideTeamId && (
-                  <div>
-                    <label className="mb-1.5 block text-xs text-[var(--sl-muted)]">Team ID override</label>
-                    <input
-                      placeholder="XXXXXXXXXX"
-                      value={teamId}
-                      onChange={e => setTeamId(e.target.value.toUpperCase())}
-                      className="sl-input max-w-xs font-mono uppercase"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {!canBuild && (
-              <p className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs text-[var(--sl-muted)]">
-                Helper build/export is macOS + Xcode only. On this OS, Sidelink can still import a bundled/prebuilt helper IPA automatically.
-              </p>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={ensureHelper}
-                disabled={running}
-                className="sl-btn-primary !bg-[var(--sl-accent-2)] flex items-center gap-2"
-              >
-                {running && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
-                {running ? 'Processing...' : 'One-Click Build / Import'}
-              </button>
-              <button
-                onClick={refreshDoctor}
-                disabled={loading}
-                className="sl-btn-ghost"
-              >
-                Refresh
-              </button>
-            </div>
-
-            <HelperPairingPanel paired={!!doctor?.helperPaired} />
-
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-2">
-              <span className={`inline-block h-2 w-2 rounded-full ${doctor?.helperPaired ? 'bg-green-500' : 'bg-[var(--sl-muted)]'}`} />
-              <span className="text-xs text-[var(--sl-text)]">
-                {doctor?.helperPaired ? 'iOS helper paired' : 'No iOS helper paired'}
-              </span>
-            </div>
-
-            {doctor?.helperIpaPath && (
-              <p className="text-[11px] text-[var(--sl-muted)]">Resolved helper path: <span className="font-mono text-[var(--sl-text)]">{doctor.helperIpaPath}</span></p>
-            )}
-          </>
-        )}
-      </div>
-    </Panel>
-  );
-}
-
-function Status({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <div className={`rounded-lg border px-2.5 py-2 ${ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
-      <p className="font-medium">{label}</p>
-      <p className="mt-0.5 text-[11px]">{ok ? 'Ready' : 'Needs setup'}</p>
-    </div>
   );
 }
 

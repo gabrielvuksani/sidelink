@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
+import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import type { LogEntry } from '../../../shared/types';
@@ -24,7 +25,7 @@ export default function LogsPage() {
     api.listLogs(filter || undefined).then(r => setLogs((r.data ?? []).slice(-MAX_VISIBLE_LOGS))).finally(() => setLoading(false));
   }, [filter]);
 
-  useEffect(() => { reload(); }, [reload]);
+  usePageRefresh(reload);
 
   useSSE({
     'log': (data) => {
