@@ -231,8 +231,11 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/sidelink-mac-arm64/*
             artifacts/sidelink-mac-x64/*
+            artifacts/sidelink-mac-arm64/*arm64.dmg
+            artifacts/sidelink-mac-arm64/*arm64.dmg.blockmap
+            artifacts/sidelink-mac-arm64/*arm64-mac.zip
+            artifacts/sidelink-mac-arm64/*arm64-mac.zip.blockmap
             artifacts/sidelink-win/*
             artifacts/sidelink-linux/*
         env:
