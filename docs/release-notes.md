@@ -42,9 +42,10 @@ This page tracks the user-visible release surface and the release-engineering ch
 
 1. Confirm `package.json` version and `CHANGELOG.md` match the target release.
 2. Run `npm run verify` locally.
-3. If packaging on macOS locally, run `npm run desktop:package` and then `npm run desktop:smoke`.
-4. Push the tagged release from `main` so GitHub Actions can build and publish artifacts.
-5. Confirm the docs workflow deployed successfully to GitHub Pages.
+3. On macOS, run `npm run helper:export` so `tmp/helper/SidelinkHelper.ipa` exists before tagging.
+4. If packaging on macOS locally, run `npm run desktop:package` and then `npm run desktop:smoke`.
+5. Push the tagged release from `main` so GitHub Actions can build and publish artifacts.
+6. Confirm the docs workflow deployed successfully to GitHub Pages.
 
 ### Tag Policy
 

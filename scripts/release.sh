@@ -105,6 +105,25 @@ fi
 echo "[release] Preparing release $TAG ..."
 echo "[release] Tip: run npm run verify before tagging, and npm run desktop:smoke if you packaged the mac app locally."
 
+RELEASE_HELPER_DIR="$ROOT_DIR/helper"
+RELEASE_HELPER_IPA="$RELEASE_HELPER_DIR/SidelinkHelper.ipa"
+LOCAL_HELPER_IPA="$ROOT_DIR/tmp/helper/SidelinkHelper.ipa"
+
+if [[ -f "$LOCAL_HELPER_IPA" ]]; then
+  mkdir -p "$RELEASE_HELPER_DIR"
+  cp "$LOCAL_HELPER_IPA" "$RELEASE_HELPER_IPA"
+  echo "[release] Prepared release helper IPA from tmp/helper/SidelinkHelper.ipa"
+elif [[ -f "$RELEASE_HELPER_IPA" ]]; then
+  echo "[release] Using existing tracked helper IPA at helper/SidelinkHelper.ipa"
+else
+  echo "Error: Missing helper IPA for release publishing."
+  echo "  Expected one of:"
+  echo "    - tmp/helper/SidelinkHelper.ipa"
+  echo "    - helper/SidelinkHelper.ipa"
+  echo "  Run npm run helper:export on macOS first, or place the IPA at helper/SidelinkHelper.ipa before tagging."
+  exit 1
+fi
+
 # Use node to safely update package.json without mangling formatting
 if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then
   echo "[release] Bumping package.json version to $VERSION ..."
@@ -119,7 +138,7 @@ fi
 # ── Commit + Tag ──────────────────────────────────────────────────────
 
 if [[ "$DRY_RUN" == "--dry-run" ]]; then
-  echo "[release] Would run: git add package.json"
+  echo "[release] Would run: git add package.json helper/SidelinkHelper.ipa"
   echo "[release] Would run: git commit -m '$TAG'"
   echo "[release] Would run: git tag -a '$TAG' -m 'Release $TAG'"
 else
@@ -132,7 +151,7 @@ else
     echo "  Create a new semver tag instead of moving an existing release tag."
     exit 1
   fi
-  git add package.json
+  git add package.json helper/SidelinkHelper.ipa
   git commit -m "$TAG"
   git tag -a "$TAG" -m "Release $TAG"
 fi

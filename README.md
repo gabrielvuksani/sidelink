@@ -174,6 +174,14 @@ Dry-run the release script first:
 bash scripts/release.sh v0.2.0 --dry-run
 ```
 
+The release flow expects a helper IPA to exist first. On macOS, generate it with:
+
+```bash
+npm run helper:export
+```
+
+The release script will copy `tmp/helper/SidelinkHelper.ipa` into `helper/SidelinkHelper.ipa`, stage it, and publish that tracked asset with the tagged release.
+
 Then create the real release:
 
 ```bash
