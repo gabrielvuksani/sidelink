@@ -2,6 +2,24 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.1
+
+### Highlights
+
+- Renamed the user-facing product brand to SideLink across the desktop app, control center, iPhone helper, and docs.
+- Moved logo generation to one shared pipeline so brand updates can propagate across web, desktop, and iOS helper assets from one place.
+- Promoted the helper IPA to a first-class release artifact and pointed the official source feed at the latest published helper asset.
+- Reworked the repository surface with a stronger single README and an Apache-2.0 license + NOTICE distribution.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Branding assets | `scripts/generate-icon-assets.py` now emits desktop, web, and iOS helper brand assets | Future logo updates only need one source change |
+| Release assets | GitHub release publishing now includes `helper/SidelinkHelper.ipa` | Users can install the helper directly from release assets |
+| Packaging | Desktop packaging can bundle either a freshly exported or committed helper IPA | Release and local packaging are less fragile |
+| License surface | Project metadata now ships under Apache-2.0 with a `NOTICE` file | The legal surface is clearer for redistribution and derivative work |
+
 ## v0.2.0
 
 ### Highlights
