@@ -2,6 +2,24 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.2.6
+
+### Highlights
+
+- Fixed the released desktop app's packaged Apple sign-in and device detection paths by repairing the bundled Python helper instead of relying on development-only behavior.
+- Bundled the missing anisette assets, `pymobiledevice3` submodules, and CLI metadata the frozen helper needs inside the shipped macOS app.
+- Strengthened packaged smoke coverage so release validation now catches broken anisette generation and bundled device-command regressions before publish.
+- Tightened the onboarding layout so the main wizard column and right-hand support rail align cleanly on desktop.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Packaged desktop runtime | `python-bundle/entry.py` now uses the current anisette API, preserves option-style `pmd3` arguments, and dispatches through the packaged `pymobiledevice3` entrypoint | The downloaded DMG now exercises the same Apple auth and device flows that work in development instead of failing behind generic server errors |
+| Frozen helper build | `python-bundle/build.py` now collects anisette package data, Unicorn pieces, `pymobiledevice3` submodules, and CLI package metadata | PyInstaller no longer drops runtime resources the packaged helper needs after local tests have already passed |
+| Release smoke | `scripts/smoke-packaged-app.cjs` now validates helper self-check, anisette generation, bundled `pmd3 usbmux list --usb`, and GSA dispatch | Broken packaged auth or device flows are blocked before a release tag publishes a DMG |
+| Onboarding polish | `SetupWizard` now top-aligns its content and keeps the desktop support rail sticky and aligned | First-run setup reads as one composed surface instead of two misaligned panes |
+
 ## v0.2.5
 
 ### Highlights

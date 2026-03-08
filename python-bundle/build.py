@@ -26,18 +26,29 @@ import argparse
 
 def collect_pyinstaller_resources():
     """Collect package data and native libraries required at runtime."""
-    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
     datas = []
     binaries = []
+    hidden_imports = []
 
     for source, target in collect_data_files('unicorn'):
+        datas.append((source, target))
+
+    for source, target in collect_data_files('anisette'):
         datas.append((source, target))
 
     for source, target in collect_dynamic_libs('unicorn'):
         binaries.append((source, target))
 
-    return datas, binaries
+    for package in ('pymobiledevice3', 'readchar', 'wcwidth', 'click', 'typer', 'typer_injector', 'coloredlogs'):
+        for source, target in copy_metadata(package):
+            datas.append((source, target))
+
+    hidden_imports.extend(collect_submodules('unicorn'))
+    hidden_imports.extend(collect_submodules('pymobiledevice3'))
+
+    return datas, binaries, hidden_imports
 
 def get_platform_arch():
     """Get platform-arch identifier matching Node.js conventions."""
@@ -91,9 +102,9 @@ def main():
         print('Installing PyInstaller...')
         subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyinstaller'])
 
-    datas, binaries = collect_pyinstaller_resources()
+    datas, binaries, collected_hidden_imports = collect_pyinstaller_resources()
 
-    # Build hidden imports list for pymobiledevice3 (it has many submodules)
+    # Build hidden imports list for CLI dependencies that PyInstaller misses.
     hidden_imports = [
         'anisette',
         'srp',
@@ -103,12 +114,10 @@ def main():
         'charset_normalizer',
         'cryptography',
         'cryptography.hazmat.primitives.padding',
-        'pymobiledevice3',
-        'pymobiledevice3.cli',
-        'pymobiledevice3.lockdown',
-        'pymobiledevice3.usbmux',
-        'pymobiledevice3.services.installation_proxy',
+        'readchar',
+        'wcwidth',
     ]
+    hidden_imports.extend(collected_hidden_imports)
 
     # Build PyInstaller command
     cmd = [

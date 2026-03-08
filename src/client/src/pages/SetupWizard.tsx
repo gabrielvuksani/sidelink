@@ -193,8 +193,8 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         </div>
 
         <div className={`flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-10 lg:py-8 ${macChromeInset ? 'lg:pt-12' : ''}`}>
-          <div className="mx-auto flex min-h-full w-full max-w-5xl items-center justify-center">
-            <div className={`grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] ${direction === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`} key={step}>
+          <div className="mx-auto flex min-h-full w-full max-w-6xl items-start justify-center">
+            <div className={`grid w-full items-start gap-6 lg:grid-cols-[minmax(0,1fr)_21rem] ${direction === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`} key={step}>
               <section className="sl-card overflow-hidden">
                 <div className="border-b border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] px-6 py-6 sm:px-8">
                   <p className="sl-kicker">{STEP_BADGES[step]}</p>
@@ -212,7 +212,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 </div>
               </section>
 
-              <aside className="space-y-4">
+              <aside className="space-y-4 lg:sticky lg:top-8 self-start">
                 <Card className="p-5">
                   <p className="sl-section-label">Current Focus</p>
                   <p className="mt-2 text-[16px] font-semibold text-[var(--sl-text)]">{STEP_BADGES[step]}</p>

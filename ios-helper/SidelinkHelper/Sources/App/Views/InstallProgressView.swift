@@ -29,54 +29,54 @@ struct InstallProgressView: View {
                     .background(statusColor(job.status).opacity(0.12), in: Capsule())
             }
 
-            if job.status == "completed" {
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.green)
-                    Text("App Installed")
-                        .font(.headline)
-                        .foregroundStyle(.green)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .onAppear { triggerSuccessHaptic() }
-            } else if job.status == "failed" {
-                VStack(spacing: 8) {
-                    Image(systemName: "xmark.octagon.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.red)
-                    Text("Install Failed")
-                        .font(.headline)
-                        .foregroundStyle(.red)
-                    if let error = job.error, !error.isEmpty {
-                        Text(SidelinkLogRedaction.sanitize(error))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    Button {
-                        onRetry()
-                    } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isSubmitting)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .onAppear { triggerErrorHaptic() }
-            } else {
-                HStack {
-                    Text("Status")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(statusLabel(job.status))
-                        .font(.subheadline.bold())
-                        .foregroundStyle(statusColor(job.status))
-                }
-            }
+            // if job.status == "completed" {
+            //     VStack(spacing: 8) {
+            //         Image(systemName: "checkmark.seal.fill")
+            //             .font(.system(size: 36))
+            //             .foregroundStyle(.green)
+            //         Text("App Installed")
+            //             .font(.headline)
+            //             .foregroundStyle(.green)
+            //     }
+            //     .frame(maxWidth: .infinity)
+            //     .padding(.vertical, 8)
+            //     .onAppear { triggerSuccessHaptic() }
+            // } else if job.status == "failed" {
+            //     VStack(spacing: 8) {
+            //         Image(systemName: "xmark.octagon.fill")
+            //             .font(.system(size: 36))
+            //             .foregroundStyle(.red)
+            //         Text("Install Failed")
+            //             .font(.headline)
+            //             .foregroundStyle(.red)
+            //         if let error = job.error, !error.isEmpty {
+            //             Text(SidelinkLogRedaction.sanitize(error))
+            //                 .font(.caption)
+            //                 .foregroundStyle(.secondary)
+            //                 .multilineTextAlignment(.center)
+            //         }
+            //         Button {
+            //             onRetry()
+            //         } label: {
+            //             Label("Retry", systemImage: "arrow.clockwise")
+            //         }
+            //         .buttonStyle(.bordered)
+            //         .controlSize(.small)
+            //         .disabled(isSubmitting)
+            //     }
+            //     .frame(maxWidth: .infinity)
+            //     .padding(.vertical, 8)
+            //     .onAppear { triggerErrorHaptic() }
+            // } else {
+            //     HStack {
+            //         Text("Status")
+            //             .foregroundStyle(.secondary)
+            //         Spacer()
+            //         Text(statusLabel(job.status))
+            //             .font(.subheadline.bold())
+            //             .foregroundStyle(statusColor(job.status))
+            //     }
+            // }
 
             if job.status == "waiting_2fa" {
                 VStack(alignment: .leading, spacing: 12) {

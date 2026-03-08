@@ -28,124 +28,105 @@ async function validateBundledPython(executablePath) {
     throw new Error(`Missing bundled Python helper: ${helperPath}`);
   }
 
-  await new Promise((resolve, reject) => {
-    const child = spawn(helperPath, ['--command', 'check'], {
-      cwd: rootDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+  const runHelper = ({ args, input = null, timeoutMs = 30_000, expectExitCode = 0, label }) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(helperPath, args, {
+        cwd: rootDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-    let output = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error(`Bundled Python helper timed out during self-check\n${output.trim()}`.trim()));
-    }, 30_000);
+      let output = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`${label} timed out\n${output.trim()}`.trim()));
+      }, timeoutMs);
 
-    child.stdout.on('data', (chunk) => {
-      output += chunk.toString();
-    });
+      child.stdout.on('data', (chunk) => {
+        output += chunk.toString();
+      });
 
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
+      child.stderr.on('data', (chunk) => {
+        output += chunk.toString();
+      });
 
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
 
-    child.on('exit', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(`Bundled Python helper failed self-check with exit code ${code ?? 'unknown'}\n${output.trim()}`.trim()));
-        return;
-      }
-
-      try {
-        const jsonLine = output
-          .trim()
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .reverse()
-          .find((line) => line.startsWith('{') && line.endsWith('}'));
-
-        if (!jsonLine) {
-          reject(new Error(`Bundled Python helper returned invalid JSON\n${output.trim()}`.trim()));
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        if ((code ?? -1) !== expectExitCode) {
+          reject(new Error(`${label} failed with exit code ${code ?? 'unknown'}\n${output.trim()}`.trim()));
           return;
         }
 
-        const parsed = JSON.parse(jsonLine);
-        if (!parsed.ok) {
-          reject(new Error(`Bundled Python helper reported missing modules\n${output.trim()}`.trim()));
-          return;
-        }
-      } catch (error) {
-        reject(new Error(`Bundled Python helper returned invalid JSON\n${output.trim()}`.trim()));
-        return;
-      }
+        resolve(output);
+      });
 
-      resolve();
+      if (input !== null) {
+        child.stdin.write(input);
+      }
+      child.stdin.end();
     });
+
+  const parseLastJsonLine = (output, label) => {
+    const jsonLine = output
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reverse()
+      .find((line) => line.startsWith('{') && line.endsWith('}'));
+
+    if (!jsonLine) {
+      throw new Error(`${label} returned invalid JSON\n${output.trim()}`.trim());
+    }
+
+    try {
+      return JSON.parse(jsonLine);
+    } catch {
+      throw new Error(`${label} returned invalid JSON\n${output.trim()}`.trim());
+    }
+  };
+
+  const checkOutput = await runHelper({
+    args: ['--command', 'check'],
+    label: 'Bundled Python helper self-check',
   });
 
-  await new Promise((resolve, reject) => {
-    const child = spawn(helperPath, ['--command', 'gsa-auth'], {
-      cwd: rootDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  const checkParsed = parseLastJsonLine(checkOutput, 'Bundled Python helper self-check');
+  if (!checkParsed.ok) {
+    throw new Error(`Bundled Python helper reported missing modules\n${checkOutput.trim()}`.trim());
+  }
 
-    let output = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error(`Bundled Python gsa-auth check timed out\n${output.trim()}`.trim()));
-    }, 30_000);
-
-    child.stdout.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    child.on('exit', (_code) => {
-      clearTimeout(timer);
-
-      try {
-        const jsonLine = output
-          .trim()
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean)
-          .reverse()
-          .find((line) => line.startsWith('{') && line.endsWith('}'));
-
-        if (!jsonLine) {
-          reject(new Error(`Bundled Python gsa-auth check returned invalid JSON\n${output.trim()}`.trim()));
-          return;
-        }
-
-        const parsed = JSON.parse(jsonLine);
-        if (parsed.error_code !== -101) {
-          reject(new Error(`Bundled Python gsa-auth dispatch is broken\n${output.trim()}`.trim()));
-          return;
-        }
-      } catch (_error) {
-        reject(new Error(`Bundled Python gsa-auth check returned invalid JSON\n${output.trim()}`.trim()));
-        return;
-      }
-
-      resolve();
-    });
-
-    child.stdin.write(JSON.stringify({ command: '__invalid_command__' }));
-    child.stdin.end();
+  const anisetteOutput = await runHelper({
+    args: ['--command', 'anisette'],
+    timeoutMs: 60_000,
+    label: 'Bundled Python anisette check',
   });
+
+  const anisetteParsed = parseLastJsonLine(anisetteOutput, 'Bundled Python anisette check');
+  if (anisetteParsed.error || !anisetteParsed['X-Apple-I-MD'] || !anisetteParsed['X-Apple-I-MD-M']) {
+    throw new Error(`Bundled Python anisette check failed\n${anisetteOutput.trim()}`.trim());
+  }
+
+  await runHelper({
+    args: ['--command', 'pmd3', 'usbmux', 'list', '--usb'],
+    timeoutMs: 30_000,
+    label: 'Bundled Python pmd3 usbmux check',
+  });
+
+  const gsaOutput = await runHelper({
+    args: ['--command', 'gsa-auth'],
+    input: JSON.stringify({ command: '__invalid_command__' }),
+    label: 'Bundled Python gsa-auth check',
+  });
+
+  const gsaParsed = parseLastJsonLine(gsaOutput, 'Bundled Python gsa-auth check');
+  if (gsaParsed.error_code !== -101) {
+    throw new Error(`Bundled Python gsa-auth dispatch is broken\n${gsaOutput.trim()}`.trim());
+  }
 }
 
 function walk(dirPath, matcher, results = []) {

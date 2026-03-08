@@ -83,7 +83,7 @@ def main():
     parser.add_argument('--command', required=True,
                         choices=['anisette', 'gsa-auth', 'pmd3', 'version', 'check'],
                         help='Which helper to run')
-    parser.add_argument('rest', nargs='*', help='Additional arguments for pmd3')
+    parser.add_argument('rest', nargs=argparse.REMAINDER, help='Additional arguments for pmd3')
 
     args = parser.parse_args()
 
@@ -134,14 +134,20 @@ def main():
 def run_anisette():
     """Generate anisette headers — same logic as scripts/anisette-helper.py"""
     try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+
+    try:
         from anisette import Anisette
     except ImportError:
         print(json.dumps({'error': 'anisette package not installed'}))
         sys.exit(1)
 
     try:
-        ani = Anisette()
-        headers = ani.generate_headers()
+        ani = Anisette.init()
+        headers = ani.get_data()
         print(json.dumps(headers))
     except Exception as e:
         print(json.dumps({'error': str(e)}))
@@ -177,18 +183,17 @@ def run_gsa_auth():
 def run_pmd3(extra_args):
     """Run pymobiledevice3 commands by delegating to its CLI."""
     try:
-        from pymobiledevice3.__main__ import cli
-    except ImportError:
-        print(json.dumps({'error': 'pymobiledevice3 not installed'}), file=sys.stderr)
+        from pymobiledevice3.__main__ import main as pmd3_main
+    except ImportError as e:
+        print(json.dumps({'error': f'pymobiledevice3 import failed: {e}'}), file=sys.stderr)
         sys.exit(1)
 
-    # pymobiledevice3 uses Click for its CLI
     # Prepend --no-color for consistent output parsing
     cli_args = ['--no-color'] + extra_args
     sys.argv = ['pymobiledevice3'] + cli_args
 
     try:
-        cli(standalone_mode=False)
+        pmd3_main()
     except SystemExit as e:
         sys.exit(e.code or 0)
     except Exception as e:
