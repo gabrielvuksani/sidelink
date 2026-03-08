@@ -7,6 +7,8 @@ struct InstalledTab: View {
     @State private var showImportOptions = false
     @State private var showImportURLSheet = false
     @State private var showFileImporter = false
+    @State private var isRefreshingSurface = false
+    @State private var isRefreshingAllInstalls = false
 
     private var activeApps: [InstalledAppDTO] {
         model.installedApps.filter { ($0.status ?? "active") != "deactivated" }
@@ -29,6 +31,7 @@ struct InstalledTab: View {
                 ScrollView {
                     VStack(spacing: 24) {
                         installedHero
+                        installedControlStrip
 
                     if let limits = model.config?.freeAccountLimits {
                         VStack(alignment: .leading, spacing: 16) {
@@ -75,18 +78,6 @@ struct InstalledTab: View {
                         .liquidPanel()
                         .padding(.horizontal, 20)
                     }
-
-                    HStack(spacing: 12) {
-                        Button {
-                            Task { await model.refreshAllApps() }
-                        } label: {
-                            Label("Refresh All", systemImage: "arrow.triangle.2.circlepath.circle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!model.isPaired || activeApps.isEmpty || model.isLoading)
-                    }
-                    .padding(.horizontal, 20)
 
                     // MARK: - Installed Apps
                     if model.isLoading && model.installedApps.isEmpty {
@@ -174,7 +165,7 @@ struct InstalledTab: View {
                 }
             }
             .refreshable {
-                await model.refreshAll()
+                await refreshInstalledSurface()
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -184,10 +175,16 @@ struct InstalledTab: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        Task { await model.refreshAll() }
+                        Task { await refreshInstalledSurface() }
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        if isRefreshingSurface {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
+                    .disabled(isRefreshingSurface)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -224,7 +221,7 @@ struct InstalledTab: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Add an IPA from a remote URL or pick one from Files.")
+                Text("Add an IPA from a remote URL or pick one from Files, then SideLink will open the install console automatically.")
             }
             .sheet(isPresented: $showImportURLSheet) {
                 InstalledImportURLSheet(model: model)
@@ -248,6 +245,42 @@ struct InstalledTab: View {
                 SidelinkMetricTile(label: "Library", value: "\(model.ipas.count)", tint: .slAccent2)
                 SidelinkMetricTile(label: "Archived", value: "\(deactivatedApps.count)", tint: .slWarning)
             }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var installedControlStrip: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(controlStripTitle)
+                    .font(.subheadline.weight(.semibold))
+                Text(controlStripSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Button {
+                Task { await refreshAllInstalledApps() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isRefreshingAllInstalls {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    Text(isRefreshingAllInstalls ? "Refreshing" : "Refresh All")
+                        .font(.caption.weight(.semibold))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!model.isPaired || activeApps.isEmpty || isRefreshingAllInstalls)
         }
         .liquidPanel()
         .padding(.horizontal, 20)
@@ -278,6 +311,48 @@ struct InstalledTab: View {
         case .failure(let error):
             model.errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func refreshInstalledSurface() async {
+        guard !isRefreshingSurface else { return }
+        isRefreshingSurface = true
+        defer { isRefreshingSurface = false }
+        await model.refreshAll()
+    }
+
+    @MainActor
+    private func refreshAllInstalledApps() async {
+        guard !isRefreshingAllInstalls else { return }
+        isRefreshingAllInstalls = true
+        defer { isRefreshingAllInstalls = false }
+        await model.refreshAllApps()
+    }
+
+    private var controlStripTitle: String {
+        if isRefreshingAllInstalls {
+            return "Refreshing every managed app"
+        }
+        if isRefreshingSurface {
+            return "Refreshing installed status"
+        }
+        if activeApps.isEmpty {
+            return "Your install surface is ready"
+        }
+        return "Keep managed apps current"
+    }
+
+    private var controlStripSubtitle: String {
+        if isRefreshingAllInstalls {
+            return "SideLink is re-queueing refreshes across your managed installs."
+        }
+        if isRefreshingSurface {
+            return "Pulling the latest device, expiry, and library state from your paired server."
+        }
+        if activeApps.isEmpty {
+            return "Pull to refresh anytime, or use the plus button to import another IPA into your library."
+        }
+        return "Use Refresh All when certificates are getting close, and pull to refresh for a quick state sync."
     }
 
     // MARK: - App Card with Expiry Progress
@@ -518,7 +593,7 @@ private struct InstalledImportURLSheet: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
 
-                    Text("Paste a direct IPA download link. SideLink will import it into your library before you sign it.")
+                    Text("Paste a direct IPA download link. SideLink will import it and open the install console immediately.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -530,7 +605,7 @@ private struct InstalledImportURLSheet: View {
                             }
                         }
                     } label: {
-                        Label("Import IPA", systemImage: "square.and.arrow.down")
+                        Label("Import and Install", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)

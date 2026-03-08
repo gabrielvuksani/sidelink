@@ -2,6 +2,26 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.3.0
+
+### Highlights
+
+- Polished the first-run desktop experience so onboarding feels like the product instead of a crowded setup screen.
+- Made iPhone helper IPA imports first-class installs: importing from Files or a URL now opens the install console immediately and continues through the normal signing flow.
+- Stabilized install-job 2FA handling on the helper so the install console stays present while Apple verification is in progress.
+- Closed the last packaged Apple runtime gap by correctly treating locally built bundled helpers as bundled runtimes during diagnostics and release validation.
+- Rewrote the root README into a stronger launch document for users, operators, and contributors.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Desktop onboarding | `SetupWizard` now uses a tighter, less fragmented desktop layout with compact step context inside the primary surface | First launch reads like one deliberate control center instead of multiple competing panels |
+| iPhone helper import flow | Helper URL and Files imports now route directly into `startInstall(...)` and the install console | Imported IPAs no longer stall in the library without showing live install state |
+| Helper 2FA resilience | Install-console presentation now guards against dismissal while an install job is waiting on 2FA | Users can enter Apple verification codes without losing the active install context |
+| Packaged Apple runtime | Bundled-helper detection now recognizes local `python-bundle/dist/<platform>-<arch>/` helpers as bundled runtimes | Release diagnostics stop misclassifying the packaged helper and avoid the `--command` invocation failure |
+| Release docs | README, changelog, release notes, and operator examples now align on `v0.3.0` | The release surface is coherent for both end users and maintainers |
+
 ## v0.2.6
 
 ### Highlights

@@ -24,6 +24,13 @@ This page is the practical command surface for local development, release prep, 
 | `npm run build` | Full production build |
 | `npm run doctor` | Check the active runtime/toolchain state |
 
+## Sources
+
+| Command | Description |
+|---|---|
+| `npm run source:generate` | Regenerate the official source feed from `docs/source/apps/` |
+| `npm run source:watch` | Watch `docs/source/apps/` and regenerate the official source feed automatically |
+
 ## Database
 
 | Command | Description |
@@ -55,12 +62,12 @@ This page is the practical command surface for local development, release prep, 
 | Command | Description |
 |---|---|
 | `bash scripts/release.sh v0.1.0 --dry-run` | Validate the release command path without committing or tagging |
-| `bash scripts/release.sh v0.2.0 --dry-run` | Validate the release command path without committing or tagging |
-| `bash scripts/release.sh v0.2.0` | Update package version, create the release commit, and tag `v0.2.0` |
+| `bash scripts/release.sh v0.3.0 --dry-run` | Validate the current release command path without committing or tagging |
+| `bash scripts/release.sh v0.3.0` | Update package version, create the release commit, and tag `v0.3.0` |
 
-## Recommended v0.2.0 Release Sequence
+## Recommended v0.3.0 Release Sequence
 
 1. `npm run verify`
 2. `npm run desktop:package`
 3. `npm run desktop:smoke`
-4. `bash scripts/release.sh v0.2.0`
+4. `bash scripts/release.sh v0.3.0`

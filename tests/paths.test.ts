@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // We test the pure functions from paths.ts
 // Some need process.platform mocking which we handle carefully
@@ -27,8 +28,63 @@ describe('paths utility', () => {
 
   describe('hasBundledPython', () => {
     it('returns false when python binary does not exist', () => {
-      // In test environment, no bundled python
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(false);
       expect(pathsMod.hasBundledPython()).toBe(false);
+      existsSpy.mockRestore();
+    });
+
+    it('returns true when a local bundled helper exists under python-bundle/dist', () => {
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/workspace');
+      const expectedPath = path.join(
+        '/workspace',
+        'python-bundle',
+        'dist',
+        `${process.platform}-${process.arch}`,
+        'sidelink-python',
+        process.platform === 'win32' ? 'sidelink-python.exe' : 'sidelink-python',
+      );
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => candidate === expectedPath);
+      const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((candidate) => {
+        if (candidate === expectedPath) {
+          return { isFile: () => true } as fs.Stats;
+        }
+        throw new Error(`Unexpected statSync for ${String(candidate)}`);
+      });
+
+      expect(pathsMod.hasBundledPython()).toBe(true);
+
+      cwdSpy.mockRestore();
+      existsSpy.mockRestore();
+      statSpy.mockRestore();
+    });
+  });
+
+  describe('getPythonBinaryPath', () => {
+    it('prefers a local bundled helper under python-bundle/dist over the venv fallback', () => {
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/workspace');
+      const bundledPath = path.join(
+        '/workspace',
+        'python-bundle',
+        'dist',
+        `${process.platform}-${process.arch}`,
+        'sidelink-python',
+        process.platform === 'win32' ? 'sidelink-python.exe' : 'sidelink-python',
+      );
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => candidate === bundledPath);
+      const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((candidate) => {
+        if (candidate === bundledPath) {
+          return { isFile: () => true } as fs.Stats;
+        }
+        throw new Error(`Unexpected statSync for ${String(candidate)}`);
+      });
+
+      expect(pathsMod.getPythonBinaryPath()).toBe(bundledPath);
+
+      cwdSpy.mockRestore();
+      existsSpy.mockRestore();
+      statSpy.mockRestore();
     });
   });
 

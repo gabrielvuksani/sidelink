@@ -349,6 +349,22 @@ export const api = {
     projectYmlExists: boolean;
     hasXcodebuild: boolean;
     hasXcodegen: boolean;
+    appleAuthReady?: boolean;
+    appleAuthError?: string | null;
+    appleRuntime?: {
+      isPackaged: boolean;
+      hasBundledPython: boolean;
+      pythonBinaryPath: string;
+      scriptsPath: string;
+      ready: boolean;
+      checks: {
+        helperBinary: boolean;
+        selfCheck: boolean;
+        anisette: boolean;
+        gsaDispatch: boolean;
+      };
+      error?: string;
+    };
     helperPaired?: boolean;
     detectedTeamId?: string | null;
     detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';

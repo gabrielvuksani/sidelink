@@ -326,6 +326,11 @@ app.whenReady().then(async () => {
     try {
       backendUrl = await startBackend();
       console.log(`[desktop:smoke] backend started at ${backendUrl}`);
+      const { diagnoseAppleRuntime } = await import('../server/apple/runtime-diagnostics');
+      const appleRuntime = await diagnoseAppleRuntime();
+      if (!appleRuntime.ready) {
+        throw new Error(appleRuntime.error ?? 'Packaged Apple auth runtime diagnostics failed');
+      }
       await stopBackend();
       console.log('[desktop:smoke] packaged startup check passed');
       app.exit(0);

@@ -52,7 +52,7 @@ function main() {
   console.log(`[python:bundle] Building for ${platform}-${arch}`);
 
   run(python, ['-m', 'pip', 'install', 'pyinstaller', '-r', 'python-bundle/requirements.txt']);
-  run(python, ['python-bundle/build.py'], {
+  run(python, ['python-bundle/build.py', '--onedir'], {
     SIDELINK_PLATFORM: platform,
     SIDELINK_ARCH: arch,
   });

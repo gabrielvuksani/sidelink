@@ -1,6 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {
@@ -30,7 +30,7 @@
     "demo": "npm run web",
     "start": "npm run web",
     "postinstall": "node scripts/system-deps-preflight.cjs",
-    "verify": "npm run lint && npm test && npm run build && npm run docs:build && npm run doctor",
+    "verify": "npm run lint && npm test && npm run source:generate && npm run build && npm run docs:build && npm run doctor",
     "preweb": "npm run node:preflight",
     "web": "tsx src/server/index.ts",
     "predev": "npm run node:preflight && npm run build:client",
@@ -63,6 +63,8 @@
     "helper:export": "bash scripts/helper-export.sh",
     "python:bundle": "node scripts/build-python-bundle.cjs",
     "icon:generate": "python3 scripts/generate-icon-assets.py",
+    "source:generate": "node scripts/generate-source.cjs",
+    "source:watch": "node scripts/generate-source.cjs --watch",
     "desktop:preflight": "node scripts/desktop-native-preflight.cjs",
     "desktop:easy": "node scripts/desktop-easy-launch.cjs",
     "desktop:dev": "npm run build && npm run desktop:preflight && electron dist/desktop/main.js",

@@ -96,6 +96,7 @@ final class HelperViewModel: ObservableObject {
     private var sseReconnectAttempt = 0
     private var lastInstallRequest: LastInstallRequest?
     private var installConsoleAutoPresentationSuppressed = false
+    private var installConsoleAllowsNextDismissal = false
 
     init() {
         if let stored = KeychainStore.get("helperToken"), !stored.isEmpty {
@@ -247,6 +248,10 @@ final class HelperViewModel: ObservableObject {
         guard let job = activeInstallJob, !job.steps.isEmpty else { return isLoading ? 0.08 : 0 }
         let finished = job.steps.filter { $0.status == "completed" || $0.status == "skipped" }.count
         return min(1, max(Double(finished) / Double(job.steps.count), job.status == "completed" ? 1 : 0.08))
+    }
+
+    var installConsoleRequiresPersistentPresentation: Bool {
+        activeInstallJob?.status == "waiting_2fa"
     }
 
     var selectedAccount: AccountDTO? {
@@ -567,8 +572,14 @@ final class HelperViewModel: ObservableObject {
 
         do {
             if let fileName = URL(string: raw)?.lastPathComponent,
-               ipas.contains(where: { $0.originalName == fileName }) {
-                toastMessage = "An IPA with this filename is already in your library"
+               let existing = ipas.first(where: { $0.originalName.caseInsensitiveCompare(fileName) == .orderedSame }) {
+                toastMessage = "IPA already in your library. Opening the install console."
+                importURL = ""
+                await startInstall(
+                    ipaId: existing.id,
+                    appName: existing.bundleName,
+                    subtitle: "Installing an imported IPA from URL"
+                )
                 return
             }
 
@@ -576,9 +587,13 @@ final class HelperViewModel: ObservableObject {
             let isDuplicateBundle = ipas.contains(where: { $0.bundleId == imported.bundleId && $0.id != imported.id })
             importURL = ""
             toastMessage = isDuplicateBundle
-                ? "Imported, but bundle ID \(imported.bundleId) already exists in your library"
-                : "IPA imported"
-            await refreshAll()
+                ? "Imported another version of \(imported.bundleId). Opening the install console."
+                : "IPA imported. Opening the install console."
+            await startInstall(
+                ipaId: imported.id,
+                appName: imported.bundleName,
+                subtitle: "Installing an imported IPA from URL"
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -604,8 +619,13 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            if ipas.contains(where: { $0.originalName.caseInsensitiveCompare(effectiveName) == .orderedSame }) {
-                toastMessage = "An IPA with this filename is already in your library"
+            if let existing = ipas.first(where: { $0.originalName.caseInsensitiveCompare(effectiveName) == .orderedSame }) {
+                toastMessage = "IPA already in your library. Opening the install console."
+                await startInstall(
+                    ipaId: existing.id,
+                    appName: existing.bundleName,
+                    subtitle: "Installing an imported IPA from Files"
+                )
                 return
             }
 
@@ -618,9 +638,13 @@ final class HelperViewModel: ObservableObject {
 
             let isDuplicateBundle = ipas.contains(where: { $0.bundleId == imported.bundleId && $0.id != imported.id })
             toastMessage = isDuplicateBundle
-                ? "Uploaded, but bundle ID \(imported.bundleId) already exists in your library"
-                : "IPA uploaded"
-            await refreshAll()
+                ? "Imported another version of \(imported.bundleId). Opening the install console."
+                : "IPA imported. Opening the install console."
+            await startInstall(
+                ipaId: imported.id,
+                appName: imported.bundleName,
+                subtitle: "Installing an imported IPA from Files"
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -795,6 +819,7 @@ final class HelperViewModel: ObservableObject {
         installConsoleSubtitle = ""
         installConsolePresented = false
         installConsoleAutoPresentationSuppressed = false
+        installConsoleAllowsNextDismissal = false
         lastInstallRequest = nil
         primarySigningAccountId = ""
         selectedAccountId = ""
@@ -1012,8 +1037,29 @@ final class HelperViewModel: ObservableObject {
     }
 
     func openInstallConsole() {
+        installConsoleAllowsNextDismissal = false
         installConsoleAutoPresentationSuppressed = false
         installConsolePresented = true
+    }
+
+    func requestInstallConsoleClose() {
+        installConsoleAllowsNextDismissal = true
+        dismissInstallConsole()
+    }
+
+    func handleInstallConsoleDismissAttempt() {
+        if installConsoleAllowsNextDismissal {
+            installConsoleAllowsNextDismissal = false
+            installConsolePresented = false
+            return
+        }
+
+        if installConsoleRequiresPersistentPresentation {
+            installConsolePresented = true
+            return
+        }
+
+        dismissInstallConsole()
     }
 
     func dismissInstallConsole() {

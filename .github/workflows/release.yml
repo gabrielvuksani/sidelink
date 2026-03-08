@@ -237,6 +237,7 @@ jobs:
           generate_release_notes: true
           files: |
             helper/SidelinkHelper.ipa
+            docs/source/apps/*.ipa
             artifacts/sidelink-mac-x64/*.dmg
             artifacts/sidelink-mac-arm64/*arm64.dmg
             artifacts/sidelink-mac-arm64/*arm64.zip

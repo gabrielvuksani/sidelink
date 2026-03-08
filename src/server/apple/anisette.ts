@@ -4,9 +4,9 @@
 // binary or falls back to the Python venv anisette-helper.py script.
 
 import path from 'node:path';
-import fs from 'node:fs';
 import { runCommand } from '../utils/command';
 import { getPythonBinaryPath, hasBundledPython, getScriptsPath, getPythonPackagesPath } from '../utils/paths';
+import { AppleRuntimeError } from '../utils/errors';
 
 export interface AnisetteData {
   'X-Apple-I-MD': string;
@@ -77,25 +77,34 @@ export async function getAnisetteData(): Promise<AnisetteData> {
       if (errObj.error) detail = errObj.error;
     } catch { /* ignore parse errors */ }
 
-    throw new Error(
-      `Failed to generate anisette data: ${detail}. ` +
-      `Ensure the Python venv is set up: npm install`,
+    throw new AppleRuntimeError(
+      `Apple auth runtime check failed while generating anisette data: ${detail}`,
+      'Open desktop diagnostics and verify the packaged Apple helper runtime is healthy.',
     );
   }
 
   try {
     const parsed = JSON.parse(result.stdout.trim());
     if (parsed.error) {
-      throw new Error(parsed.error);
+      throw new AppleRuntimeError(
+        `Apple auth runtime returned an anisette error: ${parsed.error}`,
+        'Open desktop diagnostics and verify the packaged Apple helper runtime is healthy.',
+      );
     }
     const data = parsed as AnisetteData;
     cachedAnisette = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     if (err instanceof Error && err.message && !err.message.startsWith('Failed to parse')) {
-      throw err;
+      throw new AppleRuntimeError(
+        err.message,
+        'Open desktop diagnostics and verify the packaged Apple helper runtime is healthy.',
+      );
     }
-    throw new Error(`Failed to parse anisette JSON: ${result.stdout.slice(0, 200)}`);
+    throw new AppleRuntimeError(
+      `Apple auth runtime returned invalid anisette JSON: ${result.stdout.slice(0, 200)}`,
+      'Open desktop diagnostics and verify the packaged Apple helper runtime is healthy.',
+    );
   }
 }
 

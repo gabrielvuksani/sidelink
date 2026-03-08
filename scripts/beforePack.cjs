@@ -23,6 +23,20 @@ function copyIfExists(sourcePath, targetPath) {
   return true;
 }
 
+function resolveBundledPythonPath(bundleDir, exeName) {
+  const directPath = path.join(bundleDir, exeName);
+  if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+    return directPath;
+  }
+
+  const nestedPath = path.join(bundleDir, 'sidelink-python', exeName);
+  if (fs.existsSync(nestedPath) && fs.statSync(nestedPath).isFile()) {
+    return nestedPath;
+  }
+
+  return null;
+}
+
 exports.default = async function beforePack(context) {
   const rootDir = context.packager.projectDir;
   const platformName = context.electronPlatformName;
@@ -32,10 +46,10 @@ exports.default = async function beforePack(context) {
   const pythonBundleDir = path.join(rootDir, 'python-bundle', 'dist', `${platformName}-${archName}`);
   ensureDir(pythonBundleDir);
 
-  const bundledPythonPath = path.join(pythonBundleDir, exeName);
-  if (!fs.existsSync(bundledPythonPath)) {
+  const bundledPythonPath = resolveBundledPythonPath(pythonBundleDir, exeName);
+  if (!bundledPythonPath) {
     throw new Error(
-      `[beforePack] Missing bundled Python helper at ${bundledPythonPath}. ` +
+      `[beforePack] Missing bundled Python helper under ${pythonBundleDir}. ` +
       'Run `npm run python:bundle` before packaging so Apple auth and device discovery are available in the desktop build.'
     );
   }

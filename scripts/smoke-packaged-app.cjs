@@ -19,7 +19,12 @@ function resolveResourcesDir(executablePath) {
 function resolveBundledPythonPath(executablePath) {
   const resourcesDir = resolveResourcesDir(executablePath);
   const binaryName = process.platform === 'win32' ? 'sidelink-python.exe' : 'sidelink-python';
-  return path.join(resourcesDir, 'python', binaryName);
+  const directPath = path.join(resourcesDir, 'python', binaryName);
+  if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+    return directPath;
+  }
+
+  return path.join(resourcesDir, 'python', 'sidelink-python', binaryName);
 }
 
 async function validateBundledPython(executablePath) {
@@ -70,6 +75,26 @@ async function validateBundledPython(executablePath) {
       child.stdin.end();
     });
 
+  const runBundledVersionCheck = async () => {
+    try {
+      return await runHelper({
+        args: ['--command', 'version'],
+        timeoutMs: 30_000,
+        label: 'Bundled Python boot check',
+      });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('timed out')) {
+        throw error;
+      }
+
+      return runHelper({
+        args: ['--command', 'version'],
+        timeoutMs: 30_000,
+        label: 'Bundled Python boot check',
+      });
+    }
+  };
+
   const parseLastJsonLine = (output, label) => {
     const jsonLine = output
       .trim()
@@ -90,14 +115,24 @@ async function validateBundledPython(executablePath) {
     }
   };
 
-  const checkOutput = await runHelper({
-    args: ['--command', 'check'],
-    label: 'Bundled Python helper self-check',
-  });
+  const parseCommandOutput = (output, label) => {
+    const trimmed = output.trim();
+    if (!trimmed) {
+      throw new Error(`${label} returned no output`);
+    }
 
-  const checkParsed = parseLastJsonLine(checkOutput, 'Bundled Python helper self-check');
-  if (!checkParsed.ok) {
-    throw new Error(`Bundled Python helper reported missing modules\n${checkOutput.trim()}`.trim());
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return parseLastJsonLine(output, label);
+    }
+  };
+
+  const checkOutput = await runBundledVersionCheck();
+
+  const checkParsed = parseCommandOutput(checkOutput, 'Bundled Python boot check');
+  if (!checkParsed.bundled || !checkParsed.python) {
+    throw new Error(`Bundled Python boot check failed\n${checkOutput.trim()}`.trim());
   }
 
   const anisetteOutput = await runHelper({

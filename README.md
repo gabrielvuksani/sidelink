@@ -5,7 +5,7 @@
 <h1 align="center">SideLink</h1>
 
 <p align="center">
-	Local-first iOS sideloading with a desktop control center, a TypeScript signing pipeline, and an iPhone helper that feels like part of the product instead of an afterthought.
+	Local-first iOS sideloading with a release-ready desktop control center, a TypeScript signing pipeline, a packaged Apple runtime, and an iPhone helper that behaves like part of one system.
 </p>
 
 <p align="center">
@@ -16,6 +16,10 @@
 	<a href="https://gabrielvuksani.github.io/sidelink/getting-started">Getting Started</a>
 	·
 	<a href="https://gabrielvuksani.github.io/sidelink/ios-helper">iOS Helper</a>
+</p>
+
+<p align="center">
+	<strong>v0.3.0</strong> sharpens the release surface: cleaner desktop onboarding, a more stable iPhone install console, import-and-install flows from Files and URLs, stronger packaged Apple runtime validation, and a much more complete README.
 </p>
 
 ## Why SideLink
@@ -30,14 +34,45 @@ SideLink is built as one system:
 - an iPhone helper that can pair, browse feeds, install apps, submit 2FA, and monitor refresh health
 - AltStore-compatible source support with a shipped official feed and release-hosted helper IPA
 
+## What v0.3.0 Delivers
+
+- A less crowded desktop onboarding flow that follows the control-center design language instead of looking like a temporary setup form.
+- A packaged Apple auth runtime that is smoke-tested and diagnosable before a broken desktop release ships.
+- An iPhone helper install console that stays present through install-job 2FA and imported IPA flows.
+- Direct install-console handoff when importing an IPA from Files or a remote URL on iPhone.
+- A calmer Installed tab on iPhone with less visual refresh churn.
+- A stronger release and operator story across the README, changelog, release notes, and docs site.
+
+## Why It Feels Different
+
+SideLink is not trying to be a grab bag of scripts with a UI wrapped around them. It is one release surface with four coordinated layers:
+
+- Desktop and web give you the control center.
+- The backend owns signing, source ingestion, install orchestration, and recovery.
+- The packaged Apple runtime keeps auth and device tooling consistent between development and downloaded builds.
+- The iPhone helper gives installs, pairing, refresh state, and Apple verification a native on-device surface.
+
 ## Product Surface
 
 | Surface | What it handles |
 | --- | --- |
 | Desktop + Web | accounts, devices, installs, IPA library, logs, scheduler state, source management, helper controls |
 | Signing backend | provisioning, resigning, install orchestration, retries, 2FA pause/resume, refresh lifecycle |
-| iPhone helper | pairing, source browsing, installs, refresh visibility, Apple account follow-up, diagnostics |
-| Docs + releases | packaged desktop artifacts, published docs site, official source feed, helper IPA distribution |
+| Packaged Apple runtime | anisette generation, GSA auth dispatch, bundled `pymobiledevice3`, packaged desktop diagnostics |
+| iPhone helper | pairing, source browsing, installs, import-and-install flows, refresh visibility, Apple account follow-up, diagnostics |
+| Docs + releases | packaged desktop artifacts, published docs site, official source feed, helper IPA distribution, release playbooks |
+
+## Feature Snapshot
+
+| Capability | Included in SideLink |
+| --- | --- |
+| Local admin bootstrap | first-run account creation, no seeded default login |
+| Desktop control center | onboarding, installs, sources, logs, accounts, devices, release-safe packaging |
+| Web control center | same backend surface for browser-based local operation |
+| iPhone helper | pairing, browsing, install console, 2FA entry, import from Files or URL |
+| Release packaging | macOS, Windows, and Linux packaging commands with smoke validation |
+| Official source feed | generated from `docs/source/apps/` with helper IPA distribution |
+| Docs site | published operator docs for setup, release, troubleshooting, security, and architecture |
 
 ## Quick Start
 
@@ -73,6 +108,27 @@ npm run desktop:easy
 
 On first launch, SideLink prompts you to create the local admin account. There is no seeded default username or password.
 
+## First Product Loop
+
+If you want the shortest path from clone to a real install flow, use this sequence:
+
+1. Launch the server or desktop app.
+2. Create the local admin account.
+3. Pair the iPhone helper or connect the target device.
+4. Add and verify an Apple ID.
+5. Import an IPA or add a source.
+6. Start the install and watch the install console carry signing, provisioning, and 2FA through completion.
+
+## Operator Workflow
+
+### Local development
+
+- `npm run dev` for server-only development.
+- `npm run desktop:easy` for the fastest real product loop.
+- `npm run desktop:dev` when you want a full Electron build plus preflight.
+- `npm run logs` to tail desktop logs from the local data directory.
+- `npm run source:watch` when you are iterating on the official source feed.
+
 ## Core Workflows
 
 ### Development
@@ -92,7 +148,26 @@ npm run verify
 npm run doctor
 ```
 
-`npm run verify` runs TypeScript checks, tests, production builds, docs build, and runtime diagnostics.
+`npm run verify` runs TypeScript checks, tests, production builds, docs build, source regeneration, and runtime diagnostics.
+
+For the current release path on macOS, the most useful pre-publish sequence is:
+
+```bash
+npm run verify
+npm run python:bundle
+npm run desktop:package
+npm run desktop:smoke
+```
+
+That sequence validates both the source build and the packaged desktop release surface.
+
+### Official Source Drop Zone
+
+```bash
+npm run source:watch
+```
+
+Then drop release IPAs into `docs/source/apps/`. The official source manifest regenerates automatically, and `npm run verify` also refreshes it before release validation.
 
 ### Packaging
 
@@ -110,6 +185,8 @@ The helper is not a side project in a subfolder. It is part of the release surfa
 - GitHub Releases now ship `SidelinkHelper.ipa` directly
 - desktop packaging can bundle a local or committed helper IPA automatically
 - the official source feed points at the latest published helper IPA asset
+- the iPhone helper can import a local IPA or a remote IPA URL and continue directly into the install console
+- install-job 2FA now stays inside the same install console instead of forcing users to recover lost install context
 
 If you want to build the helper locally:
 
@@ -123,6 +200,18 @@ Expected exported IPA path:
 ```text
 tmp/helper/SidelinkHelper.ipa
 ```
+
+### iPhone helper workflow
+
+The helper now supports a fuller native loop:
+
+- pair to the running SideLink backend
+- browse sources and installed apps on device
+- import IPA files from Files
+- import IPA URLs directly
+- open the live install console automatically after import
+- enter install-job 2FA without losing the console
+- track refresh and expiry state for managed apps
 
 ## Branding
 
@@ -152,6 +241,7 @@ Useful entry points:
 - `docs/getting-started.md`
 - `docs/desktop-app.md`
 - `docs/ios-helper.md`
+- `docs/release-notes.md`
 - `docs/configuration.md`
 - `docs/cli-reference.md`
 - `docs/api-reference.md`
@@ -171,7 +261,7 @@ npm run docs:preview
 Dry-run the release script first:
 
 ```bash
-bash scripts/release.sh v0.2.0 --dry-run
+bash scripts/release.sh v0.3.0 --dry-run
 ```
 
 The release flow expects a helper IPA to exist first. On macOS, generate it with:
@@ -185,11 +275,30 @@ The release script will copy `tmp/helper/SidelinkHelper.ipa` into `helper/Sideli
 Then create the real release:
 
 ```bash
-bash scripts/release.sh v0.2.0
+bash scripts/release.sh v0.3.0
 git push origin main --tags
 ```
 
 Published semver tags are treated as immutable release records.
+
+### Recommended release sequence
+
+1. Run `npm run verify`.
+2. On macOS, run `npm run helper:export` if the helper IPA needs to be refreshed.
+3. Run `npm run desktop:package`.
+4. Run `npm run desktop:smoke`.
+5. Run `bash scripts/release.sh v0.3.0`.
+6. Push `main` and tags so GitHub Actions can publish artifacts and docs.
+
+## Release Notes Summary
+
+The `v0.3.0` release is the point where the project stops reading like a promising prototype and starts reading like a coherent product surface:
+
+- packaged Apple runtime issues are diagnosed and smoke-tested instead of discovered after download
+- desktop onboarding is cleaner and more aligned with the product language
+- helper imports from Files and URL now behave like real installs
+- install-job 2FA remains inside the install console
+- the root README now explains the product, not just the commands
 
 ## Repository Layout
 

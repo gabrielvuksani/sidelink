@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.0] - 2026-03-08
+
+### Changed
+
+- Promoted SideLink into a `v0.3.0` release with a stronger release story across desktop, web, docs, and the iPhone helper instead of treating the current state as a string of patch-only packaging fixes.
+- Reworked the desktop onboarding surface so the setup flow reads as one product surface, with less chrome, clearer outcomes, and less visual crowding during first launch.
+- Refined the iPhone helper Installed tab to reduce refresh-control noise and keep the managed-install surface calmer during background activity.
+- Expanded the root README into a fuller product and operator guide with clearer positioning, workflows, release expectations, and validation paths.
+
+### Added
+
+- Added immediate install-console handoff for helper IPA imports from Files and remote URLs so imported IPAs now behave like normal installs instead of stopping at library upload.
+- Added install-console persistence during install-job 2FA so verification entry is no longer interrupted by accidental dismissal while a job is waiting for Apple verification.
+- Added runtime-path detection coverage for locally built bundled Python helpers so pre-release validation catches packaged Apple runtime regressions before publish.
+- Added `v0.3.0` release notes and refreshed release examples across the operator docs.
+
+### Fixed
+
+- Fixed the packaged desktop Apple runtime probe so locally built bundled helpers are detected as bundled helpers instead of being invoked like plain Python interpreters.
+- Fixed helper import/install behavior on iPhone so importing an IPA from Files or a URL now opens the install console automatically and routes through the same install path as a regular install.
+- Fixed install-console dismissal behavior during install-job 2FA so the sheet stays present until the operator explicitly closes it or the install state changes.
+
 ## [0.2.6] - 2026-03-08
 
 ### Fixed

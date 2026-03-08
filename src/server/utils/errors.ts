@@ -56,6 +56,13 @@ export class Apple2FARequiredError extends AppError {
   }
 }
 
+export class AppleRuntimeError extends AppError {
+  constructor(message: string, action?: string) {
+    super('APPLE_RUNTIME_ERROR', message, 503, action);
+    this.name = 'AppleRuntimeError';
+  }
+}
+
 // ─── Provisioning Errors ────────────────────────────────────────────
 
 export class ProvisioningError extends AppError {

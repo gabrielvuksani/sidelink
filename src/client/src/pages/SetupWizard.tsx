@@ -18,6 +18,11 @@ import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
 
 type WizardStep = 'welcome' | 'account' | 'apple' | 'device' | 'upload' | 'done';
 
+type HelperDoctorSnapshot = {
+  appleAuthReady?: boolean;
+  appleAuthError?: string | null;
+};
+
 const STEP_ORDER: WizardStep[] = ['welcome', 'account', 'apple', 'device', 'upload', 'done'];
 
 const STEP_META: Record<WizardStep, { title: string; subtitle: string }> = {
@@ -36,6 +41,24 @@ const STEP_BADGES: Record<WizardStep, string> = {
   device: 'Transport',
   upload: 'Library',
   done: 'Ready',
+};
+
+const STEP_OUTCOMES: Record<WizardStep, string> = {
+  welcome: 'Define what a trustworthy first run should prove before you enter the app.',
+  account: 'Create the only local admin credential this SideLink instance will trust.',
+  apple: 'Verify that packaged Apple auth is healthy enough to carry real signing work.',
+  device: 'Confirm the machine can actually see a target device before install time.',
+  upload: 'Seed the library with a real IPA so the control surface is not empty on arrival.',
+  done: 'Exit onboarding with a usable control surface instead of another placeholder state.',
+};
+
+const STEP_OPERATOR_NOTES: Record<WizardStep, string> = {
+  welcome: 'This flow should establish runtime trust quickly, not bury the product under setup chrome.',
+  account: 'If local auth is unclear here, the first-run experience still reads like a temporary admin tool.',
+  apple: 'If Apple auth breaks here, treat it as a packaged runtime defect worth fixing immediately.',
+  device: 'If devices do not appear here, installs will fail later for environmental reasons, not UI reasons.',
+  upload: 'A real IPA in the library should make the product feel operational before the dashboard opens.',
+  done: 'After this point, operators should tune details in the app, not loop through onboarding again.',
 };
 
 const WIZARD_SIGNALS = [
@@ -93,7 +116,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     <div className="relative flex min-h-screen overflow-hidden bg-[var(--sl-bg)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(45,212,191,0.16),transparent_24%),radial-gradient(circle_at_82%_12%,rgba(251,146,60,0.14),transparent_22%),radial-gradient(circle_at_60%_80%,rgba(94,234,212,0.08),transparent_26%)]" />
 
-      <aside className={`relative hidden w-[27rem] shrink-0 border-r border-white/6 bg-[linear-gradient(180deg,rgba(8,16,25,0.94),rgba(6,12,18,0.98))] px-8 py-8 lg:flex lg:flex-col ${macChromeInset ? 'lg:pt-16' : ''}`}>
+      <aside className={`relative hidden w-[23rem] shrink-0 border-r border-white/6 bg-[linear-gradient(180deg,rgba(8,16,25,0.94),rgba(6,12,18,0.98))] px-7 py-8 lg:flex lg:flex-col ${macChromeInset ? 'lg:pt-16' : ''}`}>
         <div className="sl-card overflow-hidden p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] shadow-[0_18px_40px_rgba(2,10,18,0.36)]">
@@ -159,17 +182,20 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           })}
         </div>
 
-        <div className="mt-6 grid gap-3">
-          {WIZARD_SIGNALS.map((signal) => (
-            <div key={signal.title} className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
-              <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">{signal.title}</p>
-              <p className="mt-2 text-[13px] leading-6 text-[#c3d5de]">{signal.detail}</p>
-            </div>
-          ))}
+        <div className="mt-6 rounded-[24px] border border-white/6 bg-white/[0.03] p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Design Signal</p>
+          <div className="mt-4 space-y-4">
+            {WIZARD_SIGNALS.map((signal) => (
+              <div key={signal.title}>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-accent)]">{signal.title}</p>
+                <p className="mt-1 text-[13px] leading-6 text-[#c3d5de]">{signal.detail}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <p className="mt-auto pt-6 text-[11px] leading-5 text-[var(--sl-muted)]/70">
-          You can revisit Apple accounts, device transport, helper pairing, and admin settings after onboarding. This flow is for establishing a trustworthy first run, not hiding system problems.
+          Revisit Apple accounts, devices, helper pairing, and admin settings after onboarding. First run should establish trust quickly, not compete with the main product surface.
         </p>
       </aside>
 
@@ -193,13 +219,29 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         </div>
 
         <div className={`flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-10 lg:py-8 ${macChromeInset ? 'lg:pt-12' : ''}`}>
-          <div className="mx-auto flex min-h-full w-full max-w-6xl items-start justify-center">
-            <div className={`grid w-full items-start gap-6 lg:grid-cols-[minmax(0,1fr)_21rem] ${direction === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`} key={step}>
+          <div className="mx-auto flex min-h-full w-full max-w-5xl items-start justify-center">
+            <div className={`w-full ${direction === 'forward' ? 'animate-slideInRight' : 'animate-slideInLeft'}`} key={step}>
               <section className="sl-card overflow-hidden">
                 <div className="border-b border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] px-6 py-6 sm:px-8">
                   <p className="sl-kicker">{STEP_BADGES[step]}</p>
                   <h2 className="mt-3 max-w-3xl text-[2rem] font-semibold leading-tight tracking-[-0.04em] text-[var(--sl-text)] sm:text-[2.35rem]">{meta.title}</h2>
                   <p className="mt-3 max-w-2xl text-[14px] leading-7 text-[#bed0da] sm:text-[15px]">{meta.subtitle}</p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Step</p>
+                      <p className="mt-2 text-[15px] font-semibold text-[var(--sl-text)]">{stepIndex + 1} of {STEP_ORDER.length}</p>
+                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_BADGES[step]}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Outcome</p>
+                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_OUTCOMES[step]}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Operator Note</p>
+                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_OPERATOR_NOTES[step]}</p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="px-6 py-6 sm:px-8 sm:py-8">
@@ -211,30 +253,6 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                   {step === 'done'     && <DoneStep onFinish={onComplete} />}
                 </div>
               </section>
-
-              <aside className="space-y-4 lg:sticky lg:top-8 self-start">
-                <Card className="p-5">
-                  <p className="sl-section-label">Current Focus</p>
-                  <p className="mt-2 text-[16px] font-semibold text-[var(--sl-text)]">{STEP_BADGES[step]}</p>
-                  <p className="mt-2 text-[13px] leading-6 text-[var(--sl-muted)]">{meta.subtitle}</p>
-                </Card>
-
-                <Card className="p-5">
-                  <p className="sl-section-label">Expected Outcome</p>
-                  <ul className="mt-3 space-y-3 text-[13px] leading-6 text-[#c4d7e1]">
-                    <li>Create a local admin account that only exists on this SideLink instance.</li>
-                    <li>Verify the packaged runtime can actually support signing and device workflows.</li>
-                    <li>Land on a dashboard that already reflects a real app library and device path.</li>
-                  </ul>
-                </Card>
-
-                <Card className="p-5">
-                  <p className="sl-section-label">Operator Note</p>
-                  <p className="mt-3 text-[13px] leading-6 text-[#c4d7e1]">
-                    If Apple sign-in or device scans fail here, treat that as an environment problem worth fixing, not onboarding noise to skip past.
-                  </p>
-                </Card>
-              </aside>
             </div>
           </div>
         </div>
@@ -470,7 +488,38 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
+  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
+  const [doctorLoading, setDoctorLoading] = useState(true);
   const { toast } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDoctor = async () => {
+      setDoctorLoading(true);
+      try {
+        const res = await api.helperDoctor();
+        if (!cancelled) {
+          setDoctor(res.data ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setDoctor(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setDoctorLoading(false);
+        }
+      }
+    };
+
+    void loadDoctor();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const packagedRuntimeBlocked = doctor?.appleAuthReady === false;
 
   const signIn = async () => {
     setError('');
@@ -539,6 +588,22 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
       <InlineNotice title="Runtime Expectation" tone="default">
         Apple sign-in depends on the packaged Python helper runtime. If this step is slow or fails consistently in the desktop build, treat that as a packaging/runtime defect, not just a bad password.
       </InlineNotice>
+
+      {packagedRuntimeBlocked && (
+        <div className="mt-4">
+          <InlineNotice title="Packaged Runtime Blocker" tone="warning">
+            {doctor?.appleAuthError ?? 'The packaged Apple auth runtime is not healthy, so sign-in is expected to fail until that runtime issue is fixed.'}
+          </InlineNotice>
+        </div>
+      )}
+
+      {!packagedRuntimeBlocked && !doctorLoading && (
+        <div className="mt-4">
+          <InlineNotice title="Packaged Runtime" tone="success">
+            The local Apple auth helper runtime passed its readiness checks.
+          </InlineNotice>
+        </div>
+      )}
 
       {phase === 'form' ? (
         <div className="mt-5 space-y-4">
@@ -618,7 +683,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
         onBack={phase === '2fa' ? () => setPhase('form') : onBack}
         onNext={phase === '2fa' ? submit2FA : signIn}
         nextLabel={phase === '2fa' ? 'Verify' : 'Sign In'}
-        nextDisabled={phase === '2fa' ? code.length !== 6 : !appleId || !password}
+        nextDisabled={phase === '2fa' ? code.length !== 6 : !appleId || !password || packagedRuntimeBlocked}
         loading={loading}
         showSkip
         onSkip={onNext}

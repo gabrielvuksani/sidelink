@@ -14,6 +14,8 @@ type HelperDoctorSnapshot = {
   projectYmlExists: boolean;
   hasXcodebuild: boolean;
   hasXcodegen: boolean;
+  appleAuthReady?: boolean;
+  appleAuthError?: string | null;
   helperPaired?: boolean;
   detectedTeamId?: string | null;
   detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
@@ -106,6 +108,15 @@ export function HelperControlPanel({
               <HelperStatus label="xcodebuild" ok={!!doctor?.hasXcodebuild || !canBuild} />
               <HelperStatus label="Xcode Project" ok={!!doctor?.xcodeProjectExists || !!doctor?.projectYmlExists} />
               <HelperStatus label="xcodegen" ok={!!doctor?.hasXcodegen || !!doctor?.xcodeProjectExists || !canBuild} />
+            </div>
+
+            <div className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${doctor?.appleAuthReady === false ? 'border-amber-500/30 bg-amber-500/10 text-amber-100' : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-100'}`}>
+              <p className="font-semibold uppercase tracking-[0.18em]">Apple Auth Runtime</p>
+              <p className="mt-2">
+                {doctor?.appleAuthReady === false
+                  ? (doctor.appleAuthError ?? 'The packaged Apple helper runtime is not healthy.')
+                  : 'The packaged Apple helper runtime passed its local readiness checks.'}
+              </p>
             </div>
 
             {canBuild && (

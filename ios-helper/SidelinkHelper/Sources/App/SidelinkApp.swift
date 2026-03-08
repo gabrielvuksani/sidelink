@@ -77,12 +77,22 @@ struct SidelinkAppRootView: View {
                 }
             )
         }
-        .sheet(isPresented: $model.installConsolePresented) {
+        .sheet(isPresented: Binding(
+            get: { model.installConsolePresented },
+            set: { presented in
+                if presented {
+                    model.openInstallConsole()
+                } else {
+                    model.handleInstallConsoleDismissAttempt()
+                }
+            }
+        )) {
             InstallConsoleSheet(
                 model: model
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+            .interactiveDismissDisabled(model.installConsoleRequiresPersistentPresentation)
         }
         .alert("Message", isPresented: Binding(
             get: { model.toastMessage != nil },
@@ -153,8 +163,7 @@ private struct InstallConsoleSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        model.dismissInstallConsole()
-                        dismiss()
+                        model.requestInstallConsoleClose()
                     }
                 }
             }

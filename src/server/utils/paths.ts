@@ -6,6 +6,30 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
+function resolveBundledPythonBinary(baseDir: string, binaryName: string): string | null {
+  const directPath = path.join(baseDir, binaryName);
+  if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+    return directPath;
+  }
+
+  const bundledDirPath = path.join(baseDir, 'sidelink-python', binaryName);
+  if (fs.existsSync(bundledDirPath) && fs.statSync(bundledDirPath).isFile()) {
+    return bundledDirPath;
+  }
+
+  return null;
+}
+
+function resolveAnyBundledPythonBinary(binaryName: string): string | null {
+  const resourcesDir = getResourcesPath();
+  const packagedBinary = resolveBundledPythonBinary(path.join(resourcesDir, 'python'), binaryName);
+  if (packagedBinary) {
+    return packagedBinary;
+  }
+
+  return resolveBundledPythonBinary(path.join(process.cwd(), 'python-bundle', 'dist', getPlatformArch()), binaryName);
+}
+
 /**
  * Detect if the app is running as a packaged Electron app.
  * When packaged, resources live inside the .asar or extraResources.
@@ -121,17 +145,9 @@ export function getPythonBinaryPath(): string {
   const exeExt = getExeExtension();
   const binaryName = `sidelink-python${exeExt}`;
 
-  // Check for bundled binary in resources
-  const resourcesDir = getResourcesPath();
-  const bundledPath = path.join(resourcesDir, 'python', binaryName);
-  if (fs.existsSync(bundledPath)) {
+  const bundledPath = resolveAnyBundledPythonBinary(binaryName);
+  if (bundledPath) {
     return bundledPath;
-  }
-
-  // Check for platform-specific binary in project root (CI builds)
-  const platformBinary = path.join(process.cwd(), 'python-bundle', 'dist', binaryName);
-  if (fs.existsSync(platformBinary)) {
-    return platformBinary;
   }
 
   // Development fallback: venv python
@@ -167,9 +183,7 @@ export function getPythonBinaryPath(): string {
 export function hasBundledPython(): boolean {
   const exeExt = getExeExtension();
   const binaryName = `sidelink-python${exeExt}`;
-  const resourcesDir = getResourcesPath();
-  const bundledPath = path.join(resourcesDir, 'python', binaryName);
-  return fs.existsSync(bundledPath);
+  return resolveAnyBundledPythonBinary(binaryName) !== null;
 }
 
 /**

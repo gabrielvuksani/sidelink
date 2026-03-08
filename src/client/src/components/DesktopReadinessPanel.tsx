@@ -13,6 +13,8 @@ type HelperDoctorSnapshot = {
   projectYmlExists: boolean;
   hasXcodebuild: boolean;
   hasXcodegen: boolean;
+  appleAuthReady?: boolean;
+  appleAuthError?: string | null;
   helperPaired?: boolean;
   detectedTeamId?: string | null;
   detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
@@ -71,7 +73,8 @@ export function DesktopReadinessPanel({
   const isMac = info.platform === 'darwin';
   const helperReady = !!doctor?.helperIpaExists;
   const helperPaired = !!doctor?.helperPaired;
-  const signingReady = activeAccountCount > 0;
+  const appleRuntimeReady = doctor?.appleAuthReady !== false;
+  const signingReady = activeAccountCount > 0 && appleRuntimeReady;
   const devicesReady = deviceCount > 0;
   const runtimeReady = health?.status === 'ok';
   const overallReady = runtimeReady && helperReady && signingReady && devicesReady;
@@ -112,8 +115,20 @@ export function DesktopReadinessPanel({
           />
           <StatusTile
             label="Apple signing"
-            title={signingReady ? `${activeAccountCount} active signing account${activeAccountCount === 1 ? '' : 's'}` : 'No active Apple ID'}
-            detail={signingReady ? 'Apple account state is sufficient for provisioning and installs.' : 'Connect or re-authenticate an Apple ID before expecting installs to work.'}
+            title={
+              !appleRuntimeReady
+                ? 'Packaged Apple runtime unhealthy'
+                : signingReady
+                  ? `${activeAccountCount} active signing account${activeAccountCount === 1 ? '' : 's'}`
+                  : 'No active Apple ID'
+            }
+            detail={
+              !appleRuntimeReady
+                ? (doctor?.appleAuthError ?? 'Apple sign-in will fail until the packaged helper runtime is healthy.')
+                : signingReady
+                  ? 'Apple account state is sufficient for provisioning and installs.'
+                  : 'Connect or re-authenticate an Apple ID before expecting installs to work.'
+            }
             ok={signingReady}
           />
           <StatusTile
@@ -151,6 +166,12 @@ export function DesktopReadinessPanel({
         {error && (
           <div className="rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-4 py-3 text-[12px] leading-5 text-red-100">
             {error}
+          </div>
+        )}
+
+        {!error && doctor?.appleAuthError && (
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3 text-[12px] leading-5 text-amber-100">
+            Apple auth runtime: {doctor.appleAuthError}
           </div>
         )}
       </div>

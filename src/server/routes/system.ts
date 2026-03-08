@@ -19,6 +19,7 @@ import { onPipelineJobLog, onPipelineUpdate } from '../pipeline';
 import { validators } from '../utils/validators';
 import { commandExists, runCommandStrict } from '../utils/command';
 import { getHelperIpaPath } from '../utils/paths';
+import { diagnoseAppleRuntime } from '../apple/runtime-diagnostics';
 import { createPairingCode } from '../services/helper-pairing-service';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
 import { triggerRefreshAllActiveApps } from '../services/shared-backend';
@@ -175,6 +176,7 @@ export function systemRoutes(ctx: AppContext): Router {
     const hasXcodebuild = process.platform === 'darwin' ? await commandExists('xcodebuild') : false;
     const hasXcodegen = process.platform === 'darwin' ? await commandExists('xcodegen') : false;
     const resolvedTeam = await resolveHelperTeamId(ctx);
+    const appleRuntime = await diagnoseAppleRuntime();
 
     res.json({
       ok: true,
@@ -187,6 +189,9 @@ export function systemRoutes(ctx: AppContext): Router {
         projectYmlExists: fs.existsSync(projectYmlPath),
         hasXcodebuild,
         hasXcodegen,
+        appleAuthReady: appleRuntime.ready,
+        appleAuthError: appleRuntime.error ?? null,
+        appleRuntime,
         detectedTeamId: resolvedTeam.teamId,
         detectedTeamIdSource: resolvedTeam.source,
         helperPaired: !!ctx.db.getSetting('helper_token'),
