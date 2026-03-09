@@ -22,6 +22,16 @@ struct InstalledTab: View {
         model.config?.freeAccountUsage?.weeklyAppIdsUsedByAccount?.values.reduce(0, +) ?? 0
     }
 
+    private var hiddenConsumers: Int {
+        model.appIds.filter { appId in
+            !model.installedApps.contains(where: {
+                $0.accountId == appId.accountId &&
+                $0.originalBundleId == appId.originalBundleId &&
+                ($0.status ?? "active") != "deactivated"
+            })
+        }.count
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -29,142 +39,14 @@ struct InstalledTab: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 24) {
-                        installedHero
-                        installedControlStrip
-
-                    if let limits = model.config?.freeAccountLimits {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack(spacing: 20) {
-                                SlotGaugeRing(
-                                    used: activeApps.count,
-                                    total: limits.maxActiveApps,
-                                    size: 72
-                                )
-                                .accessibilityLabel("Installed app slots")
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Signing Status")
-                                        .font(.headline)
-                                    Text("\(activeApps.count) of \(limits.maxActiveApps) active slots in use")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    if model.isAtFreeSlotLimit {
-                                        PillBadge(text: "Limit Reached", color: .slWarning, small: true)
-                                    }
-                                }
-                                Spacer()
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Weekly App IDs")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    LinearGaugeBar(
-                                        fraction: min(1, Double(weeklyIdsUsed) / Double(max(limits.maxNewAppIdsPerWeek, 1))),
-                                        height: 6
-                                    )
-                                    Text("\(weeklyIdsUsed) / \(limits.maxNewAppIdsPerWeek)")
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Text("Certificates last \(limits.certValidityDays) days on free accounts.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .liquidPanel()
-                        .padding(.horizontal, 20)
-                    }
-
-                    // MARK: - Installed Apps
-                    if model.isLoading && model.installedApps.isEmpty {
-                        VStack(spacing: 10) {
-                            SkeletonRow(lineCount: 2)
-                            SkeletonRow(lineCount: 2)
-                            SkeletonRow(lineCount: 2)
-                        }
-                        .padding(.horizontal, 20)
-                    } else if model.installedApps.isEmpty {
-                        // Empty state illustration
-                        VStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(.secondary.opacity(0.08))
-                                    .frame(width: 120, height: 120)
-                                Image(systemName: "checkmark.shield.fill")
-                                    .font(.system(size: 48))
-                                    .foregroundStyle(.secondary.opacity(0.4))
-                            }
-                            Text("No installed apps")
-                                .font(.title3.bold())
-                                .foregroundStyle(.secondary)
-                            Text("Import an IPA with the plus button, or install from Home, Search, or Sources. Signed apps will appear here with expiry tracking and refresh actions.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else if !activeApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SidelinkSectionIntro(eyebrow: "Installed", title: "Active installs", subtitle: "Apps currently managed by SideLink, with expiry and refresh actions front and center.")
-                                .padding(.horizontal, 20)
-
-                            LazyVStack(spacing: 12) {
-                                ForEach(activeApps) { install in
-                                    installedAppCard(install)
-                                        .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-                    }
-
-                    if !deactivatedApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SidelinkSectionIntro(eyebrow: "Archive", title: "Deactivated", subtitle: "Keep rarely used apps nearby without spending an active free-account slot.")
-                                .padding(.horizontal, 20)
-
-                            LazyVStack(spacing: 12) {
-                                ForEach(deactivatedApps) { install in
-                                    installedAppCard(install)
-                                        .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        SidelinkSectionIntro(eyebrow: "Library", title: "Ready to install", subtitle: "Your imported IPAs stay here so you can jump back into signing without leaving this tab.")
-                            .padding(.horizontal, 20)
-
-                        if model.ipas.isEmpty {
-                            Text("Imported IPAs and uploaded files live here once you add them from the plus button.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 20)
-                        } else {
-                            LazyVStack(spacing: 0) {
-                                ForEach(model.ipas) { ipa in
-                                    NavigationLink {
-                                        AppDetailView(model: model, ipa: ipa)
-                                    } label: {
-                                        libraryRow(ipa)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.horizontal, 20)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 20)
+                    installedContent
+                        .padding(.vertical, 20)
                 }
             }
             .refreshable {
+                await refreshInstalledSurface()
+            }
+            .task {
                 await refreshInstalledSurface()
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -195,7 +77,7 @@ struct InstalledTab: View {
                 }
             }
             .onChange(of: model.selectedDeviceUdid) { _ in
-                Task { await model.refreshAll() }
+                Task { await refreshInstalledSurface() }
             }
             .alert(
                 deleteConfirmation?.title ?? "Confirm",
@@ -236,14 +118,243 @@ struct InstalledTab: View {
         }
     }
 
+    private var installedContent: some View {
+        VStack(spacing: 24) {
+            installedHero
+            installedControlStrip
+
+            if !model.appIdUsage.isEmpty {
+                quotaBoard
+            }
+
+            if let limits = model.config?.freeAccountLimits {
+                signingLimitsCard(limits)
+            }
+
+            installedSections
+            librarySection
+        }
+    }
+
+    @ViewBuilder
+    private var installedSections: some View {
+        if model.isLoading && model.installedApps.isEmpty {
+            VStack(spacing: 10) {
+                SkeletonRow(lineCount: 2)
+                SkeletonRow(lineCount: 2)
+                SkeletonRow(lineCount: 2)
+            }
+            .padding(.horizontal, 20)
+        } else if model.installedApps.isEmpty {
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(.secondary.opacity(0.08))
+                        .frame(width: 120, height: 120)
+                    Image(systemName: "checkmark.shield.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary.opacity(0.4))
+                }
+                Text("No installed apps")
+                    .font(.title3.bold())
+                    .foregroundStyle(.secondary)
+                Text("Import an IPA with the plus button, or install from Home, Search, or Sources. Signed apps will appear here with expiry tracking and refresh actions.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+        } else if !activeApps.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SidelinkSectionIntro(eyebrow: "Installed", title: "Active installs", subtitle: "Apps currently managed by SideLink, with expiry and refresh actions front and center.")
+                    .padding(.horizontal, 20)
+
+                LazyVStack(spacing: 12) {
+                    ForEach(activeApps) { install in
+                        installedAppCard(install)
+                            .padding(.horizontal, 20)
+                    }
+                }
+            }
+        }
+
+        if !deactivatedApps.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SidelinkSectionIntro(eyebrow: "Archive", title: "Deactivated", subtitle: "Keep rarely used apps nearby without spending an active free-account slot.")
+                    .padding(.horizontal, 20)
+
+                LazyVStack(spacing: 12) {
+                    ForEach(deactivatedApps) { install in
+                        installedAppCard(install)
+                            .padding(.horizontal, 20)
+                    }
+                }
+            }
+        }
+
+        if !model.unmanagedInstalledApps.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SidelinkSectionIntro(eyebrow: "Device Inventory", title: "Installed outside SideLink", subtitle: "These apps are present on the selected device but are not being tracked for signing or refresh. This mirrors the desktop installed audit view.")
+                    .padding(.horizontal, 20)
+
+                LazyVStack(spacing: 10) {
+                    ForEach(model.unmanagedInstalledApps) { app in
+                        HStack(spacing: 12) {
+                            Image(systemName: "iphone.rear.camera")
+                                .foregroundStyle(Color.slWarning)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(app.name)
+                                    .font(.subheadline.bold())
+                                Text(app.bundleId)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            PillBadge(text: "Untracked", color: .slWarning, small: true)
+                        }
+                        .padding(16)
+                        .liquidPanel()
+                        .padding(.horizontal, 20)
+                    }
+                }
+            }
+        }
+    }
+
+    private var librarySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SidelinkSectionIntro(eyebrow: "Library", title: "Ready to install", subtitle: "Your imported IPAs stay here so you can jump back into signing without leaving this tab.")
+                .padding(.horizontal, 20)
+
+            if model.ipas.isEmpty {
+                Text("Imported IPAs and uploaded files live here once you add them from the plus button.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(model.ipas) { ipa in
+                        NavigationLink {
+                            AppDetailView(model: model, ipa: ipa)
+                        } label: {
+                            libraryRow(ipa)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+                    }
+                }
+            }
+        }
+    }
+
     private var installedHero: some View {
         VStack(alignment: .leading, spacing: 18) {
             SidelinkSectionIntro(eyebrow: "Installed", title: "A sharper view of what SideLink manages", subtitle: "Active installs, expiry risk, and your ready-to-sign library stay visible without the clutter of every unrelated device app.")
 
             HStack(spacing: 12) {
-                SidelinkMetricTile(label: "Active", value: "\(activeApps.count)")
-                SidelinkMetricTile(label: "Library", value: "\(model.ipas.count)", tint: .slAccent2)
-                SidelinkMetricTile(label: "Archived", value: "\(deactivatedApps.count)", tint: .slWarning)
+                SidelinkStatusTile(label: "Active", value: "\(activeApps.count)", detail: "Managed installs", tint: .slAccent)
+                SidelinkStatusTile(label: "Library", value: "\(model.ipas.count)", detail: "Ready to sign", tint: .slAccent2)
+                SidelinkStatusTile(label: "Hidden", value: "\(hiddenConsumers)", detail: "Extra App IDs", tint: .slWarning)
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var quotaBoard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SidelinkSectionIntro(eyebrow: "Quota", title: "App ID consumers", subtitle: "Free-account pressure comes from App IDs, not just the installs you can see. Extensions and leftover identifiers surface here too.")
+                .padding(.horizontal, 20)
+
+            VStack(spacing: 12) {
+                ForEach(model.appIdUsage) { usage in
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(usage.appleId)
+                                    .font(.subheadline.bold())
+                                Text(usage.teamId)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            PillBadge(text: "\(appIdConsumers(for: usage.accountId).count) IDs", color: .slAccent2, small: true)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            quotaMeter(label: "Active App IDs", used: usage.active, limit: usage.maxActive)
+                            quotaMeter(label: "Created This Week", used: usage.weeklyCreated, limit: usage.maxWeekly)
+                        }
+
+                        VStack(spacing: 8) {
+                            ForEach(appIdConsumers(for: usage.accountId)) { consumer in
+                                HStack(alignment: .top, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(consumer.name)
+                                            .font(.caption.weight(.semibold))
+                                        Text(consumer.originalBundleId)
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    PillBadge(text: consumerBadgeText(for: consumer), color: consumerBadgeColor(for: consumer), small: true)
+                                }
+                                .padding(12)
+                                .background((Color.white.opacity(0.05)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                        }
+                    }
+                    .liquidPanel()
+                    .padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+
+    private func signingLimitsCard(_ limits: HelperConfigDTO.FreeAccountLimitsDTO) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 20) {
+                SlotGaugeRing(
+                    used: activeApps.count,
+                    total: limits.maxActiveApps,
+                    size: 72
+                )
+                .accessibilityLabel("Installed app slots")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Signing Status")
+                        .font(.headline)
+                    Text("\(activeApps.count) of \(limits.maxActiveApps) active slots in use")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if model.isAtFreeSlotLimit {
+                        PillBadge(text: "Limit Reached", color: .slWarning, small: true)
+                    }
+                }
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Weekly App IDs")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    LinearGaugeBar(
+                        fraction: min(1, Double(weeklyIdsUsed) / Double(max(limits.maxNewAppIdsPerWeek, 1))),
+                        height: 6
+                    )
+                    Text("\(weeklyIdsUsed) / \(limits.maxNewAppIdsPerWeek)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Certificates last \(limits.certValidityDays) days on free accounts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .liquidPanel()
@@ -282,6 +393,12 @@ struct InstalledTab: View {
             .controlSize(.small)
             .disabled(!model.isPaired || activeApps.isEmpty || isRefreshingAllInstalls)
         }
+        .overlay(alignment: .topTrailing) {
+            if let mostUrgent = mostUrgentRefreshState {
+                PillBadge(text: mostUrgentRefreshText(for: mostUrgent), color: mostUrgentRefreshColor(for: mostUrgent), small: true)
+                    .padding(12)
+            }
+        }
         .liquidPanel()
         .padding(.horizontal, 20)
     }
@@ -319,6 +436,7 @@ struct InstalledTab: View {
         isRefreshingSurface = true
         defer { isRefreshingSurface = false }
         await model.refreshAll()
+        await model.loadAppIds(sync: true)
     }
 
     @MainActor
@@ -405,6 +523,23 @@ struct InstalledTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let refreshState = autoRefreshState(for: install) {
+                HStack(spacing: 12) {
+                    SidelinkStatusTile(
+                        label: "Auto Refresh",
+                        value: refreshState.refreshInProgress ? "Running" : (refreshState.needsRefresh ? "Due Soon" : "Scheduled"),
+                        detail: refreshState.lastError ?? mostUrgentRefreshText(for: refreshState),
+                        tint: mostUrgentRefreshColor(for: refreshState)
+                    )
+                    SidelinkStatusTile(
+                        label: "Expiry",
+                        value: refreshState.isExpired ? "Expired" : countdownText(for: refreshState.expiresAt),
+                        detail: refreshState.lastRefreshAt.map(relativeDate) ?? "No refresh recorded yet",
+                        tint: healthColor(for: refreshState.expiresAt)
+                    )
+                }
+            }
+
             HStack(spacing: 12) {
                 if (install.status ?? "active") == "deactivated" {
                     Button {
@@ -461,6 +596,12 @@ struct InstalledTab: View {
             }
         }
         .liquidPanel()
+    }
+
+    private var mostUrgentRefreshState: AutoRefreshStateDTO? {
+        model.autoRefreshStates.sorted { lhs, rhs in
+            refreshPriority(lhs) > refreshPriority(rhs)
+        }.first
     }
 
     // MARK: - Helpers
@@ -537,6 +678,93 @@ struct InstalledTab: View {
 
     private func relativeDate(_ iso: String) -> String {
         SidelinkDateFormatting.relativeDate(iso)
+    }
+
+    private func autoRefreshState(for install: InstalledAppDTO) -> AutoRefreshStateDTO? {
+        model.autoRefreshStates.first { $0.installedAppId == install.id || $0.bundleId == install.bundleId }
+    }
+
+    private func refreshPriority(_ state: AutoRefreshStateDTO) -> Int {
+        if state.lastError != nil { return 4 }
+        if state.refreshInProgress { return 3 }
+        if state.isExpired { return 2 }
+        if state.needsRefresh { return 1 }
+        return 0
+    }
+
+    private func mostUrgentRefreshText(for state: AutoRefreshStateDTO) -> String {
+        if let lastError = state.lastError, !lastError.isEmpty {
+            return "Refresh issue"
+        }
+        if state.refreshInProgress {
+            return "Refresh running"
+        }
+        if state.isExpired {
+            return "Expired app"
+        }
+        if state.needsRefresh {
+            return "Needs refresh"
+        }
+        return "Refresh healthy"
+    }
+
+    private func mostUrgentRefreshColor(for state: AutoRefreshStateDTO) -> Color {
+        if let lastError = state.lastError, !lastError.isEmpty {
+            return .slDanger
+        }
+        if state.refreshInProgress {
+            return .slAccent2
+        }
+        if state.isExpired || state.needsRefresh {
+            return .slWarning
+        }
+        return .slSuccess
+    }
+
+    private func appIdConsumers(for accountId: String) -> [HelperAppIdDTO] {
+        model.appIds
+            .filter { $0.accountId == accountId }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func consumerBadgeText(for appId: HelperAppIdDTO) -> String {
+        if model.installedApps.contains(where: { $0.accountId == appId.accountId && $0.originalBundleId == appId.originalBundleId && ($0.status ?? "active") == "deactivated" }) {
+            return "Deactivated"
+        }
+        if model.installedApps.contains(where: { $0.accountId == appId.accountId && $0.originalBundleId == appId.originalBundleId && ($0.status ?? "active") != "deactivated" }) {
+            return "Tracked"
+        }
+        if model.installedApps.contains(where: { $0.accountId == appId.accountId && appId.originalBundleId.hasPrefix($0.originalBundleId + ".") }) {
+            return "Extension"
+        }
+        return "Hidden"
+    }
+
+    private func consumerBadgeColor(for appId: HelperAppIdDTO) -> Color {
+        switch consumerBadgeText(for: appId) {
+        case "Tracked": return .slSuccess
+        case "Deactivated": return .slMuted
+        case "Extension": return .slWarning
+        default: return .slDanger
+        }
+    }
+
+    private func quotaMeter(label: String, used: Int, limit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(used) / \(limit)")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            LinearGaugeBar(
+                fraction: min(1, Double(used) / Double(max(limit, 1))),
+                height: 6
+            )
+        }
     }
 
     private func libraryRow(_ ipa: IpaArtifactDTO) -> some View {

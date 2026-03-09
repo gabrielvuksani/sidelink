@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import type { AppContext } from '../context';
 import { startInstallPipeline } from '../pipeline';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
+import { notifyInstalledAppsChanged } from './installed-app-events';
 
 type SafeAppleAccountInput = {
   id: string;
@@ -126,7 +127,9 @@ export async function deactivateInstalledApp(ctx: AppContext, id: string) {
 
   await ctx.devices.uninstallApp(app.deviceUdid, app.bundleId);
   ctx.db.updateInstalledAppStatus(app.id, 'deactivated');
-  return ctx.db.getInstalledApp(app.id);
+  const updated = ctx.db.getInstalledApp(app.id);
+  notifyInstalledAppsChanged(ctx.db.listInstalledApps());
+  return updated;
 }
 
 export async function reactivateInstalledApp(ctx: AppContext, id: string) {
@@ -145,6 +148,7 @@ export async function reactivateInstalledApp(ctx: AppContext, id: string) {
   });
 
   ctx.db.updateInstalledAppStatus(app.id, 'active');
+  notifyInstalledAppsChanged(ctx.db.listInstalledApps());
   return { kind: 'ok' as const, job };
 }
 

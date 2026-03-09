@@ -21,11 +21,11 @@ struct OnboardingView: View {
     }
 
     @ObservedObject var model: HelperViewModel
+    @ObservedObject var permissions: PermissionCoordinator
     @Binding var completed: Bool
 
     @State private var step: Step = .welcome
     @State private var pairingFocusTrigger = 0
-    @State private var notificationsRequested = false
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
     @Environment(\.colorScheme) private var colorScheme
 
@@ -51,6 +51,9 @@ struct OnboardingView: View {
             }
         }
         .interactiveDismissDisabled()
+        .task {
+            await permissions.refreshStatuses()
+        }
     }
 
     private var header: some View {
@@ -151,6 +154,7 @@ struct OnboardingView: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)
+            .padding(.bottom, 24)
         }
     }
 
@@ -158,61 +162,74 @@ struct OnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 permissionsIntroCard
+                permissionSummaryStrip
 
                 permissionCard(
                     title: "Notifications",
                     icon: "bell.badge",
                     description: "Let SideLink tell you when background refresh succeeds or fails.",
-                    actionTitle: notificationsRequested ? "Requested" : "Enable Notifications",
+                    state: permissions.notifications,
                     tint: .slAccent
                 ) {
                     Task {
-                        notificationsRequested = true
-                        await BackgroundRefreshCoordinator.shared.requestNotificationAuthorizationIfNeeded()
+                        await permissions.requestNotificationsIfNeeded()
                         backgroundRefreshEnabled = true
                         BackgroundRefreshCoordinator.shared.setBackgroundRefreshEnabled(true)
+                        await permissions.refreshStatuses()
                     }
                 }
 
                 permissionCard(
                     title: "Camera",
                     icon: "camera.viewfinder",
-                    description: "Used only when you scan the desktop pairing QR code. iOS will ask the first time you open the scanner.",
-                    actionTitle: "Ask When Scanning",
-                    tint: .slAccent2,
-                    action: nil
-                )
+                    description: "Used when you choose the optional QR scanner. Prime it now so the pairing sheet stays uninterrupted.",
+                    state: permissions.camera,
+                    tint: .slAccent2
+                ) {
+                    Task {
+                        await permissions.requestCameraIfNeeded()
+                    }
+                }
 
                 permissionCard(
                     title: "Local Network",
                     icon: "dot.radiowaves.left.and.right",
-                    description: "Needed to discover your desktop helper on the same network. iOS prompts when SideLink first connects or scans.",
-                    actionTitle: "Triggered During Pairing",
-                    tint: .slSuccess,
-                    action: nil
-                )
+                    description: "Needed to discover your desktop helper automatically and keep nearby desktops visible for manual code entry.",
+                    state: permissions.localNetwork,
+                    tint: .slSuccess
+                ) {
+                    permissions.requestLocalNetworkIfNeeded(force: true)
+                }
 
                 permissionCard(
                     title: "Background Refresh",
                     icon: "clock.arrow.circlepath",
                     description: "Keep refreshes running in the background so expiring apps can be renewed automatically.",
-                    actionTitle: "Open Settings",
+                    state: permissions.backgroundRefresh,
                     tint: .slWarning
                 ) {
-#if canImport(UIKit)
-                    guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
-                    UIApplication.shared.open(settingsURL)
-#endif
+                    permissions.openSystemSettings()
                 }
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)
+            .padding(.bottom, 24)
         }
     }
 
     private var permissionsIntroCard: some View {
-        SidelinkSectionIntro(eyebrow: "Permissions", title: "Only what SideLink really uses", subtitle: "Notifications can be requested now. Camera and local-network prompts appear only when you use pairing tools that actually need them.")
+        SidelinkSectionIntro(eyebrow: "Permissions", title: "Prime the essentials up front", subtitle: "Request the permissions SideLink actually uses before pairing so discovery, notifications, and the optional QR scanner do not interrupt the flow later.")
             .liquidPanel()
+    }
+
+    private var permissionSummaryStrip: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                permissionSummaryTile(title: "Notify", state: permissions.notifications)
+                permissionSummaryTile(title: "Camera", state: permissions.camera)
+            }
+            permissionSummaryTile(title: "Network", state: permissions.localNetwork)
+        }
     }
 
     private var pairingStep: some View {
@@ -221,7 +238,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Pair with your desktop helper")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("Use the desktop QR for the fastest setup, or choose a detected helper and enter its 6-digit code manually.")
+                    Text("Start with the 6-digit code. Use QR only when the camera handoff is more convenient.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -229,32 +246,25 @@ struct OnboardingView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     SidelinkSectionIntro(
-                        eyebrow: "Fastest Route",
-                        title: "Scan the desktop pairing QR",
-                        subtitle: "This fills the helper address and the 6-digit code in one move, so you can get into the app without typing."
+                        eyebrow: "Recommended",
+                        title: "Choose your desktop and enter its code",
+                        subtitle: "Manual code entry is the primary route now. It is faster when your desktop is already visible and keeps the backend address explicit."
                     )
 
-                    PairingPayloadActions(
-                        onScanned: { payload in
-                            Task {
-                                let didPair = await model.pairUsingPayload(payload)
-                                if didPair {
-                                    step = .finish
-                                }
-                            }
-                        }
-                    )
-                }
-                .padding(22)
-                .liquidPanel()
-                .padding(.horizontal, 24)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    SidelinkSectionIntro(
-                        eyebrow: "Manual Pairing",
-                        title: "Choose the helper, then enter its code",
-                        subtitle: "Use this when scanning is unavailable or when you want explicit control over the backend URL."
-                    )
+                    HStack(spacing: 12) {
+                        SidelinkStatusTile(
+                            label: "Discovery",
+                            value: model.discoveredBackends.isEmpty ? "Scanning" : "\(model.discoveredBackends.count) nearby",
+                            detail: model.discoveredBackends.isEmpty ? "Searching the local network" : "Tap one to fill the desktop URL",
+                            tint: .slAccent2
+                        )
+                        SidelinkStatusTile(
+                            label: "Route",
+                            value: "Code First",
+                            detail: "QR stays optional below",
+                            tint: .slAccent
+                        )
+                    }
 
                     if model.discoveredBackends.isEmpty {
                         HStack(spacing: 12) {
@@ -324,8 +334,33 @@ struct OnboardingView: View {
                 .padding(22)
                 .liquidPanel()
                 .padding(.horizontal, 24)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    SidelinkSectionIntro(
+                        eyebrow: "Optional",
+                        title: "Use the desktop QR when you want camera handoff",
+                        subtitle: "QR fills the helper address and code instantly, but it is now a secondary shortcut rather than the default path."
+                    )
+
+                    PairingPayloadActions(
+                        title: "Scan desktop QR",
+                        subtitle: "Open this only when scanning is quicker than entering the short code already shown on the desktop.",
+                        onScanned: { payload in
+                            Task {
+                                let didPair = await model.pairUsingPayload(payload)
+                                if didPair {
+                                    step = .finish
+                                }
+                            }
+                        }
+                    )
+                }
+                .padding(22)
+                .liquidPanel()
+                .padding(.horizontal, 24)
             }
             .padding(.top, 8)
+            .padding(.bottom, 24)
         }
     }
 
@@ -352,6 +387,7 @@ struct OnboardingView: View {
                 .padding(.horizontal, 24)
             }
             .padding(.top, 16)
+            .padding(.bottom, 24)
         }
     }
 
@@ -404,29 +440,14 @@ struct OnboardingView: View {
     }
 
     private func onboardingFeatureRow(icon: String, title: String, message: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(Color.slAccent)
-                .frame(width: 36)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(18)
-        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        SidelinkFeatureCard(icon: icon, title: title, message: message)
     }
 
     private func permissionCard(
         title: String,
         icon: String,
         description: String,
-        actionTitle: String,
+        state: SidelinkPermissionState,
         tint: Color,
         action: (() -> Void)?
     ) -> some View {
@@ -435,8 +456,18 @@ struct OnboardingView: View {
                 Image(systemName: icon)
                     .font(.title3)
                     .foregroundStyle(tint)
-                Text(title)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(state.statusLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(state.tint)
+                }
+                Spacer()
+                if state.isGranted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.slSuccess)
+                }
             }
 
             Text(description)
@@ -444,17 +475,28 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
 
             if let action {
-                Button(actionTitle, action: action)
+                Button(state.actionLabel) {
+                    if state == .denied || state == .disabled {
+                        permissions.openSystemSettings()
+                    } else {
+                        action()
+                    }
+                }
                     .buttonStyle(.borderedProminent)
-                    .tint(tint)
+                    .tint(state.isGranted ? .slSuccess : tint)
+                    .disabled(state == .requesting || state == .unavailable)
             } else {
-                Text(actionTitle)
+                Text(state.actionLabel)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(state.tint)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func permissionSummaryTile(title: String, state: SidelinkPermissionState) -> some View {
+        SidelinkStatusTile(label: title, value: state.statusLabel, detail: state.isGranted ? "Ready for use" : nil, tint: state.tint)
     }
 }

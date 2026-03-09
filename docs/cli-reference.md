@@ -31,6 +31,8 @@ This page is the practical command surface for local development, release prep, 
 | `npm run source:generate` | Regenerate the official source feed from `docs/source/apps/` |
 | `npm run source:watch` | Watch `docs/source/apps/` and regenerate the official source feed automatically |
 
+Use the source commands whenever you add or update a public IPA such as `Cortex.ipa`.
+
 ## Database
 
 | Command | Description |
@@ -62,12 +64,21 @@ This page is the practical command surface for local development, release prep, 
 | Command | Description |
 |---|---|
 | `bash scripts/release.sh v0.1.0 --dry-run` | Validate the release command path without committing or tagging |
-| `bash scripts/release.sh v0.3.0 --dry-run` | Validate the current release command path without committing or tagging |
-| `bash scripts/release.sh v0.3.0` | Update package version, create the release commit, and tag `v0.3.0` |
+| `bash scripts/release.sh v0.3.1 --dry-run` | Validate the current release command path without committing or tagging |
+| `bash scripts/release.sh v0.3.1` | Update package version, create the release commit, and tag `v0.3.1` |
 
-## Recommended v0.3.0 Release Sequence
+## Recommended v0.3.1 Release Sequence
 
 1. `npm run verify`
-2. `npm run desktop:package`
-3. `npm run desktop:smoke`
-4. `bash scripts/release.sh v0.3.0`
+2. `npm run helper:export`
+3. Confirm `docs/source/apps/` contains the public IPAs you want uploaded
+4. Run `npm run source:generate` if source metadata changed outside `verify`
+5. Run `npm run desktop:package`
+6. Run `npm run desktop:smoke`
+7. Run `bash scripts/release.sh v0.3.1`
+
+The GitHub release workflow then uploads:
+
+- `helper/SidelinkHelper.ipa`
+- every IPA under `docs/source/apps/`
+- desktop artifacts for macOS, Windows, and Linux

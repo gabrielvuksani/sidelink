@@ -9,8 +9,8 @@ import type { EncryptionProvider } from '../types';
 import { initiateAuth, submit2FACode, requestSMS2FA, type AuthSession } from '../apple/apple-auth';
 import { AppleDeveloperServicesClient } from '../apple/developer-services';
 import type { AppleAccount, Apple2FASubmit } from '../../shared/types';
+import { DEFAULTS, LOG_CODES } from '../../shared/constants';
 import { AppleAuthError, Apple2FARequiredError } from '../utils/errors';
-import { LOG_CODES } from '../../shared/constants';
 
 /**
  * In-memory store for pending auth sessions (pre-2FA).
@@ -47,8 +47,8 @@ interface CachedSession {
 
 const sessionCache = new Map<string, CachedSession>();
 
-/** Sessions are considered fresh for 30 minutes. */
-const SESSION_FRESHNESS_MS = 30 * 60 * 1000;
+/** Sessions are considered fresh for the configured auth session TTL. */
+const SESSION_FRESHNESS_MS = DEFAULTS.authSessionTtlHours * 60 * 60 * 1000;
 
 export class AppleAccountService {
   constructor(

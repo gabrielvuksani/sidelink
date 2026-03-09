@@ -96,10 +96,10 @@ export const uploadRateLimit = rateLimit({
   message: 'Too many uploads. Please wait before uploading again.',
 });
 
-/** General API: 120 requests per minute */
+/** General API: 240 requests per minute */
 export const generalRateLimit = rateLimit({
-  maxTokens: 120,
-  refillRate: 120 / 60,
+  maxTokens: 240,
+  refillRate: 240 / 60,
   message: 'Rate limit exceeded. Please slow down.',
 });
 

@@ -85,6 +85,7 @@ final class HelperViewModel: ObservableObject {
     @Published var certificates: [HelperCertificateDTO] = []
     @Published var trustedSources: [TrustedSourceDTO] = []
     @Published var unmanagedInstalledApps: [UnmanagedDeviceAppDTO] = []
+    @Published var autoRefreshStates: [AutoRefreshStateDTO] = []
     @Published var sseConnected = false
     @Published var sourceCatalogFailures: [String] = []
 
@@ -97,6 +98,7 @@ final class HelperViewModel: ObservableObject {
     private var lastInstallRequest: LastInstallRequest?
     private var installConsoleAutoPresentationSuppressed = false
     private var installConsoleAllowsNextDismissal = false
+    private var refreshInFlight = false
 
     init() {
         if let stored = KeychainStore.get("helperToken"), !stored.isEmpty {
@@ -310,6 +312,13 @@ final class HelperViewModel: ObservableObject {
         SidelinkSourceURLUtil.normalized(url).caseInsensitiveCompare(Self.officialSourceURL) == .orderedSame
     }
 
+    func canRemoveSource(_ catalog: SourceCatalog) -> Bool {
+        if isPaired {
+            return !catalog.isBuiltIn && catalog.sourceId != nil
+        }
+        return customSourceURLs.contains(catalog.sourceURL)
+    }
+
     var latestUploadedIpa: IpaArtifactDTO? {
         ipas.max(by: { ($0.uploadedAt ?? "") < ($1.uploadedAt ?? "") }) ?? ipas.first
     }
@@ -449,14 +458,32 @@ final class HelperViewModel: ObservableObject {
     }
 
     func refreshAll() async {
+        await refreshAll(showLoading: true)
+    }
+
+    func refreshAllSilently() async {
+        await refreshAll(showLoading: false)
+    }
+
+    private func refreshAll(showLoading: Bool) async {
+        guard !refreshInFlight else { return }
+
         guard isPaired else {
             await refreshSourceCatalogs()
             await refreshTrustedSources()
             return
         }
 
-        isLoading = true
-        defer { isLoading = false }
+        refreshInFlight = true
+        if showLoading {
+            isLoading = true
+        }
+        defer {
+            refreshInFlight = false
+            if showLoading {
+                isLoading = false
+            }
+        }
 
         do {
             let previousPrimarySigningAccountId = primarySigningAccountId
@@ -513,6 +540,16 @@ final class HelperViewModel: ObservableObject {
             await refreshSourceCatalogs()
             await refreshTrustedSources()
             await refreshDeviceInventory()
+            do {
+                autoRefreshStates = try await api.listAutoRefreshStates(baseURL: backendURL, token: helperToken)
+            } catch {
+                recordLocalActivity(
+                    level: "warn",
+                    code: "scheduler.refresh.partial",
+                    message: "Auto-refresh states could not be refreshed: \(error.localizedDescription)"
+                )
+            }
+            await loadAppIds()
             connectSSEIfPossible()
             errorMessage = nil
 
@@ -725,18 +762,23 @@ final class HelperViewModel: ObservableObject {
             return
         }
 
-        if customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == raw }) {
+        if hasSourceURL(raw) {
             recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             toastMessage = "Source already configured"
             return
         }
 
         do {
-            let manifest = try await api.fetchSourceManifest(urlString: raw)
-            customSourceURLs.append(raw)
-            persistCustomSources()
+            if isPaired {
+                try await api.addSource(baseURL: backendURL, token: helperToken, urlString: raw)
+            } else {
+                let manifest = try await api.fetchSourceManifest(urlString: raw)
+                _ = manifest
+                customSourceURLs.append(raw)
+                persistCustomSources()
+            }
             await refreshSourceCatalogs()
-            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(manifest.name).")
+            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(raw).")
             toastMessage = "Source imported from deep link"
         } catch {
             recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
@@ -759,7 +801,7 @@ final class HelperViewModel: ObservableObject {
             return
         }
 
-        if customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == raw }) {
+        if hasSourceURL(raw) {
             recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
             errorMessage = "Source already added"
             return
@@ -769,12 +811,17 @@ final class HelperViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let manifest = try await api.fetchSourceManifest(urlString: raw)
-            customSourceURLs.append(raw)
-            persistCustomSources()
+            if isPaired {
+                try await api.addSource(baseURL: backendURL, token: helperToken, urlString: raw)
+            } else {
+                let manifest = try await api.fetchSourceManifest(urlString: raw)
+                _ = manifest
+                customSourceURLs.append(raw)
+                persistCustomSources()
+            }
             sourceURLInput = ""
             await refreshSourceCatalogs()
-            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(manifest.name).")
+            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(raw).")
             toastMessage = "Source added"
         } catch {
             recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
@@ -784,8 +831,20 @@ final class HelperViewModel: ObservableObject {
 
     func removeCustomSource(_ url: String) async {
         let normalized = SidelinkSourceURLUtil.normalized(url)
-        customSourceURLs.removeAll { SidelinkSourceURLUtil.normalized($0) == normalized }
-        persistCustomSources()
+        if isPaired, let source = sourceCatalogs.first(where: { SidelinkSourceURLUtil.normalized($0.sourceURL) == normalized }) {
+            guard let sourceId = source.sourceId, !source.isBuiltIn else {
+                return
+            }
+            do {
+                try await api.deleteSource(baseURL: backendURL, token: helperToken, sourceId: sourceId)
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        } else {
+            customSourceURLs.removeAll { SidelinkSourceURLUtil.normalized($0) == normalized }
+            persistCustomSources()
+        }
         await refreshSourceCatalogs()
     }
 
@@ -813,6 +872,7 @@ final class HelperViewModel: ObservableObject {
         appIdUsage = []
         certificates = []
         unmanagedInstalledApps = []
+        autoRefreshStates = []
         sourceCatalogFailures = []
         activeInstall2FACode = ""
         installConsoleTitle = ""
@@ -947,7 +1007,6 @@ final class HelperViewModel: ObservableObject {
 
     private func mergeTrustedSources(_ remoteSources: [TrustedSourceDTO]) -> [TrustedSourceDTO] {
         var mergedByURL: [String: TrustedSourceDTO] = [:]
-
         for source in Self.bundledTrustedSources {
             mergedByURL[SidelinkSourceURLUtil.normalized(source.url).lowercased()] = source
         }
@@ -1312,6 +1371,14 @@ final class HelperViewModel: ObservableObject {
         customSourceURLsJSON = encoded
     }
 
+    private func hasSourceURL(_ url: String) -> Bool {
+        let normalized = SidelinkSourceURLUtil.normalized(url)
+        if isPaired {
+            return sourceCatalogs.contains(where: { SidelinkSourceURLUtil.normalized($0.sourceURL) == normalized })
+        }
+        return customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == normalized })
+    }
+
     private func requirePairing(for action: String) -> Bool {
         guard isPaired else {
             errorMessage = "Pair with a SideLink server before you \(action)."
@@ -1330,6 +1397,34 @@ final class HelperViewModel: ObservableObject {
     }
 
     private func refreshSourceCatalogs() async {
+        if isPaired {
+            do {
+                let sources = try await api.listSources(baseURL: backendURL, token: helperToken)
+                sourceCatalogFailures = sources
+                    .filter { $0.enabled && $0.cachedManifest == nil }
+                    .map { "\($0.name): manifest is not available yet. Refresh the source from the desktop if this persists." }
+                sourceCatalogs = sources
+                    .filter { $0.enabled }
+                    .compactMap { source in
+                        guard let manifest = source.cachedManifest else {
+                            return nil
+                        }
+                        return SourceCatalog(
+                            sourceId: source.id,
+                            sourceURL: source.url,
+                            manifest: manifest,
+                            isBuiltIn: source.isBuiltIn
+                        )
+                    }
+                    .sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
+                return
+            } catch {
+                sourceCatalogFailures = ["Desktop-managed sources could not be refreshed: \(error.localizedDescription)"]
+                sourceCatalogs = []
+                return
+            }
+        }
+
         let feedURLs = ((config?.sourceFeeds.map { $0.url } ?? []) + customSourceURLs).map(SidelinkSourceURLUtil.normalized)
         let uniqueURLs = Array(Set(feedURLs + [Self.officialSourceURL])).sorted()
 
@@ -1338,7 +1433,7 @@ final class HelperViewModel: ObservableObject {
         for url in uniqueURLs {
             do {
                 let manifest = try await api.fetchSourceManifest(urlString: url)
-                catalogs.append(SourceCatalog(sourceURL: url, manifest: manifest))
+                catalogs.append(SourceCatalog(sourceId: nil, sourceURL: url, manifest: manifest, isBuiltIn: isOfficialSourceURL(url)))
             } catch {
                 failures.append("\(url): \(error.localizedDescription)")
             }
@@ -1658,7 +1753,14 @@ final class HelperViewModel: ObservableObject {
 
         if event == "device-update" {
             Task {
-                await refreshAll()
+                await refreshAllSilently()
+            }
+            return
+        }
+
+        if event == "scheduler-update" || event == "app-update" {
+            Task {
+                await refreshAllSilently()
             }
         }
     }
@@ -1697,6 +1799,10 @@ final class HelperViewModel: ObservableObject {
                     let failureMessage = resolved.error.map(SidelinkLogRedaction.sanitize)
                     toastMessage = failureMessage.map { "Install failed: \($0)" } ?? "Install failed"
                 }
+            }
+
+            Task {
+                await refreshAllSilently()
             }
         }
 

@@ -5,20 +5,31 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { EmptyState, PageHeader, PageLoader } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { SourceApp, SourceManifest, UserSource } from '../../../shared/types';
 
+type SourcesPageSnapshot = {
+  sources: UserSource[];
+  selfHostedText: string;
+  selfHostedForm: SelfHostedFormState;
+  combinedApps: SourceApp[];
+  trustedSources: TrustedSourceRecord[];
+};
+
 export default function SourcesPage() {
-  const [sources, setSources] = useState<UserSource[]>([]);
-  const [loading, setLoading] = useState(true);
+  const warmSnapshot = getUiSnapshot<SourcesPageSnapshot>('page:sources');
+  const [sources, setSources] = useState<UserSource[]>(warmSnapshot?.data.sources ?? []);
+  const [loading, setLoading] = useState(!warmSnapshot);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [addingUrl, setAddingUrl] = useState('');
-  const [selfHostedText, setSelfHostedText] = useState('');
+  const [selfHostedText, setSelfHostedText] = useState(warmSnapshot?.data.selfHostedText ?? '');
   const [selfHostedDirty, setSelfHostedDirty] = useState(false);
-  const [selfHostedForm, setSelfHostedForm] = useState<SelfHostedFormState>(emptySelfHostedFormState());
+  const [selfHostedForm, setSelfHostedForm] = useState<SelfHostedFormState>(warmSnapshot?.data.selfHostedForm ?? emptySelfHostedFormState());
   const [selfHostedAppDraft, setSelfHostedAppDraft] = useState<SelfHostedAppDraft>(emptySelfHostedAppDraft());
-  const [combinedApps, setCombinedApps] = useState<SourceApp[]>([]);
+  const [combinedApps, setCombinedApps] = useState<SourceApp[]>(warmSnapshot?.data.combinedApps ?? []);
   const [appSearch, setAppSearch] = useState('');
-  const [trustedSources, setTrustedSources] = useState<TrustedSourceRecord[]>([]);
+  const [trustedSources, setTrustedSources] = useState<TrustedSourceRecord[]>(warmSnapshot?.data.trustedSources ?? []);
 
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -27,28 +38,53 @@ export default function SourcesPage() {
     document.title = 'Sources - SideLink';
   }, []);
 
+  const syncSnapshot = (next: SourcesPageSnapshot) => {
+    setSources(next.sources);
+    setTrustedSources(next.trustedSources);
+    setSelfHostedText(next.selfHostedText);
+    setSelfHostedForm(next.selfHostedForm);
+    setCombinedApps(next.combinedApps);
+    setUiSnapshot('page:sources', next);
+  };
+
   const reload = async () => {
-    setLoading(true);
+    if (!sources.length && !selfHostedText) {
+      setLoading(true);
+    }
     try {
       const [sourceRes, selfHostedRes] = await Promise.all([
         api.listSources(),
         api.getSelfHostedSource(),
       ]);
+      const loadedManifest = selfHostedRes.data ?? emptySelfHostedManifest();
+      syncSnapshot({
+        sources: sourceRes.data ?? [],
+        trustedSources,
+        selfHostedText: JSON.stringify(loadedManifest, null, 2),
+        selfHostedForm: manifestToFormState(loadedManifest),
+        combinedApps,
+      });
+      setSelfHostedDirty(false);
+      setLoading(false);
+      setLoadingCatalog(true);
+
       const [combinedRes, trustedSourceRes] = await Promise.all([
         api.getCombinedSources(),
         api.listTrustedSources().catch(() => ({ data: [] as TrustedSourceRecord[] })),
       ]);
-      const loadedManifest = selfHostedRes.data ?? emptySelfHostedManifest();
-      setSources(sourceRes.data ?? []);
-      setTrustedSources(trustedSourceRes.data ?? []);
-      setSelfHostedText(JSON.stringify(loadedManifest, null, 2));
-      setSelfHostedForm(manifestToFormState(loadedManifest));
-      setSelfHostedDirty(false);
-      setCombinedApps(combinedRes.data?.apps ?? []);
+
+      syncSnapshot({
+        sources: sourceRes.data ?? [],
+        trustedSources: trustedSourceRes.data ?? [],
+        selfHostedText: JSON.stringify(loadedManifest, null, 2),
+        selfHostedForm: manifestToFormState(loadedManifest),
+        combinedApps: combinedRes.data?.apps ?? [],
+      });
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to load sources'));
     } finally {
       setLoading(false);
+      setLoadingCatalog(false);
     }
   };
 
@@ -260,6 +296,10 @@ export default function SourcesPage() {
         ]}
       />
 
+      {loadingCatalog && (
+        <div className="sl-card px-4 py-2 text-[12px] text-[var(--sl-muted)]">Refreshing combined source catalog...</div>
+      )}
+
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Add Source</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Paste any HTTP/HTTPS source manifest URL.</p>
@@ -326,7 +366,7 @@ export default function SourcesPage() {
         </div>
 
         <div className="mt-3">
-          {loading ? (
+          {loading && filteredApps.length === 0 ? (
             <PageLoader message="Loading source apps..." />
           ) : filteredApps.length === 0 ? (
             <EmptyState title="No source apps" description="Try adding/enabling more sources or adjust your search." />

@@ -19,9 +19,26 @@ import type {
 } from '../../../shared/types';
 
 const BASE = '/api';
+const DEFAULT_GET_CACHE_TTL_MS = 1500;
 
 interface ApiRes<T = unknown> { ok: boolean; data?: T; error?: string }
 interface ApiErrorShape { error?: string; ok?: boolean }
+
+type RequestOptions = {
+  signal?: AbortSignal;
+  suppressSessionExpiryHandling?: boolean;
+  cacheTtlMs?: number;
+  cacheKey?: string;
+  bypassCache?: boolean;
+};
+
+type CacheEntry = {
+  expiresAt: number;
+  value?: ApiRes<unknown>;
+  promise?: Promise<ApiRes<unknown>>;
+};
+
+const responseCache = new Map<string, CacheEntry>();
 
 export interface AppleTrustedPhoneNumber {
   id: number;
@@ -106,6 +123,25 @@ function createApiError(status: number, error: string, data?: unknown): Error & 
   return Object.assign(new Error(error), { status, data });
 }
 
+function getCacheKey(method: string, path: string, body: unknown, explicitKey?: string): string {
+  if (explicitKey) return explicitKey;
+  if (body === undefined) return `${method}:${path}`;
+  return `${method}:${path}:${JSON.stringify(body)}`;
+}
+
+function invalidateResponseCache(prefix?: string): void {
+  if (!prefix) {
+    responseCache.clear();
+    return;
+  }
+
+  for (const key of responseCache.keys()) {
+    if (key.startsWith(prefix)) {
+      responseCache.delete(key);
+    }
+  }
+}
+
 async function parseJsonResponse<T>(res: Response): Promise<ApiRes<T> | null> {
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -129,12 +165,29 @@ async function request<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  opts?: { signal?: AbortSignal; suppressSessionExpiryHandling?: boolean },
+  opts?: RequestOptions,
 ): Promise<ApiRes<T>> {
+  const isGet = method === 'GET';
+  const cacheTtlMs = isGet ? (opts?.cacheTtlMs ?? DEFAULT_GET_CACHE_TTL_MS) : 0;
+  const cacheable = isGet && cacheTtlMs > 0 && !opts?.signal;
+  const cacheKey = cacheable ? getCacheKey(method, path, body, opts?.cacheKey) : null;
+
+  if (cacheKey && !opts?.bypassCache) {
+    const existing = responseCache.get(cacheKey);
+    if (existing?.value && existing.expiresAt > Date.now()) {
+      return existing.value as ApiRes<T>;
+    }
+    if (existing?.promise) {
+      return existing.promise as Promise<ApiRes<T>>;
+    }
+  }
+
+  const fetchPromise = (async () => {
   const init: RequestInit = {
     method,
     credentials: 'include',
     signal: opts?.signal,
+    cache: 'no-store',
   };
   const csrfHeaders: Record<string, string> = {};
   if (isMutationMethod(method)) {
@@ -148,28 +201,63 @@ async function request<T = unknown>(
     init.headers = csrfHeaders;
   }
 
-  const res = await fetch(`${BASE}${path}`, init);
-  const { json, text } = await parseResponsePayload<T>(res);
-  const fallbackError = text ?? `HTTP ${res.status}`;
-  const payload = json ?? { ok: res.ok, error: res.ok ? undefined : fallbackError };
+    const res = await fetch(`${BASE}${path}`, init);
+    const { json, text } = await parseResponsePayload<T>(res);
+    const fallbackError = text ?? `HTTP ${res.status}`;
+    const payload = json ?? { ok: res.ok, error: res.ok ? undefined : fallbackError };
 
-  // Intercept 401 only when it is truly a session/auth expiration case.
-  // Apple credential failures also return 401 and must not force logout.
-  if (
-    res.status === 401
-    && !path.startsWith('/auth/')
-    && !opts?.suppressSessionExpiryHandling
-  ) {
-    const errText = payload.error ?? fallbackError;
-    if (isLikelySessionExpiryError(errText)) {
-      onSessionExpired?.();
-      throw createApiError(401, 'Session expired', payload);
+    // Intercept 401 only when it is truly a session/auth expiration case.
+    // Apple credential failures also return 401 and must not force logout.
+    if (
+      res.status === 401
+      && !path.startsWith('/auth/')
+      && !opts?.suppressSessionExpiryHandling
+    ) {
+      const errText = payload.error ?? fallbackError;
+      if (isLikelySessionExpiryError(errText)) {
+        onSessionExpired?.();
+        throw createApiError(401, 'Session expired', payload);
+      }
+    }
+
+    if (!res.ok || !payload.ok) {
+      throw createApiError(res.status, payload.error ?? fallbackError, payload);
+    }
+
+    if (cacheKey) {
+      responseCache.set(cacheKey, {
+        value: payload,
+        expiresAt: Date.now() + cacheTtlMs,
+      });
+    } else if (!isGet) {
+      invalidateResponseCache();
+    }
+
+    return payload;
+  })();
+
+  if (cacheKey) {
+    responseCache.set(cacheKey, {
+      expiresAt: Date.now() + cacheTtlMs,
+      value: responseCache.get(cacheKey)?.value,
+      promise: fetchPromise as Promise<ApiRes<unknown>>,
+    });
+  }
+
+  try {
+    return await fetchPromise;
+  } finally {
+    if (cacheKey) {
+      const current = responseCache.get(cacheKey);
+      if (current?.promise === fetchPromise) {
+        if (current.value && current.expiresAt > Date.now()) {
+          responseCache.set(cacheKey, { value: current.value, expiresAt: current.expiresAt });
+        } else {
+          responseCache.delete(cacheKey);
+        }
+      }
     }
   }
-  if (!res.ok || !payload.ok) {
-    throw createApiError(res.status, payload.error ?? fallbackError, payload);
-  }
-  return payload;
 }
 
 async function requestRawJson<T = unknown>(
@@ -181,6 +269,7 @@ async function requestRawJson<T = unknown>(
   const init: RequestInit = {
     method,
     credentials: 'include',
+    cache: 'no-store',
   };
 
   const csrfHeaders: Record<string, string> = {};
@@ -242,7 +331,7 @@ export const api = {
     request('POST', '/apple/2fa/sms', { appleId, phoneNumberId }, {
       suppressSessionExpiryHandling: true,
     }),
-  listAppleAccounts: () => request<AppleAccount[]>('GET', '/apple/accounts'),
+  listAppleAccounts: () => request<AppleAccount[]>('GET', '/apple/accounts', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/apple/accounts' }),
   getAppleAccount: (id: string) => request<AppleAccount>('GET', `/apple/accounts/${encodeURIComponent(id)}`),
   removeAppleAccount: (id: string) => request('DELETE', `/apple/accounts/${encodeURIComponent(id)}`),
   reAuthAccount: (id: string) =>
@@ -255,12 +344,12 @@ export const api = {
     }),
 
   // ── Devices ─────────────────────────────────────────────────────────
-  listDevices: () => request<DeviceInfo[]>('GET', '/devices'),
+  listDevices: () => request<DeviceInfo[]>('GET', '/devices', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/devices' }),
   refreshDevices: () => request<DeviceInfo[]>('POST', '/devices/refresh'),
   pairDevice: (udid: string) => request('POST', `/devices/${encodeURIComponent(udid)}/pair`),
 
   // ── IPAs ────────────────────────────────────────────────────────────
-  listIpas: () => request<IpaArtifact[]>('GET', '/ipas'),
+  listIpas: () => request<IpaArtifact[]>('GET', '/ipas', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/ipas' }),
   uploadIpa: async (file: File, onProgress?: (pct: number) => void): Promise<ApiRes<IpaArtifact>> => {
     const form = new FormData();
     form.append('ipa', file);
@@ -304,42 +393,42 @@ export const api = {
   importIpaFromUrl: (url: string) => request<IpaArtifact>('POST', '/ipas/import-url', { url }),
 
   // ── Sources ────────────────────────────────────────────────────────
-  listSources: () => request<UserSource[]>('GET', '/sources'),
+  listSources: () => request<UserSource[]>('GET', '/sources', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources' }),
   addSource: (url: string) => request<UserSource>('POST', '/sources', { url }),
   deleteSource: (id: string) => request('DELETE', `/sources/${encodeURIComponent(id)}`),
   refreshSource: (id: string) => request<UserSource>('POST', `/sources/${encodeURIComponent(id)}/refresh`),
   listSourceApps: (id: string) => request<SourceApp[]>('GET', `/sources/${encodeURIComponent(id)}/apps`),
   getSourceManifest: (id: string) => request<SourceManifest>('GET', `/sources/${encodeURIComponent(id)}/manifest`),
-  getCombinedSources: () => request<SourceManifest>('GET', '/sources/combined'),
-  listTrustedSources: () => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources'),
+  getCombinedSources: () => request<SourceManifest>('GET', '/sources/combined', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources/combined' }),
+  listTrustedSources: () => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources/trusted-sources' }),
   getSelfHostedSource: async () => ({ ok: true, data: await requestRawJson<SourceManifest>('GET', '/sources/self-hosted') }),
   updateSelfHostedSource: (manifest: SourceManifest) => request('PUT', '/sources/self-hosted', manifest),
 
   // ── Install / Pipeline ──────────────────────────────────────────────
   startInstall: (params: { accountId: string; ipaId: string; deviceUdid: string; includeExtensions?: boolean }) =>
     request<InstallJob>('POST', '/install', params),
-  listJobs: () => request<InstallJob[]>('GET', '/install/jobs'),
-  getJob: (id: string) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`),
-  getJobLogs: (id: string) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`),
+  listJobs: () => request<InstallJob[]>('GET', '/install/jobs', undefined, { cacheTtlMs: 8_000, cacheKey: 'GET:/install/jobs' }),
+  getJob: (id: string) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`, undefined, { cacheTtlMs: 1_000 }),
+  getJobLogs: (id: string) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`, undefined, { cacheTtlMs: 1_000 }),
   submitJob2FA: (jobId: string, code: string) =>
     request('POST', `/install/jobs/${encodeURIComponent(jobId)}/2fa`, { code }),
-  listInstalledApps: () => request<InstalledApp[]>('GET', '/install/apps'),
+  listInstalledApps: () => request<InstalledApp[]>('GET', '/install/apps', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/install/apps' }),
   removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${encodeURIComponent(id)}`),
   deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${encodeURIComponent(id)}/deactivate`),
   reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${encodeURIComponent(id)}/reactivate`),
 
   // ── System ──────────────────────────────────────────────────────────
-  dashboard: () => request<DashboardState>('GET', '/system/dashboard'),
+  dashboard: () => request<DashboardState>('GET', '/system/dashboard', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/dashboard' }),
   listLogs: (level?: string) => request<LogEntry[]>('GET', `/system/logs${level ? `?level=${encodeURIComponent(level)}` : ''}`),
   clearLogs: () => request('DELETE', '/system/logs'),
-  getScheduler: () => request<SchedulerSnapshot>('GET', '/system/scheduler'),
+  getScheduler: () => request<SchedulerSnapshot>('GET', '/system/scheduler', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/scheduler' }),
   updateScheduler: (config: Partial<{ enabled: boolean; checkIntervalMs: number }>) =>
     request<SchedulerSnapshot>('POST', '/system/scheduler', config),
   triggerRefresh: (installedAppId: string) =>
     request('POST', `/system/scheduler/refresh/${encodeURIComponent(installedAppId)}`),
   triggerRefreshAll: () =>
     request<{ triggered: number; skipped: number; errors: string[] }>('POST', '/system/scheduler/refresh-all'),
-  getAutoRefreshStates: () => request<AutoRefreshState[]>('GET', '/system/scheduler/states'),
+  getAutoRefreshStates: () => request<AutoRefreshState[]>('GET', '/system/scheduler/states', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/scheduler/states' }),
   helperDoctor: () => request<{
     platform: string;
     helperIpaPath: string;
@@ -368,7 +457,7 @@ export const api = {
     helperPaired?: boolean;
     detectedTeamId?: string | null;
     detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
-  }>('GET', '/system/helper/doctor'),
+  }>('GET', '/system/helper/doctor', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/system/helper/doctor' }),
   ensureHelperIpa: (teamId?: string) =>
     request<{
       built: boolean;
@@ -380,9 +469,9 @@ export const api = {
   createHelperPairingCode: () =>
     request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string }>('POST', '/system/helper/pairing-code'),
 
-  listAppleAppIds: (sync = false) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`),
-  listAppleAppIdUsage: () => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage'),
+  listAppleAppIds: (sync = false) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`, undefined, { cacheTtlMs: sync ? 0 : 15_000 }),
+  listAppleAppIdUsage: () => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/apple/app-ids/usage' }),
   deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${encodeURIComponent(id)}`),
-  listAppleCertificates: () => request<AppleCertificateRecord[]>('GET', '/apple/certificates'),
-  health: () => request<{ status: string; uptime: number }>('GET', '/health'),
+  listAppleCertificates: () => request<AppleCertificateRecord[]>('GET', '/apple/certificates', undefined, { cacheTtlMs: 20_000, cacheKey: 'GET:/apple/certificates' }),
+  health: () => request<{ status: string; uptime: number }>('GET', '/health', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/health' }),
 };

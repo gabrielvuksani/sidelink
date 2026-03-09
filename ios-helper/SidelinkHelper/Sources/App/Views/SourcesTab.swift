@@ -269,7 +269,7 @@ struct SourcesTab: View {
                 .stroke(tint.opacity(0.3), lineWidth: 1)
         )
         .contextMenu {
-            if !isBuiltIn && model.customSourceURLs.contains(catalog.sourceURL) {
+            if !isBuiltIn && model.canRemoveSource(catalog) {
                 Button(role: .destructive) {
                     Task { await model.removeCustomSource(catalog.sourceURL) }
                 } label: {

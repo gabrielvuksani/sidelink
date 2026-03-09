@@ -5,30 +5,43 @@ import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
 import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
 import type { DashboardState } from '../../../shared/types';
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardState | null>(null);
+  const warmSnapshot = getUiSnapshot<DashboardState>('page:dashboard');
+  const [data, setData] = useState<DashboardState | null>(warmSnapshot?.data ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!warmSnapshot);
+  const [refreshing, setRefreshing] = useState(false);
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => { document.title = 'Overview — SideLink'; }, []);
 
   const reload = useCallback(async () => {
+    if (!data) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const res = await api.dashboard();
-      setData(res.data ?? null);
+      const nextData = res.data ?? null;
+      setData(nextData);
+      if (nextData) {
+        setUiSnapshot('page:dashboard', nextData);
+      }
       setLoadError(null);
     } catch (e: unknown) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load dashboard');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [data]);
 
   const scheduleReload = useCallback(() => {
     if (refreshTimerRef.current !== null) {
@@ -55,7 +68,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  if (loading) return <PageLoader message="Loading overview..." />;
+  if (loading && !data) return <PageLoader message="Loading overview..." />;
   if (!data) {
     return (
       <div className="sl-card space-y-3 p-6 text-center">
@@ -92,7 +105,7 @@ export default function DashboardPage() {
     } : null,
     hasAccounts && !hasDevices ? {
       title: 'No device connected',
-      detail: 'Connect an iPhone or iPad before using Quick Install or helper pairing.',
+      detail: 'Connect an iPhone or iPad before using Install App or helper pairing.',
       to: '/devices',
       action: 'Open Devices',
     } : null,
@@ -141,11 +154,11 @@ export default function DashboardPage() {
         title="One desktop surface for every signing workflow"
         description={(
           <>
-            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot, so production usage feels like a single system instead of a loose set of tools.
+            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot, with the helper flow now centered on manual pairing codes and QR kept as an optional shortcut.
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
               <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
               <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
-              <span className="sl-chip">Helper-aware dashboard</span>
+              <span className="sl-chip">Code-first pairing</span>
             </div>
           </>
         )}
@@ -153,7 +166,7 @@ export default function DashboardPage() {
           <>
             <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-              Quick Install
+              Install App
             </button>
             <Link to="/apps" className="sl-btn-ghost">Import IPA</Link>
             <Link to="/devices" className="sl-btn-ghost">Open Devices</Link>
@@ -166,6 +179,10 @@ export default function DashboardPage() {
           { label: 'Refresh Pressure', value: maxFreeUsage >= 0.8 ? 'Watch free limits' : 'Healthy', tone: maxFreeUsage >= 0.8 ? 'amber' : 'slate' },
         ]}
       />
+
+      {refreshing && (
+        <div className="sl-card px-4 py-2 text-[12px] text-[var(--sl-muted)]">Refreshing overview snapshot...</div>
+      )}
 
       {setupAlerts.map((alert) => (
         <div key={alert.title} className="sl-card flex items-center gap-4 p-4 !border-amber-500/15 !bg-amber-500/[0.04]">
@@ -223,7 +240,7 @@ export default function DashboardPage() {
                 <Link to="/install" className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">Open install history</Link>
               </div>
               {recentJobs.length === 0 ? (
-                <p className="py-8 text-center text-[13px] text-[var(--sl-muted)]">No jobs yet. Quick Install will drop the first live job here.</p>
+                <p className="py-8 text-center text-[13px] text-[var(--sl-muted)]">No jobs yet. Install App will drop the first live job here.</p>
               ) : (
                 <div className="space-y-2">
                   {recentJobs.map(job => (

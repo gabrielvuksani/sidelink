@@ -1,31 +1,68 @@
 # Desktop App
 
-SideLink Desktop wraps the web control center in Electron with tray integration, auto-updates, and deep links.
+SideLink Desktop is the Electron shell around the web control center. It gives you the same install, device, source, and Apple-account workflow as the browser UI, plus tray behavior, packaging, and update plumbing.
 
-## Run
+## Best Launch Command
 
 ```bash
 npm run desktop:easy
 ```
 
-Alternative dev launch:
+Use this if you want the shortest reliable path into the full product.
+
+Alternative development launch:
 
 ```bash
 npm run desktop:dev
 ```
 
-`npm run desktop:easy` is the preferred local path. It builds the server/client, runs native dependency preflight, prepares the local database, and launches Electron against the local data directory. On first launch, create the admin account in the setup flow instead of relying on a seeded default login.
+## What The Desktop App Handles
+
+- Overview dashboard with live readiness and job state
+- Install center and install history
+- Apple ID sign-in, re-auth, App IDs, and certificates
+- Device discovery and pairing
+- Source management and self-hosted feed editing
+- Helper IPA management and iPhone helper pairing
+- Desktop packaging and auto-update metadata
+
+## Main Pages
+
+| Page | What it is for |
+| --- | --- |
+| Overview | Health snapshot, helper status, device count, job activity, and fast actions |
+| Install | Start installs and review job history |
+| Apps | IPA library, upload/import, and install entry points |
+| Installed | Managed installs, refresh state, expiry pressure, and hidden App ID consumers |
+| Devices | Refresh discovery and inspect connected devices |
+| Apple ID | Sign in, re-auth, inspect certificates, and understand quota pressure |
+| Sources | Add feeds, inspect trusted sources, and edit the public self-hosted manifest |
+| Settings | System controls, release-facing diagnostics, and admin operations |
+
+## Current Pairing Flow
+
+The desktop now leads with the 6-digit helper pairing code.
+
+Recommended flow:
+
+1. Open the helper pairing card from the desktop.
+2. Keep the short code visible.
+3. Open the iPhone helper.
+4. Enter the code manually.
+5. Use QR only when the camera handoff is faster.
+
+That keeps the desktop address and the connection state explicit instead of hiding the whole flow behind QR by default.
 
 ## Local Commands
 
 | Command | Use it when |
 | --- | --- |
-| `npm run desktop:easy` | You want the shortest local launch path |
-| `npm run desktop:dev` | You want the full build + preflight + Electron launch path |
-| `npm run desktop:preflight` | You want to validate Electron-native modules before startup |
-| `npm run desktop:smoke` | You want to prove a packaged desktop build can actually start |
+| `npm run desktop:easy` | You want the fastest local desktop loop |
+| `npm run desktop:dev` | You want a full build, preflight, and Electron launch |
+| `npm run desktop:preflight` | You want to validate Electron-native dependencies before packaging |
+| `npm run desktop:smoke` | You want to prove a packaged build actually starts |
 
-## Package Builds
+## Packaging
 
 ```bash
 npm run desktop:package
@@ -34,65 +71,54 @@ npm run desktop:package:linux
 npm run desktop:package:all
 ```
 
-Packaging depends on generated icon assets and platform resources:
+Packaging depends on:
 
 - `build/icons/icon.icns` for macOS
 - `build/icons/icon.ico` for Windows
 - `python-bundle/dist/<platform>-<arch>/` for the bundled Python helper
-- `resources/helper/SidelinkHelper.ipa` when you want to ship a bundled iOS helper IPA
-- `dist/client/` for the bundled React control center
+- `resources/helper/SidelinkHelper.ipa` if you want the helper IPA bundled into the desktop build
+- `dist/client/` for the control center assets
 
-Refresh the icon set before packaging if branding assets changed:
+If brand assets changed:
 
 ```bash
 npm run icon:generate
 ```
 
-For a full local validation pass before packaging:
+## Release-Safe Desktop Validation
+
+Before you trust a packaged desktop build, run:
 
 ```bash
 npm run verify
+npm run desktop:package
+npm run desktop:smoke
 ```
 
-## Release Safety
+Why this matters:
 
-Starting in `v0.2.0`, the release path is stricter:
-
-- macOS artifacts build in separate `arm64` and `x64` jobs
-- release packaging must pass native Electron dependency validation
-- the packaged app is smoke-tested before the release workflow uploads artifacts
-
-That directly targets the class of failure where a DMG downloads successfully but the installed `.app` crashes immediately on launch.
+- a clean TypeScript build is not enough
+- a packaged app can fail even when development works
+- the bundled Python runtime and native Electron modules need their own validation path
 
 ## Update Flow
 
-- Desktop checks release metadata from GitHub Releases
-- Release workflow publishes platform artifacts and update manifests
-- Users get in-app update banner
+Desktop releases use GitHub Releases as the update source.
 
-### Update artifacts
+Published artifacts include:
 
-`electron-builder` publishes the release binaries plus YAML metadata used by `electron-updater`:
+- `.dmg` and `.zip` for macOS
+- `.exe` for Windows
+- `.AppImage` and `.deb` for Linux
+- `latest*.yml` metadata and blockmaps for updater flows
 
-- `latest-mac.yml` / `latest.yml`
-- blockmap files for differential download support
-- per-platform archives (`.zip`, `.dmg`, `.exe`, `.AppImage`, `.deb`)
+Current limitation:
 
-The repo also includes an `afterPack` hook that generates `app-update.yml` for packaged app resources when Electron's dir builds would otherwise omit it.
+- the in-app macOS update feed is published for the Apple silicon build
+- Intel macOS builds are still downloadable, but manual update is safer until a separate x64-safe update feed is published
 
-Current limitation: the macOS in-app update feed is published for the Apple silicon build. Intel macOS builds are still released as DMGs, but they should be updated manually until the release pipeline can publish a distinct x64-safe mac update manifest.
+## Notes For Regular Users
 
-### Release pipeline expectations
-
-- GitHub Releases is the update source (`package.json` publish provider points at `gabrielvuksani/sidelink`)
-- Release workflow first validates that the tag version matches `package.json`
-- Python helper bundles are built as separate workflow artifacts and downloaded into the matching packaging job for each platform and architecture
-- The `GH_TOKEN` provided by GitHub Actions is used for draft release publication
-
-For a manual workflow run, provide a `tag` input matching the target version in `package.json` and leave `dry_run` enabled if you only want to verify artifact generation.
-
-## Notes
-
-- macOS notarization is still separate from packaging correctness
-- unsigned builds may still require Gatekeeper approval on first launch
-- Windows and Linux release artifacts are produced by GitHub Actions; local macOS packaging mainly validates the mac target in this workspace
+- If the app launches but installs fail, check Apple ID and Devices first.
+- If the app never reaches the dashboard, run `npm run desktop:preflight` or see [troubleshooting](/troubleshooting).
+- If you only need SideLink apps, add the official source from [official-source](/official-source) instead of importing everything manually.

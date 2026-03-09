@@ -34,6 +34,7 @@ import {
   toSafeAppleAccount,
   triggerRefreshAllActiveApps,
 } from '../services/shared-backend';
+import { onInstalledAppsChanged } from '../services/installed-app-events';
 
 export function helperRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -162,6 +163,42 @@ export function helperRoutes(ctx: AppContext): Router {
         sourceFeeds,
       },
     });
+  });
+
+  router.get('/sources', (_req, res) => {
+    res.json({ ok: true, data: ctx.sources.listWithManifest() });
+  });
+
+  router.post('/sources', async (req, res, next) => {
+    const url = String(req.body?.url ?? '').trim();
+    if (!url) {
+      return res.status(400).json({ ok: false, error: 'url is required' });
+    }
+
+    try {
+      const source = await ctx.sources.add(url);
+      res.status(201).json({ ok: true, data: source });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/sources/:id/refresh', async (req, res, next) => {
+    try {
+      const source = await ctx.sources.refresh(req.params.id);
+      res.json({ ok: true, data: source });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/sources/:id', (req, res, next) => {
+    try {
+      ctx.sources.remove(req.params.id);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get('/auto-refresh-states', (_req, res) => {
@@ -553,6 +590,7 @@ export function helperRoutes(ctx: AppContext): Router {
 
     const unsubPipeline = onPipelineUpdate((job) => {
       send('job-update', job);
+      send('scheduler-update', ctx.scheduler.getSnapshot());
     });
 
     const unsubPipelineLogs = onPipelineJobLog((entry) => {
@@ -561,7 +599,19 @@ export function helperRoutes(ctx: AppContext): Router {
 
     const unsubDevices = ctx.devices.onChange((devices) => {
       send('device-update', devices);
+      send('scheduler-update', ctx.scheduler.getSnapshot());
     });
+
+    const unsubScheduler = ctx.scheduler.onChange((snapshot) => {
+      send('scheduler-update', snapshot);
+    });
+
+    const unsubInstalledApps = onInstalledAppsChanged((apps) => {
+      send('app-update', apps);
+    });
+
+    send('app-update', ctx.db.listInstalledApps());
+    send('scheduler-update', ctx.scheduler.getSnapshot());
 
     const keepalive = setInterval(() => {
       res.write(':keepalive\n\n');
@@ -571,6 +621,8 @@ export function helperRoutes(ctx: AppContext): Router {
       unsubPipeline();
       unsubPipelineLogs();
       unsubDevices();
+      unsubScheduler();
+      unsubInstalledApps();
       clearInterval(keepalive);
     });
   });

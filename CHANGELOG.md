@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.1] - 2026-03-09
+
+### Changed
+
+- Promoted manual helper pairing codes to the primary pairing path across the iPhone helper and desktop overview, with QR kept as a secondary fallback instead of competing with the default flow.
+- Reworked the iPhone helper onboarding, settings, and pairing surfaces so permissions, readiness, and next actions read like one polished native flow rather than separate utility screens.
+- Expanded the iPhone helper Installed tab into a fuller management surface with quota pressure, App ID consumer visibility, unmanaged app discovery, and per-app refresh state instead of a narrow installed-app list.
+
+### Added
+
+- Added a centralized iPhone permission coordinator that requests notifications, camera, local network, and background-refresh access up front and keeps status-aware action buttons in sync after changes.
+- Added stronger helper status tiles and pairing cards shared across onboarding and settings so the helper exposes pairing health and permission state more clearly.
+- Added release-note and operator-doc updates for the `v0.3.1` release path so current commands and release messaging match the shipped product surface.
+- Added a much fuller docs site for setup, desktop usage, helper usage, source downloads, troubleshooting, and release operations instead of leaving critical details scattered across a few thin pages.
+- Added the first public non-helper IPA listing to the official SideLink source feed with Cortex metadata and release-backed download URLs.
+
+### Fixed
+
+- Fixed multiple iPhone helper regressions uncovered by real simulator builds, including the onboarding closure break, Installed-tab compiler pressure, missing project-file inclusion for the new permissions source, and refresh-state loading issues in the helper view model.
+- Fixed helper-side refresh visibility so App ID quota state, hidden consumers, and auto-refresh status load together during full refresh instead of partially updating or disappearing after pairing changes.
+
 ## [0.3.0] - 2026-03-08
 
 ### Changed

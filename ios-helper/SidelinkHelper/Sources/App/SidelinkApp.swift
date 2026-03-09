@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SidelinkAppRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     enum RootTab: Hashable {
         case browse
         case search
@@ -10,6 +12,7 @@ struct SidelinkAppRootView: View {
     }
 
     @StateObject private var model = HelperViewModel()
+    @StateObject private var permissions = PermissionCoordinator.shared
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
     @State private var selectedTab: RootTab = .browse
     @State private var pendingSourceImport: PendingSourceImport?
@@ -29,7 +32,7 @@ struct SidelinkAppRootView: View {
                 .tag(RootTab.installed)
                 .tabItem { Label("Installed", systemImage: "checkmark.shield") }
                 .badge(model.installedAttentionCount)
-            SettingsTab(model: model)
+            SettingsTab(model: model, permissions: permissions)
                 .tag(RootTab.settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .badge(model.settingsAttentionCount)
@@ -57,13 +60,24 @@ struct SidelinkAppRootView: View {
         }
         .task {
             await model.refreshAll()
+            await permissions.refreshStatuses()
+            await permissions.requestAllIfNeeded()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task {
+                    await model.refreshAllSilently()
+                    await permissions.refreshStatuses()
+                    permissions.requestLocalNetworkIfNeeded(force: true)
+                }
+            }
         }
         .tint(.slAccent)
         .fullScreenCover(isPresented: Binding(
             get: { !didCompleteOnboarding },
             set: { value in didCompleteOnboarding = !value }
         )) {
-            OnboardingView(model: model, completed: $didCompleteOnboarding)
+            OnboardingView(model: model, permissions: permissions, completed: $didCompleteOnboarding)
         }
         .sheet(item: $pendingSourceImport) { pending in
             ImportSourceSheet(

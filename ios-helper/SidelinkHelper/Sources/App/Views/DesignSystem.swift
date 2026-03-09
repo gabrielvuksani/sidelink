@@ -171,6 +171,75 @@ struct SidelinkMetricTile: View {
     }
 }
 
+struct SidelinkStatusTile: View {
+    let label: String
+    let value: String
+    var detail: String? = nil
+    var tint: Color = .slAccent
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .tracking(1.0)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(tint)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.78))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(tint.opacity(0.14), lineWidth: 1)
+                )
+        )
+    }
+}
+
+struct SidelinkFeatureCard: View {
+    let icon: String
+    let title: String
+    let message: String
+    var tint: Color = .slAccent
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(tint.opacity(colorScheme == .dark ? 0.20 : 0.12))
+                    .frame(width: 42, height: 42)
+                Image(systemName: icon)
+                    .font(.headline)
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+}
+
 struct SidelinkQuickActionButtonStyle: ButtonStyle {
     var tint: Color = .slAccent
 

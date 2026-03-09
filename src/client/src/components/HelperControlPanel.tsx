@@ -4,6 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
 import { useElectron } from '../hooks/useElectron';
 import { HelperPairingPanel } from './HelperPairingPanel';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 
 type HelperDoctorSnapshot = {
   platform: string;
@@ -28,17 +29,21 @@ export function HelperControlPanel({
 }) {
   const { toast } = useToast();
   const { info } = useElectron();
+  const snapshotKey = `panel:helper-control:${variant}`;
+  const warmSnapshot = getUiSnapshot<HelperDoctorSnapshot | null>(snapshotKey);
   const [teamId, setTeamId] = useState('');
   const [overrideTeamId, setOverrideTeamId] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!warmSnapshot);
   const [running, setRunning] = useState(false);
-  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
+  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(warmSnapshot?.data ?? null);
 
   const refreshDoctor = async () => {
     setLoading(true);
     try {
       const res = await api.helperDoctor();
-      setDoctor(res.data ?? null);
+      const nextDoctor = res.data ?? null;
+      setDoctor(nextDoctor);
+      setUiSnapshot(snapshotKey, nextDoctor);
       const detected = res.data?.detectedTeamId;
       if (detected && !teamId) setTeamId(detected);
     } catch (e: unknown) {
@@ -50,7 +55,7 @@ export function HelperControlPanel({
 
   useEffect(() => {
     void refreshDoctor();
-  }, []);
+  }, [snapshotKey]);
 
   const ensureHelper = async () => {
     setRunning(true);
@@ -83,19 +88,32 @@ export function HelperControlPanel({
 
   const copy = variant === 'overview'
     ? {
-        title: 'Helper controls',
-        subtitle: 'Build or import the helper, then pair your iPhone from the same place you monitor installs and devices.',
+        title: 'iPhone helper',
+        subtitle: 'Keep helper readiness, code-first pairing, and import actions in one tighter control surface instead of splitting them across separate cards.',
       }
     : {
         title: 'iOS Helper',
         subtitle: 'One click helper IPA import, and macOS build/export when required.',
       };
 
+  const overviewStatuses = [
+    { label: 'Helper asset', ok: !!doctor?.helperIpaExists, detail: doctor?.helperIpaExists ? 'Ready' : 'Missing' },
+    { label: 'Apple runtime', ok: doctor?.appleAuthReady !== false, detail: doctor?.appleAuthReady === false ? 'Needs repair' : 'Ready' },
+    { label: 'Pairing', ok: !!doctor?.helperPaired, detail: doctor?.helperPaired ? 'Connected' : 'Waiting' },
+  ];
+
   return (
     <section className="sl-card overflow-hidden p-0">
       <div className="border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] px-5 py-4">
-        <h3 className="text-[14px] font-semibold tracking-tight text-[var(--sl-text)]">{copy.title}</h3>
-        <p className="mt-1 max-w-lg text-[12px] leading-5 text-[var(--sl-muted)]">{copy.subtitle}</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[14px] font-semibold tracking-tight text-[var(--sl-text)]">{copy.title}</h3>
+            <p className="mt-1 max-w-lg text-[12px] leading-5 text-[var(--sl-muted)]">{copy.subtitle}</p>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${doctor?.helperPaired ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border-sky-400/20 bg-sky-400/10 text-sky-200'}`}>
+            {doctor?.helperPaired ? 'Paired' : 'Pairing required'}
+          </span>
+        </div>
       </div>
 
       <div className="space-y-4 p-5">
@@ -103,21 +121,34 @@ export function HelperControlPanel({
           <p className="text-xs text-[var(--sl-muted)]">Loading helper diagnostics...</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <HelperStatus label="Helper IPA" ok={!!doctor?.helperIpaExists} />
-              <HelperStatus label="xcodebuild" ok={!!doctor?.hasXcodebuild || !canBuild} />
-              <HelperStatus label="Xcode Project" ok={!!doctor?.xcodeProjectExists || !!doctor?.projectYmlExists} />
-              <HelperStatus label="xcodegen" ok={!!doctor?.hasXcodegen || !!doctor?.xcodeProjectExists || !canBuild} />
-            </div>
+            {variant === 'overview' ? (
+              <div className="grid gap-2 sm:grid-cols-3 text-xs">
+                {overviewStatuses.map((status) => (
+                  <div key={status.label} className={`rounded-2xl border px-3 py-3 ${status.ok ? 'border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-100' : 'border-amber-400/20 bg-amber-400/[0.08] text-amber-100'}`}>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">{status.label}</p>
+                    <p className="mt-2 text-[13px] font-semibold">{status.detail}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <HelperStatus label="Helper IPA" ok={!!doctor?.helperIpaExists} />
+                  <HelperStatus label="xcodebuild" ok={!!doctor?.hasXcodebuild || !canBuild} />
+                  <HelperStatus label="Xcode Project" ok={!!doctor?.xcodeProjectExists || !!doctor?.projectYmlExists} />
+                  <HelperStatus label="xcodegen" ok={!!doctor?.hasXcodegen || !!doctor?.xcodeProjectExists || !canBuild} />
+                </div>
 
-            <div className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${doctor?.appleAuthReady === false ? 'border-amber-500/30 bg-amber-500/10 text-amber-100' : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-100'}`}>
-              <p className="font-semibold uppercase tracking-[0.18em]">Apple Auth Runtime</p>
-              <p className="mt-2">
-                {doctor?.appleAuthReady === false
-                  ? (doctor.appleAuthError ?? 'The packaged Apple helper runtime is not healthy.')
-                  : 'The packaged Apple helper runtime passed its local readiness checks.'}
-              </p>
-            </div>
+                <div className={`rounded-2xl border px-4 py-3 text-xs leading-5 ${doctor?.appleAuthReady === false ? 'border-amber-500/30 bg-amber-500/10 text-amber-100' : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-100'}`}>
+                  <p className="font-semibold uppercase tracking-[0.18em]">Apple Auth Runtime</p>
+                  <p className="mt-2">
+                    {doctor?.appleAuthReady === false
+                      ? (doctor.appleAuthError ?? 'The packaged Apple helper runtime is not healthy.')
+                      : 'The packaged Apple helper runtime passed its local readiness checks.'}
+                  </p>
+                </div>
+              </>
+            )}
 
             {canBuild && (
               <div className="space-y-3 rounded-2xl border border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.02))] p-4">
@@ -175,16 +206,16 @@ export function HelperControlPanel({
               </button>
             </div>
 
-            <HelperPairingPanel paired={!!doctor?.helperPaired} compact={variant === 'overview'} />
+            <HelperPairingPanel
+              paired={!!doctor?.helperPaired}
+              compact={variant === 'overview'}
+              title={variant === 'overview' ? 'Pair or repair your helper connection' : undefined}
+              subtitle={variant === 'overview'
+                ? 'Enter the short code from the iPhone first. Open QR only when camera handoff is the faster route.'
+                : undefined}
+            />
 
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-2">
-              <span className={`inline-block h-2 w-2 rounded-full ${doctor?.helperPaired ? 'bg-green-500' : 'bg-[var(--sl-muted)]'}`} />
-              <span className="text-xs text-[var(--sl-text)]">
-                {doctor?.helperPaired ? 'iOS helper paired' : 'No iOS helper paired'}
-              </span>
-            </div>
-
-            {doctor?.helperIpaPath && (
+            {variant !== 'overview' && doctor?.helperIpaPath && (
               <p className="text-[11px] text-[var(--sl-muted)]">
                 Resolved helper path: <span className="font-mono text-[var(--sl-text)]">{doctor.helperIpaPath}</span>
               </p>

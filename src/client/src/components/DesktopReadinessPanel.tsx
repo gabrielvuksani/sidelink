@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useElectron } from '../hooks/useElectron';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 
 type HelperDoctorSnapshot = {
   platform: string;
@@ -33,10 +34,11 @@ export function DesktopReadinessPanel({
   deviceCount: number;
 }) {
   const { info } = useElectron();
-  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
-  const [health, setHealth] = useState<HealthSnapshot | null>(null);
+  const warmSnapshot = getUiSnapshot<{ doctor: HelperDoctorSnapshot | null; health: HealthSnapshot | null }>('panel:desktop-readiness');
+  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(warmSnapshot?.data.doctor ?? null);
+  const [health, setHealth] = useState<HealthSnapshot | null>(warmSnapshot?.data.health ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!warmSnapshot);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,8 +52,11 @@ export function DesktopReadinessPanel({
         ]);
 
         if (cancelled) return;
-        setHealth(healthRes.data ?? null);
-        setDoctor(doctorRes.data ?? null);
+        const nextHealth = healthRes.data ?? null;
+        const nextDoctor = doctorRes.data ?? null;
+        setHealth(nextHealth);
+        setDoctor(nextDoctor);
+        setUiSnapshot('panel:desktop-readiness', { health: nextHealth, doctor: nextDoctor });
         setError(null);
       } catch (err: unknown) {
         if (cancelled) return;

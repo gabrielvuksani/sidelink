@@ -1,0 +1,20 @@
+{
+  "name": "Cortex",
+  "developerName": "Gabriel Vuksani",
+  "subtitle": "Local-first LLM chat for iPhone",
+  "localizedDescription": "Cortex is a local-first iPhone app for on-device AI conversations. It supports voice dictation, image-aware prompts, and local model workflows without making the app read like a remote chat shell first.",
+  "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/.vitepress/public/source/cortex-icon.png",
+  "tintColor": "#1d9a8a",
+  "featured": true,
+  "versionDate": "2026-03-09",
+  "versionDescription": "First public Cortex release through the official SideLink source.",
+  "appPermissions": {
+    "entitlements": [],
+    "privacy": [
+      "Camera: Capture a photo and analyze it entirely on-device with local vision models.",
+      "Photo Library: Attach images to local conversations.",
+      "Microphone: Dictate prompts directly into local conversations.",
+      "Speech Recognition: Transcribe dictated prompts before running them on-device."
+    ]
+  }
+}

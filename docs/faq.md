@@ -20,14 +20,24 @@ Both work. Free accounts have stricter app slot and expiry limits.
 
 Desktop uses GitHub release artifacts and in-app updater checks.
 
+## Can I install apps from the official SideLink source?
+
+Yes. Add the official feed URL from [official-source](/official-source), then refresh your sources. The current public catalog includes the SideLink helper and Cortex.
+
 ## Can I use helper without desktop?
 
 Helper pairs to a running SideLink server. Desktop is recommended for easiest setup.
 
 ## Why is the desktop release flow stricter now?
 
-Because a successful build is not enough. Starting with the `v0.2.x` release hardening and carried forward into `v0.3.0`, SideLink validates packaged startup, bundled Apple runtime health, and packaged helper behavior before publish so a clean CI build is not mistaken for a usable desktop release.
+Because a successful build is not enough. Starting with the `v0.2.x` release hardening and carried forward through `v0.3.1`, SideLink validates packaged startup, bundled Apple runtime health, helper build integrity, and packaged helper behavior before publish so a clean CI build is not mistaken for a usable desktop release.
 
 ## Where do the docs publish?
 
 When GitHub Pages is enabled for GitHub Actions, the docs site publishes to `https://gabrielvuksani.github.io/sidelink/`.
+
+## Where does the official source manifest publish?
+
+The canonical source manifest is the raw GitHub file:
+
+`https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json`

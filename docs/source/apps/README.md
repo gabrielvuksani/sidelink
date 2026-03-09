@@ -9,7 +9,7 @@ If you want this folder to behave like a live drop zone while you work, run `npm
 1. **Start** `npm run source:watch` once, or run `npm run source:generate` on demand
 2. **Drop your IPA** into this folder (`docs/source/apps/`)
 3. The script reads each IPA's `Info.plist`, extracts the bundle ID / name / version, and regenerates `docs/source/source.json`
-4. **Commit & push** — the next release will automatically upload all IPAs from this folder as GitHub Release assets
+4. **Commit & push** — the next tagged release will automatically upload all IPAs from this folder as GitHub Release assets
 
 The source feed is also regenerated during `npm run verify`, so you can't forget.
 
@@ -62,3 +62,16 @@ https://github.com/gabrielvuksani/sidelink/releases/latest/download/<filename>.i
 ```
 
 The release workflow uploads every IPA from this folder automatically.
+
+## Recommended for public listings
+
+If the app is meant to be visible to normal users, add a companion JSON file so the source entry has:
+
+- the real developer name
+- a subtitle
+- a human-readable description
+- version notes
+- a dedicated icon URL
+- explicit privacy permission descriptions when relevant
+
+Without the companion JSON, the generator only has what it can infer from the IPA itself.

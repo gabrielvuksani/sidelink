@@ -59,6 +59,20 @@ struct SourceFeedDTO: Decodable, Identifiable {
     let enabled: Bool
 }
 
+struct HelperSourceDTO: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let url: String
+    let identifier: String?
+    let iconURL: String?
+    let enabled: Bool
+    let isBuiltIn: Bool
+    let appCount: Int
+    let lastFetchedAt: String?
+    let createdAt: String
+    let cachedManifest: SourceManifestDTO?
+}
+
 struct AccountDTO: Decodable, Identifiable {
     let id: String
     let appleId: String

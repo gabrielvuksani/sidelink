@@ -11,36 +11,75 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { StatusBadge, PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { AppleAccount, DashboardState } from '../../../shared/types';
 
+type AppleAccountsPageSnapshot = {
+  accounts: AppleAccount[];
+  usageByAccount: DashboardState['weeklyAppIdUsage'];
+  appIds: AppleAppIdRecord[];
+  appIdUsage: AppleAppIdUsageRecord[];
+  certificates: AppleCertificateRecord[];
+};
+
 export default function AppleAccountPage() {
-  const [accounts, setAccounts] = useState<AppleAccount[]>([]);
-  const [usageByAccount, setUsageByAccount] = useState<DashboardState['weeklyAppIdUsage']>({});
-  const [appIds, setAppIds] = useState<AppleAppIdRecord[]>([]);
-  const [appIdUsage, setAppIdUsage] = useState<AppleAppIdUsageRecord[]>([]);
-  const [certificates, setCertificates] = useState<AppleCertificateRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const warmSnapshot = getUiSnapshot<AppleAccountsPageSnapshot>('page:apple');
+  const [accounts, setAccounts] = useState<AppleAccount[]>(warmSnapshot?.data.accounts ?? []);
+  const [usageByAccount, setUsageByAccount] = useState<DashboardState['weeklyAppIdUsage']>(warmSnapshot?.data.usageByAccount ?? {});
+  const [appIds, setAppIds] = useState<AppleAppIdRecord[]>(warmSnapshot?.data.appIds ?? []);
+  const [appIdUsage, setAppIdUsage] = useState<AppleAppIdUsageRecord[]>(warmSnapshot?.data.appIdUsage ?? []);
+  const [certificates, setCertificates] = useState<AppleCertificateRecord[]>(warmSnapshot?.data.certificates ?? []);
+  const [loading, setLoading] = useState(!warmSnapshot);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
 
   useEffect(() => { document.title = 'Apple ID — SideLink'; }, []);
 
-  const reload = useCallback(() => {
-    Promise.all([
+  const syncSnapshot = useCallback((next: AppleAccountsPageSnapshot) => {
+    setAccounts(next.accounts);
+    setUsageByAccount(next.usageByAccount);
+    setAppIds(next.appIds);
+    setAppIdUsage(next.appIdUsage);
+    setCertificates(next.certificates);
+    setUiSnapshot('page:apple', next);
+  }, []);
+
+  const reload = useCallback(async () => {
+    if (!accounts.length) {
+      setLoading(true);
+    }
+
+    const [accountsResponse, dashboardResponse] = await Promise.all([
       api.listAppleAccounts(),
       api.dashboard().catch(() => ({ data: { weeklyAppIdUsage: {} } as DashboardState })),
+    ]);
+
+    const coreSnapshot: AppleAccountsPageSnapshot = {
+      accounts: accountsResponse.data ?? [],
+      usageByAccount: dashboardResponse.data?.weeklyAppIdUsage ?? {},
+      appIds,
+      appIdUsage,
+      certificates,
+    };
+    syncSnapshot(coreSnapshot);
+    setLoading(false);
+    setLoadingDetails(true);
+
+    const [appIdsResponse, appIdUsageResponse, certificatesResponse] = await Promise.all([
       api.listAppleAppIds().catch(() => ({ data: [] as AppleAppIdRecord[] })),
       api.listAppleAppIdUsage().catch(() => ({ data: [] as AppleAppIdUsageRecord[] })),
       api.listAppleCertificates().catch(() => ({ data: [] as AppleCertificateRecord[] })),
-    ])
-      .then(([accountsResponse, dashboardResponse, appIdsResponse, appIdUsageResponse, certificatesResponse]) => {
-        setAccounts(accountsResponse.data ?? []);
-        setUsageByAccount(dashboardResponse.data?.weeklyAppIdUsage ?? {});
-        setAppIds(appIdsResponse.data ?? []);
-        setAppIdUsage(appIdUsageResponse.data ?? []);
-        setCertificates(certificatesResponse.data ?? []);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    ]);
+
+    syncSnapshot({
+      accounts: coreSnapshot.accounts,
+      usageByAccount: coreSnapshot.usageByAccount,
+      appIds: appIdsResponse.data ?? [],
+      appIdUsage: appIdUsageResponse.data ?? [],
+      certificates: certificatesResponse.data ?? [],
+    });
+    setLoadingDetails(false);
+  }, [accounts.length, appIdUsage, appIds, certificates, syncSnapshot]);
 
   usePageRefresh(reload);
 
@@ -66,7 +105,7 @@ export default function AppleAccountPage() {
 
       {showSignIn && <SignInForm onDone={() => { setShowSignIn(false); reload(); }} />}
 
-      {loading ? (
+      {loading && accounts.length === 0 ? (
         <PageLoader message="Loading accounts..." />
       ) : accounts.length === 0 ? (
         <EmptyState
@@ -76,6 +115,9 @@ export default function AppleAccountPage() {
         />
       ) : (
         <div className="space-y-6 stagger-children">
+          {loadingDetails && (
+            <div className="sl-card px-4 py-2 text-[12px] text-[var(--sl-muted)]">Refreshing App IDs and certificate inventory...</div>
+          )}
           <div className="space-y-2">
             <SectionHeading eyebrow="Accounts" title="Signing roster" description="Each account card keeps weekly pressure, team identity, and re-auth state visible." />
             {accounts.map(a => (
@@ -89,6 +131,9 @@ export default function AppleAccountPage() {
               <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Track active identifiers and weekly free-account consumption.</p>
             </div>
 
+            {loadingDetails && appIdUsage.length === 0 && (
+              <p className="text-[12px] text-[var(--sl-muted)]">Loading App ID usage...</p>
+            )}
             {appIdUsage.length > 0 && (
               <div className="grid gap-2 md:grid-cols-2">
                 {appIdUsage.map(entry => (
@@ -102,7 +147,9 @@ export default function AppleAccountPage() {
             )}
 
             <div className="space-y-2">
-              {appIds.length === 0 ? (
+              {loadingDetails && appIds.length === 0 ? (
+                <p className="text-[12px] text-[var(--sl-muted)]">Loading tracked App IDs...</p>
+              ) : appIds.length === 0 ? (
                 <p className="text-[12px] text-[var(--sl-muted)]">No tracked App IDs yet.</p>
               ) : appIds.map(appId => (
                 <AppIdRow key={appId.id} appId={appId} onChanged={reload} />
@@ -116,7 +163,9 @@ export default function AppleAccountPage() {
               <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Current signing certificates tracked for your Apple IDs.</p>
             </div>
 
-            {certificates.length === 0 ? (
+            {loadingDetails && certificates.length === 0 ? (
+              <p className="text-[12px] text-[var(--sl-muted)]">Loading signing certificates...</p>
+            ) : certificates.length === 0 ? (
               <p className="text-[12px] text-[var(--sl-muted)]">No signing certificates tracked yet.</p>
             ) : (
               <div className="space-y-2">

@@ -10,6 +10,7 @@ import type { AppContext } from '../context';
 import { getJob, getJobLogs, listJobs, submitJobTwoFA } from '../pipeline';
 import { validators } from '../utils/validators';
 import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
+import { notifyInstalledAppsChanged } from '../services/installed-app-events';
 
 export function installRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -95,6 +96,7 @@ export function installRoutes(ctx: AppContext): Router {
   // Delete installed app record
   router.delete('/apps/:id', (req, res) => {
     ctx.db.deleteInstalledApp(req.params.id);
+    notifyInstalledAppsChanged(ctx.db.listInstalledApps());
     res.json({ ok: true });
   });
 

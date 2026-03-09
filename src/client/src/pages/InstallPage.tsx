@@ -6,13 +6,15 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useInstallModal } from '../components/InstallModal';
 import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
 export default function InstallPage() {
-  const [jobs, setJobs] = useState<InstallJob[]>([]);
+  const warmSnapshot = getUiSnapshot<InstallJob[]>('page:install-jobs');
+  const [jobs, setJobs] = useState<InstallJob[]>(warmSnapshot?.data ?? []);
   const [jobLogs, setJobLogs] = useState<Record<string, JobLogEntry[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!warmSnapshot);
   const { toast } = useToast();
   const { openInstall } = useInstallModal();
 
@@ -21,7 +23,9 @@ export default function InstallPage() {
   const reload = useCallback(async () => {
     try {
       const res = await api.listJobs();
-      setJobs(res.data ?? []);
+      const nextJobs = res.data ?? [];
+      setJobs(nextJobs);
+      setUiSnapshot('page:install-jobs', nextJobs);
     } catch {
       toast('error', 'Failed to load jobs');
     } finally {
@@ -52,8 +56,9 @@ export default function InstallPage() {
       const job = data as InstallJob;
       setJobs(prev => {
         const idx = prev.findIndex(j => j.id === job.id);
-        if (idx >= 0) return prev.map(j => j.id === job.id ? job : j);
-        return [job, ...prev];
+        const nextJobs = idx >= 0 ? prev.map(j => j.id === job.id ? job : j) : [job, ...prev];
+        setUiSnapshot('page:install-jobs', nextJobs);
+        return nextJobs;
       });
     },
     'job-log': (data) => {
@@ -70,7 +75,7 @@ export default function InstallPage() {
   const completedJobs = jobs.filter(j => j.status !== 'running' && j.status !== 'waiting_2fa');
   const waiting2FA = activeJobs.filter((job) => job.status === 'waiting_2fa').length;
 
-  if (loading) return <PageLoader message="Loading..." />;
+  if (loading && jobs.length === 0) return <PageLoader message="Loading..." />;
 
   return (
     <div className="sl-page animate-fadeIn">
@@ -81,7 +86,7 @@ export default function InstallPage() {
         actions={(
           <button onClick={() => openInstall()} className="sl-btn-primary flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            New Install
+            Install App
           </button>
         )}
         stats={[
@@ -106,8 +111,8 @@ export default function InstallPage() {
             <svg className="w-7 h-7 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
           </div>
           <p className="text-[var(--sl-text)] text-[13px] font-semibold">No installations yet</p>
-          <p className="text-[var(--sl-muted)] text-[12px] mt-1 mb-4">Click "New Install" to get started</p>
-          <button onClick={() => openInstall()} className="sl-btn-primary">Start Installing</button>
+          <p className="text-[var(--sl-muted)] text-[12px] mt-1 mb-4">Click "Install App" to get started</p>
+          <button onClick={() => openInstall()} className="sl-btn-primary">Install App</button>
         </div>
       )}
 

@@ -2,6 +2,28 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.3.1
+
+### Highlights
+
+- Made manual pairing codes the default helper pairing path on both iPhone and desktop, while keeping QR available as a secondary option instead of the first decision point.
+- Upgraded iPhone onboarding and settings so permissions are requested immediately, current permission state stays visible, and every permission row exposes a live status-aware action.
+- Brought the iPhone Installed tab closer to the desktop management surface with App ID quota visibility, hidden-consumer counts, unmanaged installed apps, and refresh-state insight.
+- Tightened helper polish and stability with shared native status cards, a cleaner pairing hero, and simulator-build-driven fixes for onboarding, refresh loading, and Installed-tab composition.
+- Expanded the docs site into a fuller user-and-operator guide, including a dedicated official-source page and clearer setup, desktop, helper, and troubleshooting guidance.
+- Added the first non-helper public IPA listing to the official source so users can download Cortex directly from the source feed or the matching release asset.
+
+### Release Engineering Changes
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| Pairing flow | iPhone onboarding, settings pairing, desktop overview messaging, and helper control surfaces now lead with the 6-digit pairing code and demote QR to a supporting action | The product now has one obvious pairing path instead of splitting attention between two equally weighted entry points |
+| Helper permissions | `PermissionsCoordinator` centralizes notification, camera, local-network, and background-refresh status plus request flows | Permission prompts, status chips, and follow-up actions stay consistent between startup, onboarding, and settings |
+| Installed management | The helper Installed tab now surfaces free-account quotas, hidden App ID consumers, unmanaged apps, and auto-refresh state | Operators can see capacity pressure and refresh risk on-device instead of switching back to desktop to understand why installs stall |
+| Build validation | The helper project was regenerated from `project.yml`, and the final simulator build passed after fixing view-model refresh orchestration and SwiftUI composition issues | The shipped iPhone helper changes are backed by a real Xcode build rather than editor-only diagnostics |
+| Release docs | README, changelog, release notes, and release-command examples now align on `v0.3.1` | The release surface reads consistently for maintainers and users following the current cut |
+| Official source | The docs now explain the public source feed, direct IPA downloads, and release-hosted app assets, and the source catalog now includes Cortex | Users can discover and download public IPAs without digging through repo internals |
+
 ## v0.3.0
 
 ### Highlights

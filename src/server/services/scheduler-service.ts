@@ -23,6 +23,8 @@ interface RetryBackoffState {
   nextRetryAtMs: number;
 }
 
+type SchedulerListener = (snapshot: SchedulerSnapshot) => void;
+
 export class SchedulerService {
   private timer: NodeJS.Timeout | null = null;
   private config: SchedulerConfig;
@@ -30,6 +32,7 @@ export class SchedulerService {
   private retryBackoff = new Map<string, RetryBackoffState>();
   private lastCheckAt: string | null = null;
   private lastError: string | null = null;
+  private listeners: SchedulerListener[] = [];
 
   constructor(
     private pipelineDeps: PipelineDeps,
@@ -57,6 +60,7 @@ export class SchedulerService {
     });
 
     this.timer = setInterval(() => this.tick(), this.config.checkIntervalMs);
+    this.notifyListeners();
     // Immediate first check
     this.tick();
   }
@@ -69,6 +73,7 @@ export class SchedulerService {
       clearInterval(this.timer);
       this.timer = null;
       this.logs.info(LOG_CODES.REFRESH_SCHEDULED, 'Scheduler stopped');
+      this.notifyListeners();
     }
   }
 
@@ -100,7 +105,16 @@ export class SchedulerService {
       if (this.config.enabled) this.start();
     }
 
+    this.notifyListeners();
+
     return this.config;
+  }
+
+  onChange(listener: SchedulerListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((entry) => entry !== listener);
+    };
   }
 
   /**
@@ -147,6 +161,7 @@ export class SchedulerService {
     try {
       this.lastCheckAt = new Date().toISOString();
       this.lastError = null;
+      this.notifyListeners();
       const nowMs = Date.now();
 
       const states = this.getAutoRefreshStates();
@@ -212,6 +227,7 @@ export class SchedulerService {
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
       this.logs.error(LOG_CODES.REFRESH_SCHEDULED, `Scheduler tick error: ${this.lastError}`);
+      this.notifyListeners();
     }
   }
 
@@ -221,6 +237,7 @@ export class SchedulerService {
     if (this.refreshInProgress.has(app.id!)) return;
 
     this.refreshInProgress.add(app.id!);
+    this.notifyListeners();
     this.logs.info(LOG_CODES.REFRESH_SCHEDULED, `Starting refresh: ${app.appName}`, {
       installedAppId: app.id, bundleId: app.bundleId, deviceUdid: app.deviceUdid,
     });
@@ -244,6 +261,7 @@ export class SchedulerService {
       throw err;
     } finally {
       this.refreshInProgress.delete(app.id!);
+      this.notifyListeners();
     }
   }
 
@@ -267,5 +285,16 @@ export class SchedulerService {
 
   private saveConfig(): void {
     this.db.setSetting('scheduler_config', JSON.stringify(this.config));
+  }
+
+  private notifyListeners(): void {
+    const snapshot = this.getSnapshot();
+    for (const listener of this.listeners) {
+      try {
+        listener(snapshot);
+      } catch (err) {
+        console.warn('[scheduler-service] Listener error:', err);
+      }
+    }
   }
 }

@@ -1,7 +1,11 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useMemo, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
+import { getErrorMessage } from '../lib/errors';
+import { setUiSnapshot } from '../lib/ui-snapshot-cache';
 import { UpdateBanner } from './UpdateBanner';
+import { useInstallModal } from './InstallModal';
+import { useToast } from './Toast';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useElectron } from '../hooks/useElectron';
 import { BrandIcon } from './BrandIcon';
@@ -79,7 +83,10 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [scanningDevices, setScanningDevices] = useState(false);
   const { info } = useElectron();
+  const { openInstall } = useInstallModal();
+  const { toast } = useToast();
   const macChromeInset = info.isElectron && info.platform === 'darwin';
 
   useGlobalShortcuts();
@@ -95,6 +102,27 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
     }
     onLogout();
     navigate('/');
+  };
+
+  const handleOpenInstall = () => {
+    setMobileOpen(false);
+    openInstall();
+  };
+
+  const handleScanDevices = async () => {
+    if (scanningDevices) return;
+    setMobileOpen(false);
+    setScanningDevices(true);
+    try {
+      const response = await api.refreshDevices();
+      const devices = response.data ?? [];
+      setUiSnapshot('page:devices', devices);
+      toast('success', `Found ${devices.length} device(s)`);
+    } catch (error: unknown) {
+      toast('error', getErrorMessage(error, 'Failed to refresh devices'));
+    } finally {
+      setScanningDevices(false);
+    }
   };
 
   const sidebar = (
@@ -154,8 +182,10 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         <div className="mb-3 rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.42)] p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Fast Actions</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <NavLink to="/install" className="sl-btn-primary !px-3 !py-1.5 !text-[11px]">New Install</NavLink>
-            <NavLink to="/devices" className="sl-btn-ghost !px-3 !py-1.5 !text-[11px]">Scan Devices</NavLink>
+            <button onClick={handleOpenInstall} className="sl-btn-primary !px-3 !py-1.5 !text-[11px]">New Install</button>
+            <button onClick={() => { void handleScanDevices(); }} disabled={scanningDevices} className="sl-btn-ghost !px-3 !py-1.5 !text-[11px] disabled:opacity-50">
+              {scanningDevices ? 'Scanning...' : 'Scan Devices'}
+            </button>
           </div>
         </div>
         <button
@@ -207,7 +237,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <NavLink to="/install" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Quick Install</NavLink>
+              <NavLink to="/install" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Install Center</NavLink>
               <NavLink to="/apple" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Signing</NavLink>
               <NavLink to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">System</NavLink>
             </div>

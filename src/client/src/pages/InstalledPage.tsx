@@ -1,43 +1,167 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
+import { SSEIndicator, useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
 import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
-import type { InstalledApp, AutoRefreshState, DashboardState } from '../../../shared/types';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
+import type { InstalledApp, AutoRefreshState, AppleAccount } from '../../../shared/types';
+import type { AppleAppIdRecord, AppleAppIdUsageRecord } from '../lib/api';
+
+const FALLBACK_REFRESH_MS = 5000;
+
+type InstalledSnapshot = {
+  apps: InstalledApp[];
+  refreshStates: AutoRefreshState[];
+  accounts: AppleAccount[];
+  appIds: AppleAppIdRecord[];
+  appIdUsage: AppleAppIdUsageRecord[];
+  staleSections: string[];
+};
+
+type AppIdConsumer = {
+  record: AppleAppIdRecord;
+  kind: 'tracked' | 'deactivated' | 'extension' | 'orphaned';
+  relatedAppName?: string;
+};
 
 export default function InstalledPage() {
-  const [apps, setApps] = useState<InstalledApp[]>([]);
-  const [refreshStates, setRefreshStates] = useState<AutoRefreshState[]>([]);
-  const [weeklyUsage, setWeeklyUsage] = useState<DashboardState['weeklyAppIdUsage']>({});
-  const [loading, setLoading] = useState(true);
+  const warmSnapshot = getUiSnapshot<InstalledSnapshot>('page:installed');
+  const [apps, setApps] = useState<InstalledApp[]>(warmSnapshot?.data.apps ?? []);
+  const [refreshStates, setRefreshStates] = useState<AutoRefreshState[]>(warmSnapshot?.data.refreshStates ?? []);
+  const [accounts, setAccounts] = useState<AppleAccount[]>(warmSnapshot?.data.accounts ?? []);
+  const [appIds, setAppIds] = useState<AppleAppIdRecord[]>(warmSnapshot?.data.appIds ?? []);
+  const [appIdUsage, setAppIdUsage] = useState<AppleAppIdUsageRecord[]>(warmSnapshot?.data.appIdUsage ?? []);
+  const [staleSections, setStaleSections] = useState<string[]>(warmSnapshot?.data.staleSections ?? []);
+  const [lastSnapshotAt, setLastSnapshotAt] = useState<number | null>(warmSnapshot?.updatedAt ?? null);
+  const [loading, setLoading] = useState(!warmSnapshot);
   const { toast } = useToast();
   const confirmDialog = useConfirm();
   const { openInstall } = useInstallModal();
+  const refreshTimerRef = useRef<number | null>(null);
+  const inFlightRef = useRef(false);
+  const lastLoadedAtRef = useRef(0);
 
   useEffect(() => { document.title = 'Installed — SideLink'; }, []);
 
-  const reload = useCallback(async () => {
-    const [appsRes, statesRes, dashboardRes] = await Promise.all([
+  const loadSnapshot = useCallback(async (): Promise<InstalledSnapshot> => {
+    const currentApps = apps;
+    const currentRefreshStates = refreshStates;
+    const currentAccounts = accounts;
+    const currentAppIds = appIds;
+    const currentAppIdUsage = appIdUsage;
+
+    const [appsRes, statesRes, accountsRes, appIdsRes, appIdUsageRes] = await Promise.allSettled([
       api.listInstalledApps(),
-      api.getAutoRefreshStates().catch(() => ({ data: [] as AutoRefreshState[] })),
-      api.dashboard().catch(() => ({ data: { weeklyAppIdUsage: {} } as DashboardState })),
+      api.getAutoRefreshStates(),
+      api.listAppleAccounts(),
+      api.listAppleAppIds(),
+      api.listAppleAppIdUsage(),
     ]);
-    setApps(appsRes.data ?? []);
-    setRefreshStates(statesRes.data ?? []);
-    setWeeklyUsage(dashboardRes.data?.weeklyAppIdUsage ?? {});
-    setLoading(false);
+
+    const stale: string[] = [];
+
+    const nextApps = appsRes.status === 'fulfilled'
+      ? (appsRes.value.data ?? [])
+      : (stale.push('installed apps'), currentApps);
+    const nextRefreshStates = statesRes.status === 'fulfilled'
+      ? (statesRes.value.data ?? [])
+      : (stale.push('refresh states'), currentRefreshStates);
+    const nextAccounts = accountsRes.status === 'fulfilled'
+      ? (accountsRes.value.data ?? [])
+      : (stale.push('accounts'), currentAccounts);
+    const nextAppIds = appIdsRes.status === 'fulfilled'
+      ? (appIdsRes.value.data ?? [])
+      : (stale.push('App IDs'), currentAppIds);
+    const nextAppIdUsage = appIdUsageRes.status === 'fulfilled'
+      ? (appIdUsageRes.value.data ?? [])
+      : (stale.push('App ID usage'), currentAppIdUsage);
+
+    return {
+      apps: nextApps,
+      refreshStates: nextRefreshStates,
+      accounts: nextAccounts,
+      appIds: nextAppIds,
+      appIdUsage: nextAppIdUsage,
+      staleSections: stale,
+    };
+  }, [accounts, appIdUsage, appIds, apps, refreshStates]);
+
+  const applySnapshot = useCallback((snapshot: InstalledSnapshot) => {
+    setApps(snapshot.apps);
+    setRefreshStates(snapshot.refreshStates);
+    setAccounts(snapshot.accounts);
+    setAppIds(snapshot.appIds);
+    setAppIdUsage(snapshot.appIdUsage);
+    setStaleSections(snapshot.staleSections);
+    setLastSnapshotAt(Date.now());
+    setUiSnapshot('page:installed', snapshot);
+  }, []);
+
+  const reload = useCallback(async (force = false) => {
+    if (inFlightRef.current) return;
+    if (!force && Date.now() - lastLoadedAtRef.current < 400) return;
+
+    inFlightRef.current = true;
+    try {
+      applySnapshot(await loadSnapshot());
+      lastLoadedAtRef.current = Date.now();
+    } finally {
+      inFlightRef.current = false;
+      setLoading(false);
+    }
+  }, [applySnapshot, loadSnapshot]);
+
+  const scheduleReload = useCallback((force = false) => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void reload(force);
+    }, 200);
   }, []);
 
   usePageRefresh(reload);
+
+  useEffect(() => {
+    void reload(true);
+  }, [reload]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void reload(true);
+      }
+    }, FALLBACK_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [reload]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+  }, []);
+
+  const sseState = useSSE({
+    'job-update': () => { scheduleReload(); },
+    'device-update': () => { scheduleReload(); },
+    'scheduler-update': () => { scheduleReload(); },
+    'app-update': () => { scheduleReload(true); },
+  });
 
   const triggerRefresh = async (appId: string) => {
     try {
       await api.triggerRefresh(appId);
       toast('info', 'Refresh triggered');
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Refresh failed'));
     }
@@ -54,9 +178,27 @@ export default function InstalledPage() {
     try {
       await api.removeInstalledApp(app.id);
       toast('success', 'App removed from tracking');
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to remove app'));
+    }
+  };
+
+  const removeOrphanedAppId = async (appId: AppleAppIdRecord) => {
+    const ok = await confirmDialog({
+      title: 'Delete Orphaned App ID',
+      message: `Delete ${appId.bundleId}? This orphaned App ID no longer matches a tracked install and may be consuming Apple account quota.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      await api.deleteAppleAppId(appId.id);
+      toast('success', 'Orphaned App ID deleted');
+      void reload(true);
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to delete orphaned App ID'));
     }
   };
 
@@ -64,7 +206,7 @@ export default function InstalledPage() {
     try {
       const res = await api.triggerRefreshAll();
       toast('success', `Triggered refresh for ${res.data?.triggered ?? 0} apps`);
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Refresh all failed'));
     }
@@ -81,7 +223,7 @@ export default function InstalledPage() {
     try {
       await api.deactivateInstalledApp(app.id);
       toast('success', 'App deactivated');
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to deactivate app'));
     }
@@ -91,7 +233,7 @@ export default function InstalledPage() {
     try {
       await api.reactivateInstalledApp(app.id);
       toast('success', 'App reactivation queued');
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to reactivate app'));
     }
@@ -100,7 +242,58 @@ export default function InstalledPage() {
   const getRefreshState = (id: string) =>
     refreshStates.find(s => s.installedAppId === id);
 
-  if (loading) return <PageLoader message="Loading installed apps..." />;
+  const getAccountLabel = (accountId: string) => {
+    const account = accounts.find((entry) => entry.id === accountId);
+    if (!account) return `${accountId.slice(0, 8)}...`;
+    return account.appleId || account.teamName || `${account.id.slice(0, 8)}...`;
+  };
+
+  const appIdConsumersByAccount = useMemo(() => {
+    const consumers = new Map<string, AppIdConsumer[]>();
+
+    for (const appId of appIds) {
+      const directInstall = apps.find((app) => app.accountId === appId.accountId && app.originalBundleId === appId.originalBundleId);
+      const parentInstall = apps.find((app) => app.accountId === appId.accountId && appId.originalBundleId.startsWith(`${app.originalBundleId}.`));
+
+      const entry: AppIdConsumer = directInstall
+        ? {
+            record: appId,
+            kind: directInstall.status === 'deactivated' ? 'deactivated' : 'tracked',
+            relatedAppName: directInstall.appName,
+          }
+        : parentInstall
+          ? {
+              record: appId,
+              kind: 'extension',
+              relatedAppName: parentInstall.appName,
+            }
+          : {
+              record: appId,
+              kind: 'orphaned',
+            };
+
+      const existing = consumers.get(appId.accountId) ?? [];
+      existing.push(entry);
+      consumers.set(appId.accountId, existing);
+    }
+
+    return consumers;
+  }, [appIds, apps]);
+
+  const hiddenConsumers = useMemo(
+    () => appIds.filter((appId) => !apps.some((app) => app.accountId === appId.accountId && app.originalBundleId === appId.originalBundleId && app.status !== 'deactivated')).length,
+    [appIds, apps],
+  );
+
+  const feedHealthDetail = staleSections.length > 0
+    ? `Using the last successful snapshot while ${staleSections.join(', ')} ${staleSections.length === 1 ? 'retries' : 'retry'}.`
+    : 'Direct app-change events update this page, with a 5-second polling fallback if SSE drops.';
+
+  const lastSnapshotLabel = lastSnapshotAt
+    ? new Date(lastSnapshotAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+    : null;
+
+  if (loading && apps.length === 0) return <PageLoader message="Loading installed apps..." />;
 
   const activeApps = apps.filter(app => app.status !== 'deactivated');
   const deactivatedApps = apps.filter(app => app.status === 'deactivated');
@@ -114,7 +307,7 @@ export default function InstalledPage() {
       <PageHeader
         eyebrow="Installed Fleet"
         title="Track live installs, expiry risk, and recovery actions from one board"
-        description="The installed view now behaves like a fleet dashboard: refresh active apps, keep expiring installs visible, and preserve deactivated items for fast reactivation."
+        description="The installed view now shows both tracked installs and the App IDs that actually consume free-account capacity, including extensions and leftover identifiers that were previously invisible."
         actions={(
           <>
             {activeApps.length > 0 && (
@@ -135,20 +328,100 @@ export default function InstalledPage() {
           { label: 'Active', value: activeApps.length, tone: 'teal' },
           { label: 'Deactivated', value: deactivatedApps.length, tone: 'slate' },
           { label: 'Expiring Soon', value: expiringSoon, tone: expiringSoon > 0 ? 'amber' : 'sky' },
+          { label: 'Hidden Consumers', value: hiddenConsumers, tone: hiddenConsumers > 0 ? 'amber' : 'sky' },
         ]}
       />
 
-      {Object.keys(weeklyUsage ?? {}).length > 0 && (
-        <div className="sl-card p-3">
-          <p className="text-[12px] font-semibold text-[var(--sl-text)]">Weekly Free Account App ID Usage</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {Object.values(weeklyUsage ?? {}).map((entry) => (
-              <span key={entry.accountId} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300">
-                {entry.accountId.slice(0, 8)}...: {entry.used}/{entry.limit}
-              </span>
-            ))}
-          </div>
+      <div className="sl-card flex items-center justify-between gap-3 p-3">
+        <div>
+          <p className="text-[12px] font-semibold text-[var(--sl-text)]">Installed feed health</p>
+          <p className="text-[11px] text-[var(--sl-muted)]">{feedHealthDetail}</p>
+          {lastSnapshotLabel && (
+            <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Last snapshot: {lastSnapshotLabel}</p>
+          )}
         </div>
+        <div className="flex flex-col items-end gap-1">
+          <SSEIndicator state={sseState} />
+          {staleSections.length > 0 && (
+            <span className="rounded-full border border-amber-300/15 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">
+              Partial snapshot
+            </span>
+          )}
+        </div>
+      </div>
+
+      {appIdUsage.length > 0 && (
+        <section className="space-y-2">
+          <SectionHeading
+            eyebrow="Quota"
+            title="App ID consumers"
+            description="Free-account limits are driven by App IDs, not just the installs listed below. Extensions and leftover identifiers appear here so quota pressure is explainable."
+            action={<Link to="/apple" className="sl-btn-ghost !px-3 !py-2 !text-[12px]">Manage in Apple IDs</Link>}
+          />
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            {appIdUsage.map((usage) => {
+              const consumers = (appIdConsumersByAccount.get(usage.accountId) ?? []).sort((left, right) =>
+                right.record.createdAt.localeCompare(left.record.createdAt),
+              );
+              const activeRatio = usage.maxActive > 0 ? Math.min(usage.active / usage.maxActive, 1) : 0;
+              const weeklyRatio = usage.maxWeekly > 0 ? Math.min(usage.weeklyCreated / usage.maxWeekly, 1) : 0;
+
+              return (
+                <div key={usage.accountId} className="sl-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-semibold text-[var(--sl-text)]">{usage.appleId}</p>
+                      <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{accounts.find((account) => account.id === usage.accountId)?.teamName ?? usage.teamId}</p>
+                    </div>
+                    <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] text-[var(--sl-muted)]">
+                      {consumers.length} tracked App ID{consumers.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <UsageMeter label="Active App IDs" used={usage.active} limit={usage.maxActive} ratio={activeRatio} />
+                    <UsageMeter label="Created This Week" used={usage.weeklyCreated} limit={usage.maxWeekly} ratio={weeklyRatio} />
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    {consumers.length === 0 ? (
+                      <p className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-2 text-[12px] text-[var(--sl-muted)]">
+                        No App IDs tracked for this account.
+                      </p>
+                    ) : consumers.map((consumer) => (
+                      <div key={consumer.record.id} className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] font-semibold text-[var(--sl-text)]">{consumer.record.name}</p>
+                            <p className="mt-1 truncate font-mono text-[11px] text-[var(--sl-muted)]">{consumer.record.originalBundleId}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <ConsumerBadge kind={consumer.kind} />
+                            {consumer.kind === 'orphaned' && (
+                              <button
+                                onClick={() => removeOrphanedAppId(consumer.record)}
+                                className="sl-btn-danger !px-2.5 !py-1.5 !text-[11px]"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="mt-2 text-[11px] text-[var(--sl-muted)]">
+                          {consumer.kind === 'tracked' && `Visible install: ${consumer.relatedAppName ?? consumer.record.name}`}
+                          {consumer.kind === 'deactivated' && `Deactivated install: ${consumer.relatedAppName ?? consumer.record.name}`}
+                          {consumer.kind === 'extension' && `Extension App ID created under ${consumer.relatedAppName ?? 'a tracked install'}`}
+                          {consumer.kind === 'orphaned' && 'No tracked install currently matches this App ID.'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {apps.length === 0 ? (
@@ -179,6 +452,7 @@ export default function InstalledPage() {
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[180px]">{app.originalBundleId}</span>
                       {app.appVersion && <span className="text-[11px] text-[var(--sl-muted)]">v{app.appVersion}</span>}
+                      <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
                       <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid?.slice(0, 8)}...</span>
                     </div>
                   </div>
@@ -236,6 +510,7 @@ export default function InstalledPage() {
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">Deactivated</span>
                         <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[200px]">{app.originalBundleId}</span>
+                        <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-3">
@@ -255,4 +530,41 @@ export default function InstalledPage() {
       )}
     </div>
   );
+}
+
+function UsageMeter({
+  label,
+  used,
+  limit,
+  ratio,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+  ratio: number;
+}) {
+  const toneClass = ratio >= 1 ? 'bg-red-400' : ratio >= 0.8 ? 'bg-amber-400' : 'bg-[var(--sl-accent)]';
+
+  return (
+    <div className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-semibold text-[var(--sl-text)]">{label}</span>
+        <span className="text-[var(--sl-muted)]">{used}/{limit}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--sl-bg)]">
+        <div className={`h-full rounded-full ${toneClass}`} style={{ width: `${Math.round(ratio * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ConsumerBadge({ kind }: { kind: AppIdConsumer['kind'] }) {
+  const labels: Record<AppIdConsumer['kind'], { text: string; className: string }> = {
+    tracked: { text: 'Tracked install', className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200' },
+    deactivated: { text: 'Deactivated', className: 'border-slate-300/15 bg-white/[0.05] text-slate-200' },
+    extension: { text: 'Hidden extension', className: 'border-amber-400/20 bg-amber-400/10 text-amber-200' },
+    orphaned: { text: 'Orphaned App ID', className: 'border-rose-400/20 bg-rose-400/10 text-rose-200' },
+  };
+
+  return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${labels[kind].className}`}>{labels[kind].text}</span>;
 }

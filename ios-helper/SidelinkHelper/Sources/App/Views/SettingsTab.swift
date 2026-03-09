@@ -5,6 +5,7 @@ import VisionKit
 
 struct SettingsTab: View {
     @ObservedObject var model: HelperViewModel
+    @ObservedObject var permissions: PermissionCoordinator
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
     @AppStorage("backgroundRefreshIntervalMinutes") private var backgroundRefreshIntervalMinutes = 30
     @State private var showPairingSheet = false
@@ -22,6 +23,7 @@ struct SettingsTab: View {
                     VStack(spacing: 24) {
                         settingsHero
                         helperCard
+                        permissionsCard
                         appleAccountsCard
                         managementCard
                         backgroundRefreshCard
@@ -47,6 +49,7 @@ struct SettingsTab: View {
             }
             .refreshable {
                 await model.refreshAll()
+                await permissions.refreshStatuses()
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -95,23 +98,27 @@ struct SettingsTab: View {
 
     private var helperCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "SideLink" : model.serverName)." : "Use the desktop pairing QR, the 6-digit code, or a discovered server to connect.")
+            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "SideLink" : model.serverName)." : "Use the desktop code first, or open the QR scanner only when it is the faster route.")
 
             HStack(spacing: 12) {
-                Label(model.sseConnected ? "Live" : (model.isPaired ? "Polling" : "Offline"), systemImage: model.isPaired ? "checkmark.shield.fill" : "iphone.slash")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(model.isPaired ? Color.slSuccess : Color.slWarning)
-                if !model.serverVersion.isEmpty {
-                    Text("v\(model.serverVersion)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
+                SidelinkStatusTile(
+                    label: "Connection",
+                    value: model.sseConnected ? "Live" : (model.isPaired ? "Polling" : "Offline"),
+                    detail: model.serverName.isEmpty ? "Desktop helper" : model.serverName,
+                    tint: model.isPaired ? .slSuccess : .slWarning
+                )
+                SidelinkStatusTile(
+                    label: "Version",
+                    value: model.serverVersion.isEmpty ? "Unknown" : "v\(model.serverVersion)",
+                    detail: "Helper runtime",
+                    tint: .slAccent2
+                )
             }
 
             Button {
                 showPairingSheet = true
             } label: {
-                Label(model.isPaired ? "Re-pair Helper" : "Pair Helper", systemImage: "key.horizontal")
+                Label(model.isPaired ? "Repair With Code" : "Pair With Code", systemImage: "number")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.sidelinkQuickAction)
@@ -154,6 +161,34 @@ struct SettingsTab: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+            }
+        }
+        .liquidPanel()
+        .padding(.horizontal, 20)
+    }
+
+    private var permissionsCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SidelinkSectionIntro(eyebrow: "Access", title: "Permission status", subtitle: "Prime notifications, camera, and local-network access up front, then verify their state here later without guessing.")
+
+            HStack(spacing: 12) {
+                SidelinkStatusTile(label: "Notify", value: permissions.notifications.statusLabel, tint: permissions.notifications.tint)
+                SidelinkStatusTile(label: "Camera", value: permissions.camera.statusLabel, tint: permissions.camera.tint)
+            }
+
+            VStack(spacing: 10) {
+                settingsPermissionRow(title: "Notifications", icon: "bell.badge", state: permissions.notifications, tint: .slAccent) {
+                    Task { await permissions.requestNotificationsIfNeeded() }
+                }
+                settingsPermissionRow(title: "Camera", icon: "camera.viewfinder", state: permissions.camera, tint: .slAccent2) {
+                    Task { await permissions.requestCameraIfNeeded() }
+                }
+                settingsPermissionRow(title: "Local Network", icon: "dot.radiowaves.left.and.right", state: permissions.localNetwork, tint: .slSuccess) {
+                    permissions.requestLocalNetworkIfNeeded(force: true)
+                }
+                settingsPermissionRow(title: "Background Refresh", icon: "clock.arrow.circlepath", state: permissions.backgroundRefresh, tint: .slWarning) {
+                    permissions.openSystemSettings()
                 }
             }
         }
@@ -531,17 +566,19 @@ private enum AppleAccountSheetMode: Identifiable {
 }
 
 struct PairingPayloadActions: View {
+    var title: String = "Instant Pairing"
+    var subtitle: String = "Open the pairing card on the desktop app and scan to fill the helper address and code instantly."
     let onScanned: (String) -> Void
     @State private var showScanner = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Instant Pairing")
+            Text(title)
                 .font(.headline)
 
             pairingActionButton(
                 title: "Scan Desktop QR",
-                subtitle: "Open the pairing card on the desktop app and scan to fill the helper address and code instantly.",
+                subtitle: subtitle,
                 systemImage: "qrcode.viewfinder",
                 tint: .slAccent,
                 disabled: !PairingQRScannerSheet.isSupported
@@ -720,41 +757,36 @@ private struct PairingSheet: View {
                         VStack(alignment: .leading, spacing: 16) {
                             SidelinkSectionIntro(
                                 eyebrow: "Pair Helper",
-                                title: model.isPaired ? "Repair your connection" : "Connect in one pass",
-                                subtitle: "Scan the desktop QR first, or choose the helper manually with its address and 6-digit code."
+                                title: model.isPaired ? "Repair your connection" : "Connect with the code first",
+                                subtitle: "The desktop pairing code is now the primary path. Keep QR as an optional shortcut when the camera route is faster."
                             )
 
                             HStack(spacing: 12) {
-
-                    Text(model.primarySigningSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                                SidelinkMetricTile(label: "Connection", value: model.isPaired ? "Paired" : "Waiting", tint: model.isPaired ? .slSuccess : .slWarning)
-                                SidelinkMetricTile(label: "Discovery", value: model.discoveredBackends.isEmpty ? "Scanning" : "\(model.discoveredBackends.count) found", tint: .slAccent2)
+                                SidelinkStatusTile(
+                                    label: "Connection",
+                                    value: model.isPaired ? "Paired" : "Waiting",
+                                    detail: model.serverName.isEmpty ? "No desktop linked yet" : model.serverName,
+                                    tint: model.isPaired ? .slSuccess : .slWarning
+                                )
+                                SidelinkStatusTile(
+                                    label: "Discovery",
+                                    value: model.discoveredBackends.isEmpty ? "Scanning" : "\(model.discoveredBackends.count) found",
+                                    detail: "Nearby desktops",
+                                    tint: .slAccent2
+                                )
                             }
+
+                            Text(model.primarySigningSummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .liquidPanel()
-
-                        PairingPayloadActions(
-                            onScanned: { payload in
-                                Task {
-                                    localError = nil
-                                    let didPair = await model.pairUsingPayload(payload)
-                                    if didPair {
-                                        dismiss()
-                                    } else {
-                                        localError = model.errorMessage
-                                    }
-                                }
-                            }
-                        )
                         .liquidPanel()
 
                         VStack(alignment: .leading, spacing: 14) {
                             SidelinkSectionIntro(
-                                eyebrow: "Manual Pairing",
-                                title: "Direct desktop address",
-                                subtitle: "Use this when you want explicit control over the backend URL and the 6-digit code from the desktop app."
+                                eyebrow: "Recommended",
+                                title: "Direct desktop address + code",
+                                subtitle: "Choose a discovered helper or enter the desktop URL yourself, then type the 6-digit code shown on the desktop."
                             )
 
                             TextField("Backend URL", text: $model.backendURL)
@@ -811,6 +843,22 @@ private struct PairingSheet: View {
                         }
                         .liquidPanel()
 
+                        PairingPayloadActions(
+                            title: "Optional QR handoff",
+                            subtitle: "Use this only when you want SideLink to read the backend URL and code in one scan."
+                        ) { payload in
+                            Task {
+                                localError = nil
+                                let didPair = await model.pairUsingPayload(payload)
+                                if didPair {
+                                    dismiss()
+                                } else {
+                                    localError = model.errorMessage
+                                }
+                            }
+                        }
+                        .liquidPanel()
+
                         if let error = localError {
                             Label(error, systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote.weight(.semibold))
@@ -833,6 +881,46 @@ private struct PairingSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private extension SettingsTab {
+    func settingsPermissionRow(
+        title: String,
+        icon: String,
+        state: SidelinkPermissionState,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .font(.title3)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(state.statusLabel)
+                    .font(.caption)
+                    .foregroundStyle(state.tint)
+            }
+
+            Spacer()
+
+            Button(state.actionLabel) {
+                if state == .denied || state == .disabled {
+                    permissions.openSystemSettings()
+                } else {
+                    action()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(state.tint)
+            .disabled(state == .requesting || state == .unavailable)
+        }
+        .padding(16)
+        .background((colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.72)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

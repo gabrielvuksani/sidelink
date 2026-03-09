@@ -34,6 +34,7 @@ import type {
 } from '../../shared/types';
 import { PIPELINE_STEPS, LOG_CODES } from '../../shared/constants';
 import { PipelineError, DeviceError, SigningError, Apple2FARequiredError, ProvisioningError } from '../utils/errors';
+import { notifyInstalledAppsChanged } from '../services/installed-app-events';
 
 // ─── Per-device Mutex ────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ function logJobLine(
 
 // ─── 2FA Pause / Resume ─────────────────────────────────────────────
 
-const TWO_FA_TIMEOUT_MS = 5 * 60_000; // 5 minutes
+const TWO_FA_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 
 interface TwoFAWaiter {
   resolve: (code: string) => void;
@@ -178,7 +179,7 @@ function waitFor2FACode(jobId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending2FA.delete(jobId);
-      reject(new PipelineError('TWO_FA_TIMEOUT', '2FA code was not submitted within 5 minutes'));
+      reject(new PipelineError('TWO_FA_TIMEOUT', '2FA code was not submitted within 10 minutes'));
     }, TWO_FA_TIMEOUT_MS);
 
     pending2FA.set(jobId, { resolve, reject, timer });
@@ -505,6 +506,9 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
         expiresAt,
         installedAt: new Date().toISOString(),
       });
+      if ('listInstalledApps' in db && typeof db.listInstalledApps === 'function') {
+        notifyInstalledAppsChanged(db.listInstalledApps());
+      }
     });
 
     // ── All Done ──────────────────────────────────────────────────

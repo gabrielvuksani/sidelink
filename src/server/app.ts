@@ -17,6 +17,31 @@ import { authRateLimit, generalRateLimit, appleAuthRateLimit, uploadRateLimit, c
 
 export function createApp(ctx: AppContext): express.Express {
   const app = express();
+  const requireSession: express.RequestHandler = (req, res, next) => {
+    if (!ctx.auth.isSetupComplete()) {
+      const safePreSetupPaths = ['/api/health'];
+      if (safePreSetupPaths.includes(req.path)) return next();
+      return res.status(403).json({ ok: false, error: 'Setup required: create admin account first' });
+    }
+
+    const token = req.cookies?.sidelink_session ?? req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Authentication required' });
+    }
+
+    const internalToken = process.env.SIDELINK_INTERNAL_TOKEN;
+    if (internalToken && token === internalToken) {
+      req.userId = '__internal__';
+      return next();
+    }
+
+    const session = ctx.auth.validateSession(token);
+    if (!session) {
+      return res.status(401).json({ ok: false, error: 'Invalid or expired session' });
+    }
+    req.userId = session.userId;
+    next();
+  };
 
   // ─── Middleware ──────────────────────────────────────────────────
 
@@ -110,35 +135,11 @@ export function createApp(ctx: AppContext): express.Express {
     return res.json(fallback);
   });
 
+  // SSE should authenticate, but it should not consume the same token bucket as bursty REST reads.
+  app.use('/api/events', requireSession, sseRoutes(ctx));
+
   // Auth middleware for all other /api routes
-  app.use('/api', generalRateLimit, (req, res, next) => {
-    // Before setup is complete, only allow health + setup/status endpoints (handled above)
-    if (!ctx.auth.isSetupComplete()) {
-      // Block operational routes until admin is bootstrapped
-      const safePreSetupPaths = ['/api/health'];
-      if (safePreSetupPaths.includes(req.path)) return next();
-      return res.status(403).json({ ok: false, error: 'Setup required: create admin account first' });
-    }
-
-    const token = req.cookies?.sidelink_session ?? req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ ok: false, error: 'Authentication required' });
-    }
-
-    // Allow internal desktop token (tray polling, etc.)
-    const internalToken = process.env.SIDELINK_INTERNAL_TOKEN;
-    if (internalToken && token === internalToken) {
-      req.userId = '__internal__';
-      return next();
-    }
-
-    const session = ctx.auth.validateSession(token);
-    if (!session) {
-      return res.status(401).json({ ok: false, error: 'Invalid or expired session' });
-    }
-    req.userId = session.userId;
-    next();
-  });
+  app.use('/api', generalRateLimit, requireSession);
 
   // ─── API Routes ─────────────────────────────────────────────────
 
@@ -148,8 +149,6 @@ export function createApp(ctx: AppContext): express.Express {
   app.use('/api/install', installRoutes(ctx));
   app.use('/api/sources', sourceRoutes(ctx));
   app.use('/api/system', systemRoutes(ctx));
-  app.use('/api/events', sseRoutes(ctx));
-
   // ─── Static Files (React SPA in production) ─────────────────────
 
   const clientDist = process.env.SIDELINK_CLIENT_DIR

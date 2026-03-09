@@ -299,6 +299,95 @@ describe('Install routes', () => {
     expect(res.body.ok).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
+
+  it('keeps installs separate when the same app is tracked by different accounts', async () => {
+    const accountOneId = ctx.db.upsertAppleAccount({
+      appleId: 'alpha@example.com',
+      teamId: 'TEAMALPHA1',
+      teamName: 'Alpha Team',
+      accountType: 'free',
+      passwordEncrypted: 'enc-a',
+      cookiesJson: '[]',
+      status: 'authenticated',
+    });
+    const accountTwoId = ctx.db.upsertAppleAccount({
+      appleId: 'beta@example.com',
+      teamId: 'TEAMBETA22',
+      teamName: 'Beta Team',
+      accountType: 'free',
+      passwordEncrypted: 'enc-b',
+      cookiesJson: '[]',
+      status: 'authenticated',
+    });
+
+    ctx.db.saveIpa({
+      id: 'ipa-shared',
+      filename: 'shared.ipa',
+      originalName: 'shared.ipa',
+      filePath: '/tmp/shared.ipa',
+      fileSize: 1,
+      bundleId: 'com.demo.shared',
+      bundleName: 'Shared Demo',
+      bundleVersion: '1.0',
+      bundleShortVersion: '1.0',
+      minOsVersion: '16.0',
+      iconData: null,
+      entitlements: {},
+      warnings: [],
+      extensions: [],
+      uploadedAt: new Date('2026-03-08T00:00:00.000Z').toISOString(),
+    });
+
+    ctx.db.upsertInstalledApp({
+      accountId: accountOneId,
+      deviceUdid: 'device-shared',
+      status: 'active',
+      bundleId: 'com.demo.shared',
+      originalBundleId: 'com.demo.shared',
+      appName: 'Shared Demo',
+      appVersion: '1.0',
+      ipaId: 'ipa-shared',
+      profileId: 'profile-a',
+      certificateId: 'cert-a',
+      signedIpaPath: '/tmp/shared-a.ipa',
+      expiresAt: new Date('2026-03-15T00:00:00.000Z').toISOString(),
+      installedAt: new Date('2026-03-08T00:00:00.000Z').toISOString(),
+    });
+
+    ctx.db.upsertInstalledApp({
+      accountId: accountTwoId,
+      deviceUdid: 'device-shared',
+      status: 'active',
+      bundleId: 'com.demo.shared',
+      originalBundleId: 'com.demo.shared',
+      appName: 'Shared Demo',
+      appVersion: '1.0',
+      ipaId: 'ipa-shared',
+      profileId: 'profile-b',
+      certificateId: 'cert-b',
+      signedIpaPath: '/tmp/shared-b.ipa',
+      expiresAt: new Date('2026-03-16T00:00:00.000Z').toISOString(),
+      installedAt: new Date('2026-03-08T01:00:00.000Z').toISOString(),
+    });
+
+    const res = await request
+      .get('/api/install/apps')
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountId: accountOneId, deviceUdid: 'device-shared', bundleId: 'com.demo.shared' }),
+        expect.objectContaining({ accountId: accountTwoId, deviceUdid: 'device-shared', bundleId: 'com.demo.shared' }),
+      ]),
+    );
+
+    const matching = res.body.data.filter((app: any) =>
+      app.deviceUdid === 'device-shared' && app.bundleId === 'com.demo.shared',
+    );
+    expect(matching).toHaveLength(2);
+  });
 });
 
 // ─── Logs ───────────────────────────────────────────────────────────

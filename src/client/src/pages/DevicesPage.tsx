@@ -5,30 +5,45 @@ import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { DeviceInfo } from '../../../shared/types';
 
 export default function DevicesPage() {
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const warmSnapshot = getUiSnapshot<DeviceInfo[]>('page:devices');
+  const [devices, setDevices] = useState<DeviceInfo[]>(warmSnapshot?.data ?? []);
+  const [loading, setLoading] = useState(!warmSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => { document.title = 'Devices — SideLink'; }, []);
 
   const reload = useCallback(() => {
-    api.listDevices().then(r => setDevices(r.data ?? [])).finally(() => setLoading(false));
-  }, []);
+    if (!devices.length) {
+      setLoading(true);
+    }
+    api.listDevices().then((r) => {
+      const nextDevices = r.data ?? [];
+      setDevices(nextDevices);
+      setUiSnapshot('page:devices', nextDevices);
+    }).finally(() => setLoading(false));
+  }, [devices.length]);
 
   usePageRefresh(reload);
 
-  useSSE({ 'device-update': (data) => setDevices(Array.isArray(data) ? data as DeviceInfo[] : []) });
+  useSSE({ 'device-update': (data) => {
+    const nextDevices = Array.isArray(data) ? data as DeviceInfo[] : [];
+    setDevices(nextDevices);
+    setUiSnapshot('page:devices', nextDevices);
+  } });
 
   const refresh = async () => {
     setRefreshing(true);
     try {
       const res = await api.refreshDevices();
-      setDevices(res.data ?? []);
-      toast('success', `Found ${res.data?.length ?? 0} device(s)`);
+      const nextDevices = res.data ?? [];
+      setDevices(nextDevices);
+      setUiSnapshot('page:devices', nextDevices);
+      toast('success', `Found ${nextDevices.length} device(s)`);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to refresh devices'));
     } finally {
@@ -57,7 +72,7 @@ export default function DevicesPage() {
         ]}
       />
 
-      {loading ? (
+      {loading && devices.length === 0 ? (
         <PageLoader message="Scanning for devices..." />
       ) : devices.length === 0 ? (
         <EmptyState

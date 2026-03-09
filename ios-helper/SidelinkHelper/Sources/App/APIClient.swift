@@ -657,6 +657,69 @@ struct APIClient {
         return try decodeEnvelope([TrustedSourceDTO].self, from: data)
     }
 
+            func listSources(baseURL: String, token: String) async throws -> [HelperSourceDTO] {
+                guard let url = URL(string: baseURL + "/api/helper/sources") else {
+                    throw HelperAPIError.invalidURL
+                }
+                var request = URLRequest(url: url)
+                request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+                let (data, response) = try await perform(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw HelperAPIError.server("Invalid response")
+                }
+                if http.statusCode == 401 {
+                    throw HelperAPIError.unauthorized
+                }
+                guard (200 ... 299).contains(http.statusCode) else {
+                    throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Sources request failed")
+                }
+                return try decodeEnvelope([HelperSourceDTO].self, from: data)
+            }
+
+            func addSource(baseURL: String, token: String, urlString: String) async throws {
+                guard let url = URL(string: baseURL + "/api/helper/sources") else {
+                    throw HelperAPIError.invalidURL
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+                request.httpBody = try JSONEncoder().encode(["url": urlString])
+
+                let (data, response) = try await perform(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw HelperAPIError.server("Invalid response")
+                }
+                if http.statusCode == 401 {
+                    throw HelperAPIError.unauthorized
+                }
+                guard (200 ... 299).contains(http.statusCode) else {
+                    throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Add source failed")
+                }
+            }
+
+            func deleteSource(baseURL: String, token: String, sourceId: String) async throws {
+                guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "sources", sourceId]) else {
+                    throw HelperAPIError.invalidURL
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "DELETE"
+                request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+
+                let (data, response) = try await perform(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw HelperAPIError.server("Invalid response")
+                }
+                if http.statusCode == 401 {
+                    throw HelperAPIError.unauthorized
+                }
+                guard (200 ... 299).contains(http.statusCode) else {
+                    throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Remove source failed")
+                }
+            }
+
     func importIpaFromURL(baseURL: String, token: String, urlString: String) async throws -> IpaArtifactDTO {
         guard let url = URL(string: baseURL + "/api/helper/ipas/import-url") else {
             throw HelperAPIError.invalidURL

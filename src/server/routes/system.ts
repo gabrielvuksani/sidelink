@@ -22,6 +22,7 @@ import { getHelperIpaPath } from '../utils/paths';
 import { diagnoseAppleRuntime } from '../apple/runtime-diagnostics';
 import { createPairingCode } from '../services/helper-pairing-service';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
+import { onInstalledAppsChanged } from '../services/installed-app-events';
 import { triggerRefreshAllActiveApps } from '../services/shared-backend';
 
 type TeamResolutionSource =
@@ -555,6 +556,7 @@ export function sseRoutes(ctx: AppContext): Router {
     // Pipeline updates
     const unsubPipeline = onPipelineUpdate(job => {
       send('job-update', job);
+      send('scheduler-update', ctx.scheduler.getSnapshot());
     });
 
     const unsubPipelineLogs = onPipelineJobLog(entry => {
@@ -564,7 +566,19 @@ export function sseRoutes(ctx: AppContext): Router {
     // Device updates
     const unsubDevices = ctx.devices.onChange(devices => {
       send('device-update', devices);
+      send('scheduler-update', ctx.scheduler.getSnapshot());
     });
+
+    const unsubScheduler = ctx.scheduler.onChange((snapshot) => {
+      send('scheduler-update', snapshot);
+    });
+
+    const unsubInstalledApps = onInstalledAppsChanged((apps) => {
+      send('app-update', apps);
+    });
+
+    send('app-update', ctx.db.listInstalledApps());
+    send('scheduler-update', ctx.scheduler.getSnapshot());
 
     // Log updates (real-time streaming)
     const unsubLogs = ctx.logs.onLog(entry => {
@@ -581,6 +595,8 @@ export function sseRoutes(ctx: AppContext): Router {
       unsubPipeline();
       unsubPipelineLogs();
       unsubDevices();
+      unsubScheduler();
+      unsubInstalledApps();
       unsubLogs();
       clearInterval(keepalive);
       activeSSEResponses.delete(res);

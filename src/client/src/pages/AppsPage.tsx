@@ -160,7 +160,7 @@ export default function AppsPage() {
             eyebrow="Shelf"
             title="Ready-to-install apps"
             description="Hover actions remain quick, but the visual hierarchy now favors app identity, version, size, and extension readiness."
-            action={<button onClick={() => openInstall()} className="sl-btn-primary">Launch Installer</button>}
+            action={<button onClick={() => openInstall()} className="sl-btn-primary">Install App</button>}
           />
           {ipas.map(ipa => (
             <div key={ipa.id} className="sl-card sl-card-interactive group flex items-center justify-between p-3.5 animate-fadeInUp">

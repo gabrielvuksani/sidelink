@@ -27,8 +27,10 @@ struct HelperPairingPayload: Decodable {
 }
 
 struct SourceCatalog: Identifiable {
+	let sourceId: String?
 	let sourceURL: String
 	let manifest: SourceManifestDTO
+	let isBuiltIn: Bool
 
-	var id: String { sourceURL }
+	var id: String { sourceId ?? sourceURL }
 }

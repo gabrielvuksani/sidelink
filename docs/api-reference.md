@@ -18,9 +18,13 @@ This is the practical HTTP surface, organized by operational use rather than gen
 - Auth tier: `20/min` (`/api/auth/*`)
 - Apple auth tier: `5/min` (`/api/apple/*`)
 - Upload tier: `10/5min` (`/api/ipas/*`)
-- General tier: `120/min` (all other authenticated `/api/*` routes)
+- General tier: `240/min` (all other authenticated `/api/*` routes)
 
 Rate-limit response headers include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `Retry-After` on `429` responses.
+
+Notes:
+
+- `GET /api/events` is authenticated, but it is handled separately so the SSE stream does not consume the same burst bucket as regular API reads.
 
 ## Public Endpoints
 
@@ -146,6 +150,15 @@ Validation highlights:
 
 Event stream includes live job/device/system updates and keep-alive frames.
 
+Current event types:
+
+- `job-update`
+- `job-log`
+- `device-update`
+- `app-update`
+- `scheduler-update`
+- `log`
+
 ## Helper API Endpoints (Companion App)
 
 All `/helper/*` routes require helper token auth via `x-sidelink-helper-token`.
@@ -158,6 +171,10 @@ All `/helper/*` routes require helper token auth via `x-sidelink-helper-token`.
 | `GET` | `/helper/accounts` | none |
 | `GET` | `/helper/devices` | none |
 | `GET` | `/helper/ipas` | none |
+| `GET` | `/helper/sources` | none |
+| `POST` | `/helper/sources` | `{ url }` |
+| `POST` | `/helper/sources/:id/refresh` | none |
+| `DELETE` | `/helper/sources/:id` | none |
 | `POST` | `/helper/ipas/import-url` | `{ url }` |
 | `POST` | `/helper/install` | `{ ipaId, accountId, deviceUdid, includeExtensions? }` |
 | `GET` | `/helper/jobs` | none |
@@ -169,6 +186,8 @@ All `/helper/*` routes require helper token auth via `x-sidelink-helper-token`.
 | `POST` | `/helper/refresh` | `{ installId }` |
 | `GET` | `/helper/doctor` | none |
 | `GET` | `/helper/events` | SSE |
+
+Helper SSE mirrors the desktop stream closely enough to keep the helper current on jobs, device changes, installed-app changes, and scheduler updates.
 
 ## Error Semantics
 

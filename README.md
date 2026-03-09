@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-	<strong>v0.3.0</strong> sharpens the release surface: cleaner desktop onboarding, a more stable iPhone install console, import-and-install flows from Files and URLs, stronger packaged Apple runtime validation, and a much more complete README.
+	<strong>v0.3.1</strong> turns helper pairing and on-device management into a first-class product surface: code-first pairing across desktop and iPhone, up-front permissions with live status, a fuller Installed tab, and a cleaner native helper UI throughout.
 </p>
 
 ## Why SideLink
@@ -34,14 +34,13 @@ SideLink is built as one system:
 - an iPhone helper that can pair, browse feeds, install apps, submit 2FA, and monitor refresh health
 - AltStore-compatible source support with a shipped official feed and release-hosted helper IPA
 
-## What v0.3.0 Delivers
+## What v0.3.1 Delivers
 
-- A less crowded desktop onboarding flow that follows the control-center design language instead of looking like a temporary setup form.
-- A packaged Apple auth runtime that is smoke-tested and diagnosable before a broken desktop release ships.
-- An iPhone helper install console that stays present through install-job 2FA and imported IPA flows.
-- Direct install-console handoff when importing an IPA from Files or a remote URL on iPhone.
-- A calmer Installed tab on iPhone with less visual refresh churn.
-- A stronger release and operator story across the README, changelog, release notes, and docs site.
+- A code-first helper pairing flow across desktop and iPhone, with QR still available as a fallback instead of the primary path.
+- Up-front helper permission requests with live readiness state for notifications, camera, local network, and background refresh.
+- A more capable iPhone Installed tab that exposes App ID quota pressure, hidden consumers, unmanaged apps, and per-app refresh state.
+- Stronger helper onboarding, pairing, and settings screens that share one polished status-card language instead of feeling like disconnected utilities.
+- A release and operator story updated for `v0.3.1` across the README, changelog, release notes, and command examples.
 
 ## Why It Feels Different
 
@@ -99,6 +98,24 @@ For the full bootstrap and validation path:
 ```bash
 npm run setup
 ```
+
+## Official Source
+
+If you want SideLink-managed app downloads without manually importing every IPA, add the official source feed:
+
+```text
+https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json
+```
+
+Current public source apps include:
+
+- `SidelinkHelper.ipa`
+- `Cortex.ipa`
+
+Direct latest-release asset links:
+
+- `https://github.com/gabrielvuksani/sidelink/releases/latest/download/SidelinkHelper.ipa`
+- `https://github.com/gabrielvuksani/sidelink/releases/latest/download/Cortex.ipa`
 
 ### Launch the desktop app
 
@@ -261,7 +278,7 @@ npm run docs:preview
 Dry-run the release script first:
 
 ```bash
-bash scripts/release.sh v0.3.0 --dry-run
+bash scripts/release.sh v0.3.1 --dry-run
 ```
 
 The release flow expects a helper IPA to exist first. On macOS, generate it with:
@@ -275,7 +292,7 @@ The release script will copy `tmp/helper/SidelinkHelper.ipa` into `helper/Sideli
 Then create the real release:
 
 ```bash
-bash scripts/release.sh v0.3.0
+bash scripts/release.sh v0.3.1
 git push origin main --tags
 ```
 
@@ -287,18 +304,18 @@ Published semver tags are treated as immutable release records.
 2. On macOS, run `npm run helper:export` if the helper IPA needs to be refreshed.
 3. Run `npm run desktop:package`.
 4. Run `npm run desktop:smoke`.
-5. Run `bash scripts/release.sh v0.3.0`.
+5. Run `bash scripts/release.sh v0.3.1`.
 6. Push `main` and tags so GitHub Actions can publish artifacts and docs.
 
 ## Release Notes Summary
 
-The `v0.3.0` release is the point where the project stops reading like a promising prototype and starts reading like a coherent product surface:
+The `v0.3.1` release is the point where the helper stops feeling like a secondary companion and starts behaving like a deliberate part of the product surface:
 
-- packaged Apple runtime issues are diagnosed and smoke-tested instead of discovered after download
-- desktop onboarding is cleaner and more aligned with the product language
-- helper imports from Files and URL now behave like real installs
-- install-job 2FA remains inside the install console
-- the root README now explains the product, not just the commands
+- manual pairing codes are the primary path on both desktop and iPhone
+- permission state is visible and actionable from the first helper launch
+- Installed on iPhone exposes quota, refresh, and unmanaged-app context instead of hiding it
+- helper pairing and settings surfaces use a clearer native status language
+- the current release docs and commands match the shipped `v0.3.1` surface
 
 ## Repository Layout
 

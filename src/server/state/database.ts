@@ -23,7 +23,7 @@ import type {
 } from '../../shared/types';
 import type { EncryptionProvider } from '../types';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 // Migration steps — each bumps the version by 1
 type Migration = { version: number; description: string; sql: string };
@@ -161,6 +161,47 @@ const MIGRATIONS: Migration[] = [
     description: 'Track installed app activation status',
     sql: `
       ALTER TABLE installed_apps ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+      CREATE INDEX IF NOT EXISTS idx_installed_status ON installed_apps(status);
+    `,
+  },
+  {
+    version: 8,
+    description: 'Track installed apps separately per account',
+    sql: `
+      CREATE TABLE IF NOT EXISTS installed_apps_v8 (
+        id TEXT PRIMARY KEY,
+        device_udid TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        ipa_id TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        bundle_id TEXT NOT NULL,
+        original_bundle_id TEXT NOT NULL,
+        app_name TEXT NOT NULL,
+        app_version TEXT NOT NULL,
+        certificate_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        signed_ipa_path TEXT NOT NULL,
+        installed_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_refresh_at TEXT,
+        refresh_count INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (account_id) REFERENCES apple_accounts(id) ON DELETE CASCADE,
+        FOREIGN KEY (ipa_id) REFERENCES ipas(id) ON DELETE SET NULL,
+        UNIQUE(device_udid, account_id, bundle_id)
+      );
+      INSERT OR IGNORE INTO installed_apps_v8 (
+        id, device_udid, account_id, ipa_id, status, bundle_id, original_bundle_id,
+        app_name, app_version, certificate_id, profile_id, signed_ipa_path,
+        installed_at, expires_at, last_refresh_at, refresh_count
+      )
+      SELECT
+        id, device_udid, account_id, ipa_id, status, bundle_id, original_bundle_id,
+        app_name, app_version, certificate_id, profile_id, signed_ipa_path,
+        installed_at, expires_at, last_refresh_at, refresh_count
+      FROM installed_apps;
+      DROP TABLE IF EXISTS installed_apps;
+      ALTER TABLE installed_apps_v8 RENAME TO installed_apps;
+      CREATE INDEX IF NOT EXISTS idx_installed_expires ON installed_apps(expires_at);
       CREATE INDEX IF NOT EXISTS idx_installed_status ON installed_apps(status);
     `,
   },
@@ -368,7 +409,7 @@ export class Database {
         refresh_count INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (account_id) REFERENCES apple_accounts(id) ON DELETE CASCADE,
         FOREIGN KEY (ipa_id) REFERENCES ipas(id) ON DELETE SET NULL,
-        UNIQUE(device_udid, bundle_id)
+        UNIQUE(device_udid, account_id, bundle_id)
       );
 
       CREATE TABLE IF NOT EXISTS logs (
@@ -776,11 +817,15 @@ export class Database {
     this.db.prepare(`
       INSERT INTO installed_apps (id, device_udid, account_id, ipa_id, status, bundle_id, original_bundle_id, app_name, app_version, certificate_id, profile_id, signed_ipa_path, installed_at, expires_at, last_refresh_at, refresh_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(device_udid, bundle_id) DO UPDATE SET
+      ON CONFLICT(device_udid, account_id, bundle_id) DO UPDATE SET
         ipa_id = excluded.ipa_id, status = excluded.status, app_name = excluded.app_name, app_version = excluded.app_version,
         certificate_id = excluded.certificate_id, profile_id = excluded.profile_id,
-        signed_ipa_path = excluded.signed_ipa_path, expires_at = excluded.expires_at,
-        last_refresh_at = excluded.last_refresh_at, refresh_count = excluded.refresh_count
+        signed_ipa_path = excluded.signed_ipa_path, installed_at = excluded.installed_at, expires_at = excluded.expires_at,
+        last_refresh_at = COALESCE(excluded.last_refresh_at, excluded.installed_at),
+        refresh_count = CASE
+          WHEN installed_apps.id IS NOT NULL THEN COALESCE(installed_apps.refresh_count, 0) + 1
+          ELSE excluded.refresh_count
+        END
     `).run(id, app.deviceUdid, app.accountId, app.ipaId, app.status, app.bundleId,
       app.originalBundleId, app.appName, app.appVersion,
       app.certificateId, app.profileId, app.signedIpaPath,

@@ -10,63 +10,102 @@ export type SSEState = 'connected' | 'connecting' | 'disconnected';
 const EVENT_TYPES = ['job-update', 'job-log', 'device-update', 'app-update', 'log', 'scheduler-update'] as const;
 const MAX_BACKOFF = UI_LIMITS.sseMaxBackoffMs;
 
+type Subscriber = {
+  handlersRef: React.MutableRefObject<Record<string, SSEHandler>>;
+  setConnectionState: (state: SSEState) => void;
+};
+
+let sharedEventSource: EventSource | null = null;
+let sharedRetryDelay = 1000;
+let sharedRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let sharedConnectionState: SSEState = 'disconnected';
+let nextSubscriberId = 0;
+const subscribers = new Map<number, Subscriber>();
+
+function broadcastConnectionState(state: SSEState) {
+  sharedConnectionState = state;
+  for (const subscriber of subscribers.values()) {
+    subscriber.setConnectionState(state);
+  }
+}
+
+function dispatchEvent(type: string, data: unknown) {
+  for (const subscriber of subscribers.values()) {
+    try {
+      subscriber.handlersRef.current[type]?.(data);
+    } catch (err) {
+      console.error(`[SSE] Handler error for ${type}:`, err);
+    }
+  }
+}
+
+function scheduleReconnect() {
+  if (sharedRetryTimer || subscribers.size === 0) return;
+  sharedRetryTimer = setTimeout(() => {
+    sharedRetryTimer = null;
+    sharedRetryDelay = Math.min(sharedRetryDelay * 2, MAX_BACKOFF);
+    connectSharedStream();
+  }, sharedRetryDelay);
+}
+
+function connectSharedStream() {
+  if (sharedEventSource || subscribers.size === 0) return;
+
+  broadcastConnectionState('connecting');
+  sharedEventSource = new EventSource('/api/events');
+
+  sharedEventSource.onopen = () => {
+    sharedRetryDelay = 1000;
+    broadcastConnectionState('connected');
+  };
+
+  for (const type of EVENT_TYPES) {
+    sharedEventSource.addEventListener(type, (e: MessageEvent) => {
+      let data: unknown;
+      try {
+        data = JSON.parse(e.data);
+      } catch (err) {
+        console.warn(`[SSE] Failed to parse ${type} event:`, err);
+        return;
+      }
+      dispatchEvent(type, data);
+    });
+  }
+
+  sharedEventSource.onerror = () => {
+    broadcastConnectionState('disconnected');
+    sharedEventSource?.close();
+    sharedEventSource = null;
+    scheduleReconnect();
+  };
+}
+
+function releaseSharedStreamIfIdle() {
+  if (subscribers.size > 0) return;
+  if (sharedRetryTimer) {
+    clearTimeout(sharedRetryTimer);
+    sharedRetryTimer = null;
+  }
+  sharedEventSource?.close();
+  sharedEventSource = null;
+  sharedRetryDelay = 1000;
+  sharedConnectionState = 'disconnected';
+}
+
 export function useSSE(handlers: Record<string, SSEHandler>) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
-  const [connectionState, setConnectionState] = useState<SSEState>('connecting');
+  const [connectionState, setConnectionState] = useState<SSEState>(sharedConnectionState === 'disconnected' ? 'connecting' : sharedConnectionState);
 
   useEffect(() => {
-    let es: EventSource | null = null;
-    let retryDelay = 1000;
-    let retryTimer: ReturnType<typeof setTimeout>;
-    let unmounted = false;
-
-    function connect() {
-      if (unmounted) return;
-      setConnectionState('connecting');
-      es = new EventSource('/api/events');
-
-      es.onopen = () => {
-        if (unmounted) return;
-        retryDelay = 1000; // reset backoff
-        setConnectionState('connected');
-      };
-
-      for (const type of EVENT_TYPES) {
-        es.addEventListener(type, (e: MessageEvent) => {
-          let data: unknown;
-          try {
-            data = JSON.parse(e.data);
-          } catch (err) {
-            console.warn(`[SSE] Failed to parse ${type} event:`, err);
-            return;
-          }
-          try {
-            handlersRef.current[type]?.(data);
-          } catch (err) {
-            console.error(`[SSE] Handler error for ${type}:`, err);
-          }
-        });
-      }
-
-      es.onerror = () => {
-        if (unmounted) return;
-        setConnectionState('disconnected');
-        es?.close();
-        es = null;
-        retryTimer = setTimeout(() => {
-          retryDelay = Math.min(retryDelay * 2, MAX_BACKOFF);
-          connect();
-        }, retryDelay);
-      };
-    }
-
-    connect();
+    const subscriberId = nextSubscriberId++;
+    subscribers.set(subscriberId, { handlersRef, setConnectionState });
+    setConnectionState(sharedConnectionState === 'disconnected' ? 'connecting' : sharedConnectionState);
+    connectSharedStream();
 
     return () => {
-      unmounted = true;
-      clearTimeout(retryTimer);
-      es?.close();
+      subscribers.delete(subscriberId);
+      releaseSharedStreamIfIdle();
     };
   }, []);
 
