@@ -5,7 +5,7 @@ const PAIRING_CODE_KEY = 'helper_pairing_code_sha256';
 const PAIRING_EXPIRES_KEY = 'helper_pairing_expires_at';
 const HELPER_TOKEN_KEY = 'helper_token';
 
-const CODE_TTL_MS = 10 * 60 * 1000;
+const CODE_TTL_MS = 60_000;
 
 function hashCode(code: string): string {
   return crypto.createHash('sha256').update(code).digest('hex');

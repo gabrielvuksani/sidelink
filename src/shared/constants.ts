@@ -97,7 +97,7 @@ export const UI_LIMITS = {
   maxIpaFileSizeBytes: 4 * 1024 * 1024 * 1024,
   toastTimeoutMs: 4_000,
   sseMaxBackoffMs: 30_000,
-  pairingCodeRefreshMs: 50_000,
+  pairingCodeRefreshMs: 60_000,
 } as const;
 
 /** Browser storage keys used by the client UI */

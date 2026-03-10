@@ -3,7 +3,7 @@ type SnapshotEntry<T> = {
   updatedAt: number;
 };
 
-const DEFAULT_UI_SNAPSHOT_TTL_MS = 45_000;
+const DEFAULT_UI_SNAPSHOT_TTL_MS = 5 * 60_000;
 const snapshotCache = new Map<string, SnapshotEntry<unknown>>();
 
 export function getUiSnapshot<T>(key: string, ttlMs = DEFAULT_UI_SNAPSHOT_TTL_MS): SnapshotEntry<T> | null {

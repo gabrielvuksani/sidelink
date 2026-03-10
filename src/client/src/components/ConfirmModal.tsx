@@ -86,34 +86,47 @@ function ConfirmDialog({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn"
+      className="sl-modal-overlay z-[95] animate-fadeIn"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
     >
-      <div
-        ref={panelRef}
-        className="sl-card p-6 max-w-sm w-full mx-4 shadow-2xl animate-scaleIn"
-      >
-        <h3 id={titleId} className="text-[var(--sl-text)] font-semibold mb-2">{dialog.title}</h3>
-        <p id={descId} className="text-[var(--sl-muted)] text-[13px] mb-6">{dialog.message}</p>
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={() => onClose(false)}
-            className="sl-btn-ghost"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onClose(true)}
-            autoFocus
-            className={dialog.danger ? 'sl-btn-danger' : 'sl-btn-primary'}
-          >
-            {dialog.confirmLabel ?? 'Confirm'}
-          </button>
+      <div className="sl-modal-frame">
+        <div
+          ref={panelRef}
+          className="sl-modal-panel sl-card w-full max-w-sm overflow-hidden p-0 shadow-2xl animate-scaleIn"
+        >
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6">
+            <h3 id={titleId} className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--sl-text)]">{dialog.title}</h3>
+            <p id={descId} className="mt-2 text-[13px] leading-6 text-[var(--sl-muted)]">{dialog.message}</p>
+          </div>
+          <div className="shrink-0 flex justify-end gap-3 border-t border-[var(--sl-border)] px-5 py-4 sm:px-6">
+            <button
+              onClick={() => onClose(false)}
+              className="sl-btn-ghost justify-center"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onClose(true)}
+              autoFocus
+              className={`${dialog.danger ? 'sl-btn-danger' : 'sl-btn-primary'} justify-center`}
+            >
+              {dialog.confirmLabel ?? 'Confirm'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

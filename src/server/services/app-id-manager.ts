@@ -116,6 +116,36 @@ export class AppIdManager {
   }
 
   /**
+   * Generate a randomized bundle ID that cannot be correlated to the original.
+   * This helps avoid Apple's PPQ verification checks.
+   * Format: com.<teamId-prefix>.sl<random-hex>
+   */
+  generateRandomizedBundleId(teamId: string): string {
+    const rand = crypto.randomBytes(5).toString('hex');
+    const prefix = teamId.slice(0, 6).toLowerCase().replace(/[^a-z0-9]/g, 'x');
+    return `com.${prefix}.sl${rand}`;
+  }
+
+  /**
+   * Resolve the effective bundle ID based on strategy.
+   * For 'randomized', checks for existing mapping first to reuse the same ID on refresh.
+   */
+  resolveBundleId(
+    originalBundleId: string,
+    teamId: string,
+    strategy: 'deterministic' | 'randomized',
+    existingMapping?: { effectiveBundleId: string } | null,
+  ): string {
+    if (existingMapping) {
+      return existingMapping.effectiveBundleId;
+    }
+    if (strategy === 'randomized') {
+      return this.generateRandomizedBundleId(teamId);
+    }
+    return this.generateBundleId(originalBundleId, teamId);
+  }
+
+  /**
    * Remove an App ID (frees up a slot for free accounts).
    */
   async removeAppId(

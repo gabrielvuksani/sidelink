@@ -53,6 +53,43 @@ Use this page when launch, pairing, sign-in, source, install, packaging, or help
 - If Apple auth or device discovery fails only in the packaged app, check desktop diagnostics for bundled helper runtime health before assuming the app itself is corrupt.
 - If macOS is blocking launch for Gatekeeper reasons, treat that separately from an actual runtime crash.
 
+## Unable to Verify App (PPQ Check)
+
+If you see "Unable to Verify App — An internet connection is required to verify the trust of the developer" when launching a sideloaded app, Apple's PPQ (Provisioning Profile Query) system has flagged the install.
+
+### Why This Happens
+
+Apple's PPQ system contacts `ppq.apple.com` when you first launch a sideloaded app. It checks whether the bundle ID matches a known App Store app and whether the signing certificate has been flagged. Free developer accounts created after 2021 are subject to stricter PPQ enforcement.
+
+### Fixes
+
+**1. Randomize Bundle IDs (Recommended)**
+
+SideLink defaults to randomized bundle IDs during installation. This generates a unique identifier that Apple cannot correlate with known App Store apps. If you disabled this, re-enable "Randomize Bundle ID" in the Install modal and re-install the affected app.
+
+**2. Rotate Your Certificate**
+
+If multiple apps stop launching simultaneously, your certificate may be flagged. Go to the Apple ID page in SideLink, find the certificate section, and click "Rotate" to revoke the flagged cert and create a fresh one. You will need to re-sign all active apps afterward.
+
+**3. Toggle Developer Mode**
+
+On the device: Settings → Privacy & Security → Developer Mode. Toggle it off, restart the device, then try to open the sideloaded app. When prompted, re-enable Developer Mode. This sometimes clears the PPQ cache.
+
+**4. Block PPQ Servers via DNS**
+
+Use NextDNS, AdGuard, or a similar DNS filtering tool to block `ppq.apple.com`. This prevents iOS from contacting Apple's verification servers, allowing sideloaded apps to launch without verification. Note: this blocks verification for all apps, not just yours.
+
+**5. Trust the Developer Profile**
+
+After every fresh install or certificate rotation, you must trust the developer profile on the device: Settings → General → VPN & Device Management → tap the developer profile → Trust.
+
+### Prevention
+
+- Always use randomized bundle IDs (the default in SideLink).
+- Avoid signing more than 5 apps per day on a single certificate.
+- Do not use original App Store bundle IDs when signing modified apps.
+- Rotate certificates proactively if you notice verification issues starting.
+
 ## Helper Build Fails
 
 - Confirm full Xcode is installed.

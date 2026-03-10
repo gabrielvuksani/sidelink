@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
@@ -10,56 +10,143 @@ import { HelperControlPanel } from '../components/HelperControlPanel';
 import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
 import type { DashboardState } from '../../../shared/types';
 
+type DashboardWidgetId =
+  | 'accounts'
+  | 'devices'
+  | 'ipas'
+  | 'installed'
+  | 'helper'
+  | 'readiness'
+  | 'active-jobs'
+  | 'recent-jobs'
+  | 'auto-refresh'
+  | 'quota';
+
+type DashboardWidgetSize = 'small' | 'medium' | 'wide' | 'large';
+
+type DashboardLayoutItem = {
+  id: DashboardWidgetId;
+  size: DashboardWidgetSize;
+};
+
+type DashboardWidgetDefinition = {
+  id: DashboardWidgetId;
+  title: string;
+  description: string;
+  allowedSizes: DashboardWidgetSize[];
+  defaultSize: DashboardWidgetSize;
+  tone?: 'default' | 'feature' | 'warning';
+  headerMode?: 'hidden' | 'compact' | 'standard';
+  render: (size: DashboardWidgetSize, editing: boolean) => ReactNode;
+};
+
+const OVERVIEW_LAYOUT_STORAGE_KEY = 'sidelink:overview-layout:v3';
+
+const DEFAULT_WIDGET_LAYOUT: DashboardLayoutItem[] = [
+  { id: 'accounts', size: 'small' },
+  { id: 'devices', size: 'small' },
+  { id: 'ipas', size: 'small' },
+  { id: 'installed', size: 'small' },
+  { id: 'helper', size: 'large' },
+  { id: 'readiness', size: 'wide' },
+  { id: 'active-jobs', size: 'wide' },
+  { id: 'recent-jobs', size: 'medium' },
+  { id: 'auto-refresh', size: 'medium' },
+  { id: 'quota', size: 'wide' },
+];
+
+type WidgetSizeMeta = { allowedSizes: DashboardWidgetSize[]; defaultSize: DashboardWidgetSize };
+
+const WIDGET_META: Record<DashboardWidgetId, WidgetSizeMeta> = {
+  accounts: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
+  devices: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
+  ipas: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
+  installed: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
+  helper: { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'large' },
+  readiness: { allowedSizes: ['medium', 'wide'], defaultSize: 'wide' },
+  'active-jobs': { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'wide' },
+  'recent-jobs': { allowedSizes: ['medium', 'wide'], defaultSize: 'medium' },
+  'auto-refresh': { allowedSizes: ['small', 'medium', 'wide'], defaultSize: 'medium' },
+  quota: { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'wide' },
+};
+
 export default function DashboardPage() {
   const warmSnapshot = getUiSnapshot<DashboardState>('page:dashboard');
   const [data, setData] = useState<DashboardState | null>(warmSnapshot?.data ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!warmSnapshot);
-  const [refreshing, setRefreshing] = useState(false);
+  const [editingLayout, setEditingLayout] = useState(false);
+  const [layout, setLayout] = useState<DashboardLayoutItem[]>(() => loadDashboardLayout());
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
+  const dataRef = useRef<DashboardState | null>(warmSnapshot?.data ?? null);
+  const reloadInFlightRef = useRef(false);
+  const queuedForceReloadRef = useRef(false);
 
   useEffect(() => { document.title = 'Overview — SideLink'; }, []);
 
-  const reload = useCallback(async () => {
-    if (!data) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    persistDashboardLayout(layout);
+  }, [layout]);
+
+  const reload = useCallback(async (force = false) => {
+    if (reloadInFlightRef.current) {
+      queuedForceReloadRef.current = queuedForceReloadRef.current || force;
+      return;
     }
+
+    reloadInFlightRef.current = true;
+
+    if (!dataRef.current) {
+      setLoading(true);
+    }
+
     try {
-      const res = await api.dashboard();
+      const res = await api.dashboard({ bypassCache: force });
       const nextData = res.data ?? null;
-      setData(nextData);
+      startTransition(() => {
+        setData(nextData);
+        setLoadError(null);
+      });
       if (nextData) {
         setUiSnapshot('page:dashboard', nextData);
       }
-      setLoadError(null);
     } catch (e: unknown) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load dashboard');
     } finally {
+      reloadInFlightRef.current = false;
       setLoading(false);
-      setRefreshing(false);
-    }
-  }, [data]);
 
-  const scheduleReload = useCallback(() => {
+      if (queuedForceReloadRef.current) {
+        const queuedForce = queuedForceReloadRef.current;
+        queuedForceReloadRef.current = false;
+        void reload(queuedForce);
+      }
+    }
+  }, []);
+
+  const scheduleReload = useCallback((force = true) => {
     if (refreshTimerRef.current !== null) {
       window.clearTimeout(refreshTimerRef.current);
     }
+
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
-      void reload();
-    }, 220);
+      void reload(force);
+    }, 360);
   }, [reload]);
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 12_000 });
 
   const sseState = useSSE({
-    'device-update': () => scheduleReload(),
-    'job-update': () => scheduleReload(),
-    'app-update': () => scheduleReload(),
-    'scheduler-update': () => scheduleReload(),
+    'device-update': () => scheduleReload(true),
+    'job-update': () => scheduleReload(true),
+    'app-update': () => scheduleReload(true),
+    'scheduler-update': () => scheduleReload(true),
   });
 
   useEffect(() => () => {
@@ -68,34 +155,22 @@ export default function DashboardPage() {
     }
   }, []);
 
-  if (loading && !data) return <PageLoader message="Loading overview..." />;
-  if (!data) {
-    return (
-      <div className="sl-card space-y-3 p-6 text-center">
-        <p className="text-sm font-semibold text-[var(--sl-text)]">Overview is unavailable right now</p>
-        <p className="text-[13px] text-[var(--sl-muted)]">{loadError ?? 'Dashboard data could not be loaded.'}</p>
-        <div>
-          <button onClick={() => void reload()} className="sl-btn-primary">Retry</button>
-        </div>
-      </div>
-    );
-  }
-
-  const activeAccounts = data.accounts?.filter((account) => account.status === 'active') ?? [];
+  const activeAccounts = data?.accounts?.filter((account) => account.status === 'active') ?? [];
   const hasAccounts = activeAccounts.length > 0;
-  const hasDevices = (data.devices?.length ?? 0) > 0;
-  const hasIpas = (data.ipas?.length ?? 0) > 0;
-  const sortedJobs = [...(data.jobs ?? [])].sort((left, right) => {
+  const hasDevices = (data?.devices?.length ?? 0) > 0;
+  const hasIpas = (data?.ipas?.length ?? 0) > 0;
+  const sortedJobs = [...(data?.jobs ?? [])].sort((left, right) => {
     const leftStamp = new Date(left.updatedAt ?? left.createdAt).getTime();
     const rightStamp = new Date(right.updatedAt ?? right.createdAt).getTime();
     return rightStamp - leftStamp;
   });
-  const activeJobs = sortedJobs.filter(j => j.status === 'running' || j.status === 'waiting_2fa');
+  const activeJobs = sortedJobs.filter((job) => job.status === 'running' || job.status === 'waiting_2fa');
   const recentJobs = sortedJobs.slice(0, 5);
-  const freeAccountUsages = Object.values(data.weeklyAppIdUsage ?? {});
+  const freeAccountUsages = Object.values(data?.weeklyAppIdUsage ?? {});
   const maxFreeUsage = freeAccountUsages.length > 0
-    ? Math.max(...freeAccountUsages.map((u) => (u.limit > 0 ? u.used / u.limit : 0)))
+    ? Math.max(...freeAccountUsages.map((usage) => (usage.limit > 0 ? usage.used / usage.limit : 0)))
     : 0;
+
   const setupAlerts = [
     !hasAccounts ? {
       title: 'No active Apple ID available',
@@ -116,49 +191,234 @@ export default function DashboardPage() {
       action: 'Open IPAs',
     } : null,
   ].filter(Boolean) as Array<{ title: string; detail: string; to: string; action: string }>;
-  const stats = [
-    {
-      to: '/apple',
-      count: data.accounts?.length ?? 0,
-      label: 'Apple Accounts',
-      tone: 'indigo',
-      icon: <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />,
-    },
-    {
-      to: '/devices',
-      count: data.devices?.length ?? 0,
-      label: 'Devices',
-      tone: 'emerald',
-      icon: <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />,
-    },
-    {
-      to: '/apps',
-      count: data.ipas?.length ?? 0,
-      label: 'Library IPAs',
-      tone: 'violet',
-      icon: <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />,
-    },
-    {
-      to: '/installed',
-      count: data.installedApps?.length ?? 0,
-      label: 'Installed Apps',
-      tone: 'cyan',
-      icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
-    },
-  ] as const;
+
+  const widgetDefinitions = useMemo<DashboardWidgetDefinition[]>(() => {
+    const statCards = [
+      {
+        id: 'accounts' as const,
+        to: '/apple',
+        count: data?.accounts?.length ?? 0,
+        label: 'Apple Accounts',
+        tone: 'indigo' as const,
+        icon: <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />,
+      },
+      {
+        id: 'devices' as const,
+        to: '/devices',
+        count: data?.devices?.length ?? 0,
+        label: 'Devices',
+        tone: 'emerald' as const,
+        icon: <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />,
+      },
+      {
+        id: 'ipas' as const,
+        to: '/apps',
+        count: data?.ipas?.length ?? 0,
+        label: 'Library IPAs',
+        tone: 'violet' as const,
+        icon: <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />,
+      },
+      {
+        id: 'installed' as const,
+        to: '/installed',
+        count: data?.installedApps?.length ?? 0,
+        label: 'Installed Apps',
+        tone: 'cyan' as const,
+        icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+      },
+    ];
+
+    return [
+      ...statCards.map((stat) => ({
+        id: stat.id,
+        title: stat.label,
+        description: `Open ${stat.label.toLowerCase()} and inspect the current roster.`,
+        allowedSizes: ['small', 'medium'] as DashboardWidgetSize[],
+        defaultSize: 'small' as DashboardWidgetSize,
+        headerMode: 'hidden' as const,
+        render: (size: DashboardWidgetSize, editing: boolean) => (
+          <OverviewStatCard
+            to={stat.to}
+            count={stat.count}
+            label={stat.label}
+            tone={stat.tone}
+            icon={stat.icon}
+            emphasis={size}
+            editing={editing}
+          />
+        ),
+      })),
+      {
+        id: 'helper',
+        title: 'iPhone helper',
+        description: 'Build, import, and open pairing code or QR handoff from one operational widget instead of a long right-rail card.',
+        allowedSizes: ['medium', 'wide', 'large'],
+        defaultSize: 'large',
+        tone: 'feature',
+        headerMode: 'standard',
+        render: () => <HelperControlPanel variant="overview" embedded />,
+      },
+      {
+        id: 'readiness',
+        title: 'Desktop readiness',
+        description: 'Runtime, signing, transport, and helper health in one glanceable diagnostic surface.',
+        allowedSizes: ['medium', 'wide'],
+        defaultSize: 'wide',
+        headerMode: 'standard',
+        render: () => <DesktopReadinessPanel activeAccountCount={activeAccounts.length} deviceCount={data?.devices?.length ?? 0} embedded />,
+      },
+      {
+        id: 'active-jobs',
+        title: 'Active installs',
+        description: 'Keep live signing or install work visible without pushing other cards into dead space.',
+        allowedSizes: ['medium', 'wide', 'large'],
+        defaultSize: 'wide',
+        headerMode: 'compact',
+        render: () => (
+          <WidgetListStack
+            emptyTitle="No active installations"
+            emptyDetail="When a signing or install job starts, this widget becomes the live progress surface instead of leaving an empty column in the overview."
+            items={activeJobs.map((job) => ({
+              key: job.id,
+              title: job.currentStep ?? 'Starting install',
+              detail: job.id.slice(0, 8),
+              status: job.status,
+              tone: 'dark' as const,
+            }))}
+          />
+        ),
+      },
+      {
+        id: 'recent-jobs',
+        title: 'Recent jobs',
+        description: 'Completed and failed install history, close enough to act on without opening another page first.',
+        allowedSizes: ['medium', 'wide'],
+        defaultSize: 'medium',
+        headerMode: 'compact',
+        render: () => (
+          <>
+            <div className="mb-3 flex justify-end">
+              <Link to="/install" className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">Open install history</Link>
+            </div>
+            <WidgetListStack
+              emptyTitle="No jobs yet"
+              emptyDetail="The first install or signing action will appear here with a stable card height instead of shifting the entire overview grid."
+              items={recentJobs.map((job) => ({
+                key: job.id,
+                title: job.currentStep ?? 'Pending job',
+                detail: job.id.slice(0, 8),
+                status: job.status,
+                tone: 'soft' as const,
+              }))}
+            />
+          </>
+        ),
+      },
+      {
+        id: 'auto-refresh',
+        title: 'Auto-refresh',
+        description: 'Scheduler health and renewal pressure without leaving the overview.',
+        allowedSizes: ['small', 'medium', 'wide'],
+        defaultSize: 'medium',
+        headerMode: 'compact',
+        render: () => (
+          <SchedulerWidget
+            enabled={!!data?.scheduler?.enabled}
+            intervalMinutes={Math.round((data?.scheduler?.checkIntervalMs ?? 0) / 60_000)}
+            pendingRefreshCount={data?.scheduler?.pendingRefreshCount ?? 0}
+          />
+        ),
+      },
+      {
+        id: 'quota',
+        title: 'Weekly app ID usage',
+        description: 'Show free-account quota pressure before limits become install failures.',
+        allowedSizes: ['medium', 'wide', 'large'],
+        defaultSize: 'wide',
+        tone: maxFreeUsage >= 0.8 ? 'warning' : 'default',
+        headerMode: 'compact',
+        render: () => (
+          <QuotaWidget
+            usages={freeAccountUsages}
+            maxFreeUsage={maxFreeUsage}
+          />
+        ),
+      },
+    ];
+  }, [activeAccounts.length, activeJobs, data?.accounts, data?.devices, data?.installedApps, data?.ipas, data?.scheduler, freeAccountUsages, maxFreeUsage, recentJobs]);
+
+  const widgetDefinitionMap = useMemo(
+    () => Object.fromEntries(widgetDefinitions.map((definition) => [definition.id, definition])) as Record<DashboardWidgetId, DashboardWidgetDefinition>,
+    [widgetDefinitions],
+  );
+
+  const normalizedLayout = useMemo(
+    () => normalizeDashboardLayout(layout, WIDGET_META),
+    [layout],
+  );
+
+  useEffect(() => {
+    if (!areLayoutsEqual(layout, normalizedLayout)) {
+      setLayout(normalizedLayout);
+    }
+  }, [layout, normalizedLayout]);
+
+  const updateWidgetSize = useCallback((widgetId: DashboardWidgetId, size: DashboardWidgetSize) => {
+    setLayout((currentLayout) => currentLayout.map((item) => (item.id === widgetId ? { ...item, size } : item)));
+  }, []);
+
+  const moveWidget = useCallback((widgetId: DashboardWidgetId, direction: 'earlier' | 'later') => {
+    setLayout((currentLayout) => {
+      const currentIndex = currentLayout.findIndex((item) => item.id === widgetId);
+      if (currentIndex === -1) return currentLayout;
+      const targetIndex = direction === 'earlier' ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= currentLayout.length) return currentLayout;
+      const nextLayout = [...currentLayout];
+      const [moved] = nextLayout.splice(currentIndex, 1);
+      nextLayout.splice(targetIndex, 0, moved);
+      return nextLayout;
+    });
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    setLayout(DEFAULT_WIDGET_LAYOUT);
+  }, []);
+
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 5) return 'Late night session';
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    if (hour < 21) return 'Good evening';
+    return 'Late night session';
+  }, []);
+
+  if (loading && !data) return <PageLoader message="Loading overview..." />;
+
+  if (!data) {
+    return (
+      <div className="sl-card space-y-3 p-6 text-center">
+        <p className="text-sm font-semibold text-[var(--sl-text)]">Overview is unavailable right now</p>
+        <p className="text-[13px] text-[var(--sl-muted)]">{loadError ?? 'Dashboard data could not be loaded.'}</p>
+        <div>
+          <button onClick={() => void reload()} className="sl-btn-primary">Retry</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Mission Control"
-        title="One desktop surface for every signing workflow"
+        title={`${greeting} — your signing surface is ready`}
         description={(
           <>
-            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot, with the helper flow now centered on manual pairing codes and QR kept as an optional shortcut.
+            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot. The overview board is editable, persistent, and responsive without forcing critical widgets into a fixed sidebar.
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
               <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
               <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
-              <span className="sl-chip">Code-first pairing</span>
+              <span className="sl-chip">Widget board layout</span>
             </div>
           </>
         )}
@@ -180,20 +440,16 @@ export default function DashboardPage() {
         ]}
       />
 
-      {refreshing && (
-        <div className="sl-card px-4 py-2 text-[12px] text-[var(--sl-muted)]">Refreshing overview snapshot...</div>
-      )}
-
       {setupAlerts.map((alert) => (
-        <div key={alert.title} className="sl-card flex items-center gap-4 p-4 !border-amber-500/15 !bg-amber-500/[0.04]">
+        <div key={alert.title} className="sl-card dashboard-widget flex flex-col gap-3 p-4 !border-amber-500/15 !bg-amber-500/[0.04] sm:flex-row sm:items-center sm:gap-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
             <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-amber-300">{alert.title}</p>
             <p className="mt-0.5 text-[12px] text-amber-400/60">{alert.detail}</p>
           </div>
-          <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 shrink-0 text-[12px]">
+          <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[12px] sm:w-auto">
             {alert.action}
           </Link>
         </div>
@@ -201,131 +457,172 @@ export default function DashboardPage() {
 
       <SectionHeading
         eyebrow="Operations"
-        title="Readiness, activity, and helper control"
-        description="Overview cards stay compact, but the shell now makes install pressure, setup gaps, and helper status obvious at a glance."
+        title="Resizable overview widgets"
+        description={editingLayout
+          ? 'Resize widgets and move them with the arrow controls. Changes are saved locally and reflow across breakpoints automatically.'
+          : 'The overview board is fluid and dense by default, with an edit mode for sizing and ordering instead of a brittle fixed rail.'}
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            {editingLayout && (
+              <button type="button" onClick={resetLayout} className="sl-btn-ghost !px-3 !py-2 text-[12px]">
+                Reset layout
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditingLayout((current) => !current)}
+              className={`sl-btn-${editingLayout ? 'ghost' : 'primary'} !px-3.5 !py-2 text-[12px]`}
+            >
+              {editingLayout ? 'Done editing' : 'Edit widgets'}
+            </button>
+          </div>
+        )}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            {stats.map((stat) => (
-              <OverviewStatCard key={stat.to} {...stat} />
-            ))}
-          </div>
-
-          {activeJobs.length > 0 && (
-            <div className="sl-card !border-indigo-500/15 !bg-indigo-500/[0.04] p-5">
-              <h3 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-indigo-300">
-                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-                Active Installation{activeJobs.length > 1 ? 's' : ''}
-              </h3>
-              <div className="space-y-2">
-                {activeJobs.map(job => (
-                  <div key={job.id} className="flex items-center justify-between rounded-xl bg-black/20 px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-[var(--sl-text)]">{job.currentStep ?? 'Starting install'}</p>
-                      <p className="mt-0.5 text-[11px] font-mono text-[var(--sl-muted)]">{job.id.slice(0, 8)}</p>
-                    </div>
-                    <StatusBadge status={job.status} />
-                  </div>
-                ))}
-              </div>
+      {editingLayout && (
+        <div className="sl-card rounded-[24px] border border-sky-400/15 bg-sky-400/[0.05] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="sl-section-label text-sky-200">Widget editing</p>
+              <p className="mt-2 max-w-3xl text-[13px] leading-6 text-sky-50/90">
+                The board now uses reliable production controls instead of fragile nested drag behavior. Resize with the size chips and reorder with the arrow controls; the grid repacks automatically.
+              </p>
             </div>
-          )}
-
-          <div className="grid gap-3 lg:grid-cols-2">
-            <section className="sl-card p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="sl-section-label">Recent Jobs</h3>
-                <Link to="/install" className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">Open install history</Link>
-              </div>
-              {recentJobs.length === 0 ? (
-                <p className="py-8 text-center text-[13px] text-[var(--sl-muted)]">No jobs yet. Install App will drop the first live job here.</p>
-              ) : (
-                <div className="space-y-2">
-                  {recentJobs.map(job => (
-                    <div key={job.id} className="flex items-center justify-between rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-semibold text-[var(--sl-text)]">{job.currentStep ?? 'Pending job'}</p>
-                        <p className="mt-0.5 text-[11px] font-mono text-[var(--sl-muted)]">{job.id.slice(0, 8)}</p>
-                      </div>
-                      <StatusBadge status={job.status} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="sl-card p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="sl-section-label">Auto-Refresh</h3>
-                <Link to="/settings" className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">Configure</Link>
-              </div>
-              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`h-2.5 w-2.5 rounded-full ${data.scheduler?.enabled ? 'bg-emerald-400' : 'bg-[var(--sl-muted)] opacity-30'}`} />
-                  <p className="text-[13px] text-[var(--sl-text)]">
-                    {data.scheduler?.enabled
-                      ? `Active every ${Math.round((data.scheduler.checkIntervalMs ?? 0) / 60000)} min`
-                      : 'Disabled'}
-                  </p>
-                </div>
-                <p className="mt-3 text-[12px] leading-5 text-[var(--sl-muted)]">
-                  {data.scheduler?.enabled
-                    ? `${data.scheduler.pendingRefreshCount ?? 0} app${(data.scheduler.pendingRefreshCount ?? 0) === 1 ? '' : 's'} currently queued for refresh checks.`
-                    : 'Turn this on when you want expiring installs renewed automatically.'}
-                </p>
-              </div>
-            </section>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <DesktopReadinessPanel activeAccountCount={activeAccounts.length} deviceCount={data.devices?.length ?? 0} />
-          <HelperControlPanel variant="overview" />
-        </div>
-      </div>
-
-      {freeAccountUsages.length > 0 && (
-        <div className={`sl-card p-5 ${maxFreeUsage >= 0.8 ? '!border-amber-500/15 !bg-amber-500/[0.04]' : ''}`}>
-          <h3 className="sl-section-label mb-3">Weekly App ID Usage (Free Accounts)</h3>
-          <div className="space-y-2">
-            {freeAccountUsages.map((usage) => {
-              const ratio = usage.limit > 0 ? Math.min(usage.used / usage.limit, 1) : 0;
-              return (
-                <div key={usage.accountId} className="rounded-lg border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
-                  <div className="mb-2 flex items-center justify-between text-[12px]">
-                    <span className="font-mono text-[var(--sl-muted)]">{usage.teamId}</span>
-                    <span className="text-[var(--sl-text)]">{usage.used} / {usage.limit}</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[var(--sl-bg)]">
-                    <div
-                      className={`h-full rounded-full ${ratio >= 0.8 ? 'bg-amber-400' : 'bg-[var(--sl-accent)]'}`}
-                      style={{ width: `${Math.round(ratio * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
+              Layout saved locally
+            </div>
           </div>
         </div>
       )}
+
+      <div className="grid grid-cols-1 items-stretch gap-4 min-[620px]:grid-cols-2 xl:grid-cols-12 xl:grid-flow-dense xl:auto-rows-[minmax(210px,auto)]">
+        {normalizedLayout.map((widget, index) => {
+          const definition = widgetDefinitionMap[widget.id];
+
+          return (
+            <OverviewWidgetShell
+              key={widget.id}
+              title={definition.title}
+              description={definition.description}
+              size={widget.size}
+              spanClass={getWidgetSpanClass(widget.size)}
+              tone={definition.tone ?? 'default'}
+              headerMode={definition.headerMode ?? 'standard'}
+              allowedSizes={definition.allowedSizes}
+              editing={editingLayout}
+              canMoveEarlier={index > 0}
+              canMoveLater={index < normalizedLayout.length - 1}
+              onResize={(size) => updateWidgetSize(widget.id, size)}
+              onMoveEarlier={() => moveWidget(widget.id, 'earlier')}
+              onMoveLater={() => moveWidget(widget.id, 'later')}
+            >
+              {definition.render(widget.size, editingLayout)}
+            </OverviewWidgetShell>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function QuickMetric({ label, value, tone }: { label: string; value: string; tone: 'sky' | 'emerald' | 'violet' }) {
+function OverviewWidgetShell({
+  title,
+  description,
+  size,
+  spanClass,
+  tone,
+  headerMode,
+  allowedSizes,
+  editing,
+  canMoveEarlier,
+  canMoveLater,
+  children,
+  onResize,
+  onMoveEarlier,
+  onMoveLater,
+}: {
+  title: string;
+  description: string;
+  size: DashboardWidgetSize;
+  spanClass: string;
+  tone: 'default' | 'feature' | 'warning';
+  headerMode: 'hidden' | 'compact' | 'standard';
+  allowedSizes: DashboardWidgetSize[];
+  editing: boolean;
+  canMoveEarlier: boolean;
+  canMoveLater: boolean;
+  children: ReactNode;
+  onResize: (size: DashboardWidgetSize) => void;
+  onMoveEarlier: () => void;
+  onMoveLater: () => void;
+}) {
   const toneClass = {
-    sky: 'border-sky-400/20 bg-sky-400/10 text-sky-100',
-    emerald: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
-    violet: 'border-violet-400/20 bg-violet-400/10 text-violet-100',
+    default: '',
+    feature: '!border-sky-400/15 !bg-[linear-gradient(180deg,rgba(21,40,54,0.96),rgba(10,18,27,0.98))]',
+    warning: '!border-amber-500/15 !bg-amber-500/[0.04]',
   }[tone];
 
+  const contentClass = editing ? 'pointer-events-none select-none opacity-95' : '';
+  const showHeader = headerMode !== 'hidden' || editing;
+
   return (
-    <div className={`rounded-2xl border px-4 py-3 backdrop-blur-sm ${toneClass}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
-      <p className="mt-1 text-[15px] font-semibold">{value}</p>
-    </div>
+    <article className={`${spanClass} min-h-0`}>
+      <section className={`sl-card dashboard-widget flex h-full min-h-[210px] flex-col overflow-hidden ${toneClass} ${editing ? 'ring-1 ring-white/8' : ''}`}>
+        {showHeader && (
+          <div className={`border-b border-[var(--sl-border)] ${headerMode === 'standard' ? 'px-4 py-4 sm:px-5' : 'px-4 py-3 sm:px-5'} ${editing ? 'bg-white/[0.03]' : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)]'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              {headerMode !== 'hidden' ? (
+                <div className="min-w-0">
+                  {headerMode === 'standard' ? <p className="sl-section-label">Overview Widget</p> : null}
+                  <h3 className={`${headerMode === 'compact' ? 'text-[14px]' : 'mt-1 text-[15px]'} font-semibold tracking-tight text-[var(--sl-text)]`}>{title}</h3>
+                  <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{description}</p>
+                </div>
+              ) : (
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-[var(--sl-text)]">{title}</p>
+                  <p className="mt-1 text-[11px] leading-5 text-[var(--sl-muted)]">{description}</p>
+                </div>
+              )}
+
+              {editing ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/10 p-1">
+                    {allowedSizes.map((allowedSize) => (
+                      <button
+                        key={allowedSize}
+                        type="button"
+                        onClick={() => onResize(allowedSize)}
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${allowedSize === size ? 'bg-[var(--sl-accent)] text-[#04131a]' : 'text-[var(--sl-muted)] hover:bg-white/[0.05] hover:text-[var(--sl-text)]'}`}
+                      >
+                        {sizeLabel(allowedSize)}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={onMoveEarlier} disabled={!canMoveEarlier} aria-label="Move widget earlier" title="Move widget earlier" className="sl-btn-ghost !px-2.5 !py-1.5 !text-[11px] disabled:opacity-40">
+                    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5.25l-6 6m6-6l6 6M12 5.25v13.5" />
+                    </svg>
+                  </button>
+                  <button type="button" onClick={onMoveLater} disabled={!canMoveLater} aria-label="Move widget later" title="Move widget later" className="sl-btn-ghost !px-2.5 !py-1.5 !text-[11px] disabled:opacity-40">
+                    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75l6-6m-6 6l-6-6m6 6V5.25" />
+                    </svg>
+                  </button>
+                </div>
+              ) : headerMode === 'hidden' ? null : (
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
+                  {sizeLabel(size)}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className={`flex min-h-0 flex-1 flex-col p-4 sm:p-5 ${contentClass}`}>
+          {children}
+        </div>
+      </section>
+    </article>
   );
 }
 
@@ -335,12 +632,16 @@ function OverviewStatCard({
   label,
   tone,
   icon,
+  emphasis,
+  editing,
 }: {
   to: string;
   count: number;
   label: string;
   tone: 'indigo' | 'emerald' | 'violet' | 'cyan';
-  icon: React.ReactNode;
+  icon: ReactNode;
+  emphasis: DashboardWidgetSize;
+  editing: boolean;
 }) {
   const toneClass = {
     indigo: 'bg-indigo-500/10 text-indigo-300',
@@ -349,16 +650,254 @@ function OverviewStatCard({
     cyan: 'bg-cyan-500/10 text-cyan-300',
   }[tone];
 
-  return (
-    <Link to={to} className="sl-card sl-card-interactive group p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneClass}`}>
+  const metricClass = emphasis === 'medium'
+    ? 'text-[clamp(2.4rem,7vw,3.3rem)]'
+    : 'text-[clamp(1.95rem,7vw,2.7rem)]';
+
+  const content = (
+    <div className="flex h-full flex-col justify-between gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
           <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>{icon}</svg>
         </div>
-        <svg className="h-3.5 w-3.5 -translate-x-1 text-[var(--sl-muted)] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
+          {editing ? sizeLabel(emphasis) : 'Open'}
+        </span>
       </div>
-      <p className="text-2xl font-bold text-[var(--sl-text)]">{count}</p>
-      <p className="mt-0.5 text-[12px] text-[var(--sl-muted)]">{label}</p>
-    </Link>
+
+      <div>
+        <p className={`${metricClass} font-bold leading-none tracking-[-0.05em] text-[var(--sl-text)]`}>{count}</p>
+        <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px]">{label}</p>
+      </div>
+    </div>
   );
+
+  if (editing) {
+    return <div className="h-full">{content}</div>;
+  }
+
+  return <Link to={to} className="block h-full">{content}</Link>;
+}
+
+function WidgetListStack({
+  items,
+  emptyTitle,
+  emptyDetail,
+}: {
+  items: Array<{ key: string; title: string; detail: string; status: string; tone: 'dark' | 'soft' }>;
+  emptyTitle: string;
+  emptyDetail: string;
+}) {
+  if (items.length === 0) {
+    return <WidgetEmptyState title={emptyTitle} detail={emptyDetail} />;
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => (
+        <div
+          key={item.key}
+          className={`flex flex-col gap-2 rounded-[22px] px-4 py-3 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between ${item.tone === 'dark' ? 'bg-black/20' : 'border border-[var(--sl-border)] bg-[var(--sl-surface-soft)]'}`}
+        >
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-[var(--sl-text)]">{item.title}</p>
+            <p className="mt-0.5 font-mono text-[11px] text-[var(--sl-muted)]">{item.detail}</p>
+          </div>
+          <StatusBadge status={item.status} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SchedulerWidget({
+  enabled,
+  intervalMinutes,
+  pendingRefreshCount,
+}: {
+  enabled: boolean;
+  intervalMinutes: number;
+  pendingRefreshCount: number;
+}) {
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+        <div className="flex items-center gap-3">
+          <div className={`h-2.5 w-2.5 rounded-full ${enabled ? 'bg-emerald-400' : 'bg-[var(--sl-muted)] opacity-30'}`} />
+          <p className="text-[13px] text-[var(--sl-text)]">
+            {enabled ? `Active every ${intervalMinutes} min` : 'Disabled'}
+          </p>
+        </div>
+        <p className="mt-3 text-[12px] leading-5 text-[var(--sl-muted)]">
+          {enabled
+            ? `${pendingRefreshCount} app${pendingRefreshCount === 1 ? '' : 's'} currently queued for refresh checks.`
+            : 'Turn this on when you want expiring installs renewed automatically.'}
+        </p>
+      </div>
+
+      <div className="mt-auto flex justify-end">
+        <Link to="/settings" className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">
+          Configure scheduler
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function QuotaWidget({
+  usages,
+  maxFreeUsage,
+}: {
+  usages: Array<{ accountId: string; teamId: string; used: number; limit: number }>;
+  maxFreeUsage: number;
+}) {
+  if (usages.length === 0) {
+    return (
+      <WidgetEmptyState
+        title="No tracked free-account quota"
+        detail="This widget becomes useful once a free Apple account starts consuming weekly app identifiers. Until then, it stays compact and informative instead of blank."
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-2 lg:grid-cols-2">
+      {usages.map((usage) => {
+        const ratio = usage.limit > 0 ? Math.min(usage.used / usage.limit, 1) : 0;
+        return (
+          <div key={usage.accountId} className="rounded-[22px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 sm:p-4">
+            <div className="mb-2 flex items-center justify-between gap-2 text-[12px]">
+              <span className="font-mono text-[var(--sl-muted)]">{usage.teamId}</span>
+              <span className="text-[var(--sl-text)]">{usage.used} / {usage.limit}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--sl-bg)]">
+              <div
+                className={`h-full rounded-full ${ratio >= 0.8 ? 'bg-amber-400' : 'bg-[var(--sl-accent)]'}`}
+                style={{ width: `${Math.round(ratio * 100)}%` }}
+              />
+            </div>
+            <p className={`mt-3 text-[11px] ${maxFreeUsage >= 0.8 ? 'text-amber-200' : 'text-[var(--sl-muted)]'}`}>
+              {ratio >= 0.8 ? 'Approaching weekly app ID ceiling' : 'Within healthy weekly range'}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WidgetEmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-4 py-5">
+      <p className="text-[13px] font-semibold text-[var(--sl-text)]">{title}</p>
+      <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">{detail}</p>
+    </div>
+  );
+}
+
+function loadDashboardLayout(): DashboardLayoutItem[] {
+  if (typeof window === 'undefined') return DEFAULT_WIDGET_LAYOUT;
+
+  try {
+    const raw = window.localStorage.getItem(OVERVIEW_LAYOUT_STORAGE_KEY);
+    if (!raw) return DEFAULT_WIDGET_LAYOUT;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_WIDGET_LAYOUT;
+
+    const nextLayout = parsed.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const id = 'id' in item ? item.id : null;
+      const size = 'size' in item ? item.size : null;
+      if (!isDashboardWidgetId(id) || !isDashboardWidgetSize(size)) return [];
+      return [{ id, size }];
+    });
+
+    return nextLayout.length > 0 ? mergeWithDefaultLayout(nextLayout) : DEFAULT_WIDGET_LAYOUT;
+  } catch {
+    return DEFAULT_WIDGET_LAYOUT;
+  }
+}
+
+function persistDashboardLayout(layout: DashboardLayoutItem[]): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(OVERVIEW_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+}
+
+function normalizeDashboardLayout(
+  layout: DashboardLayoutItem[],
+  meta: Record<DashboardWidgetId, WidgetSizeMeta>,
+): DashboardLayoutItem[] {
+  const seen = new Set<DashboardWidgetId>();
+  const nextLayout: DashboardLayoutItem[] = [];
+
+  for (const item of layout) {
+    if (seen.has(item.id)) continue;
+    const widgetMeta = meta[item.id];
+    if (!widgetMeta) continue;
+    const nextSize = widgetMeta.allowedSizes.includes(item.size) ? item.size : widgetMeta.defaultSize;
+    nextLayout.push({ id: item.id, size: nextSize });
+    seen.add(item.id);
+  }
+
+  for (const defaultItem of DEFAULT_WIDGET_LAYOUT) {
+    if (!seen.has(defaultItem.id)) {
+      const widgetMeta = meta[defaultItem.id];
+      nextLayout.push({ id: defaultItem.id, size: widgetMeta.defaultSize });
+    }
+  }
+
+  return nextLayout;
+}
+
+function mergeWithDefaultLayout(layout: DashboardLayoutItem[]): DashboardLayoutItem[] {
+  const defaultIds = new Set(DEFAULT_WIDGET_LAYOUT.map((item) => item.id));
+  const merged = layout.filter((item) => defaultIds.has(item.id));
+  const seen = new Set(merged.map((item) => item.id));
+
+  for (const defaultItem of DEFAULT_WIDGET_LAYOUT) {
+    if (!seen.has(defaultItem.id)) {
+      merged.push(defaultItem);
+    }
+  }
+
+  return merged;
+}
+
+function areLayoutsEqual(left: DashboardLayoutItem[], right: DashboardLayoutItem[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item.id === right[index].id && item.size === right[index].size);
+}
+
+function isDashboardWidgetId(value: unknown): value is DashboardWidgetId {
+  return typeof value === 'string' && DEFAULT_WIDGET_LAYOUT.some((item) => item.id === value);
+}
+
+function isDashboardWidgetSize(value: unknown): value is DashboardWidgetSize {
+  return value === 'small' || value === 'medium' || value === 'wide' || value === 'large';
+}
+
+function getWidgetSpanClass(size: DashboardWidgetSize): string {
+  switch (size) {
+    case 'small':
+      return 'min-[620px]:col-span-1 xl:col-span-3';
+    case 'medium':
+      return 'min-[620px]:col-span-2 xl:col-span-4';
+    case 'wide':
+      return 'min-[620px]:col-span-2 xl:col-span-6';
+    case 'large':
+      return 'min-[620px]:col-span-2 xl:col-span-8';
+  }
+}
+
+function sizeLabel(size: DashboardWidgetSize): string {
+  switch (size) {
+    case 'small':
+      return 'S';
+    case 'medium':
+      return 'M';
+    case 'wide':
+      return 'L';
+    case 'large':
+      return 'XL';
+  }
 }

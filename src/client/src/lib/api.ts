@@ -32,6 +32,8 @@ type RequestOptions = {
   bypassCache?: boolean;
 };
 
+export type ReadRequestOptions = Pick<RequestOptions, 'signal' | 'bypassCache' | 'cacheTtlMs' | 'cacheKey'>;
+
 type CacheEntry = {
   expiresAt: number;
   value?: ApiRes<unknown>;
@@ -331,7 +333,7 @@ export const api = {
     request('POST', '/apple/2fa/sms', { appleId, phoneNumberId }, {
       suppressSessionExpiryHandling: true,
     }),
-  listAppleAccounts: () => request<AppleAccount[]>('GET', '/apple/accounts', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/apple/accounts' }),
+  listAppleAccounts: (opts?: ReadRequestOptions) => request<AppleAccount[]>('GET', '/apple/accounts', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/apple/accounts', ...opts }),
   getAppleAccount: (id: string) => request<AppleAccount>('GET', `/apple/accounts/${encodeURIComponent(id)}`),
   removeAppleAccount: (id: string) => request('DELETE', `/apple/accounts/${encodeURIComponent(id)}`),
   reAuthAccount: (id: string) =>
@@ -344,12 +346,12 @@ export const api = {
     }),
 
   // ── Devices ─────────────────────────────────────────────────────────
-  listDevices: () => request<DeviceInfo[]>('GET', '/devices', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/devices' }),
+  listDevices: (opts?: ReadRequestOptions) => request<DeviceInfo[]>('GET', '/devices', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/devices', ...opts }),
   refreshDevices: () => request<DeviceInfo[]>('POST', '/devices/refresh'),
   pairDevice: (udid: string) => request('POST', `/devices/${encodeURIComponent(udid)}/pair`),
 
   // ── IPAs ────────────────────────────────────────────────────────────
-  listIpas: () => request<IpaArtifact[]>('GET', '/ipas', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/ipas' }),
+  listIpas: (opts?: ReadRequestOptions) => request<IpaArtifact[]>('GET', '/ipas', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/ipas', ...opts }),
   uploadIpa: async (file: File, onProgress?: (pct: number) => void): Promise<ApiRes<IpaArtifact>> => {
     const form = new FormData();
     form.append('ipa', file);
@@ -393,43 +395,43 @@ export const api = {
   importIpaFromUrl: (url: string) => request<IpaArtifact>('POST', '/ipas/import-url', { url }),
 
   // ── Sources ────────────────────────────────────────────────────────
-  listSources: () => request<UserSource[]>('GET', '/sources', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources' }),
+  listSources: (opts?: ReadRequestOptions) => request<UserSource[]>('GET', '/sources', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources', ...opts }),
   addSource: (url: string) => request<UserSource>('POST', '/sources', { url }),
   deleteSource: (id: string) => request('DELETE', `/sources/${encodeURIComponent(id)}`),
   refreshSource: (id: string) => request<UserSource>('POST', `/sources/${encodeURIComponent(id)}/refresh`),
   listSourceApps: (id: string) => request<SourceApp[]>('GET', `/sources/${encodeURIComponent(id)}/apps`),
   getSourceManifest: (id: string) => request<SourceManifest>('GET', `/sources/${encodeURIComponent(id)}/manifest`),
-  getCombinedSources: () => request<SourceManifest>('GET', '/sources/combined', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources/combined' }),
-  listTrustedSources: () => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/sources/trusted-sources' }),
+  getCombinedSources: (opts?: ReadRequestOptions) => request<SourceManifest>('GET', '/sources/combined', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources/combined', ...opts }),
+  listTrustedSources: (opts?: ReadRequestOptions) => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources/trusted-sources', ...opts }),
   getSelfHostedSource: async () => ({ ok: true, data: await requestRawJson<SourceManifest>('GET', '/sources/self-hosted') }),
   updateSelfHostedSource: (manifest: SourceManifest) => request('PUT', '/sources/self-hosted', manifest),
 
   // ── Install / Pipeline ──────────────────────────────────────────────
-  startInstall: (params: { accountId: string; ipaId: string; deviceUdid: string; includeExtensions?: boolean }) =>
+  startInstall: (params: { accountId: string; ipaId: string; deviceUdid: string; includeExtensions?: boolean; bundleIdStrategy?: string; customDisplayName?: string }) =>
     request<InstallJob>('POST', '/install', params),
-  listJobs: () => request<InstallJob[]>('GET', '/install/jobs', undefined, { cacheTtlMs: 8_000, cacheKey: 'GET:/install/jobs' }),
-  getJob: (id: string) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`, undefined, { cacheTtlMs: 1_000 }),
-  getJobLogs: (id: string) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`, undefined, { cacheTtlMs: 1_000 }),
+  listJobs: (opts?: ReadRequestOptions) => request<InstallJob[]>('GET', '/install/jobs', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/install/jobs', ...opts }),
+  getJob: (id: string, opts?: ReadRequestOptions) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`, undefined, { cacheTtlMs: 1_000, ...opts }),
+  getJobLogs: (id: string, opts?: ReadRequestOptions) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`, undefined, { cacheTtlMs: 1_000, ...opts }),
   submitJob2FA: (jobId: string, code: string) =>
     request('POST', `/install/jobs/${encodeURIComponent(jobId)}/2fa`, { code }),
-  listInstalledApps: () => request<InstalledApp[]>('GET', '/install/apps', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/install/apps' }),
+  listInstalledApps: (opts?: ReadRequestOptions) => request<InstalledApp[]>('GET', '/install/apps', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/install/apps', ...opts }),
   removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${encodeURIComponent(id)}`),
   deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${encodeURIComponent(id)}/deactivate`),
   reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${encodeURIComponent(id)}/reactivate`),
 
   // ── System ──────────────────────────────────────────────────────────
-  dashboard: () => request<DashboardState>('GET', '/system/dashboard', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/dashboard' }),
+  dashboard: (opts?: ReadRequestOptions) => request<DashboardState>('GET', '/system/dashboard', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/dashboard', ...opts }),
   listLogs: (level?: string) => request<LogEntry[]>('GET', `/system/logs${level ? `?level=${encodeURIComponent(level)}` : ''}`),
   clearLogs: () => request('DELETE', '/system/logs'),
-  getScheduler: () => request<SchedulerSnapshot>('GET', '/system/scheduler', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/scheduler' }),
+  getScheduler: (opts?: ReadRequestOptions) => request<SchedulerSnapshot>('GET', '/system/scheduler', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/scheduler', ...opts }),
   updateScheduler: (config: Partial<{ enabled: boolean; checkIntervalMs: number }>) =>
     request<SchedulerSnapshot>('POST', '/system/scheduler', config),
   triggerRefresh: (installedAppId: string) =>
     request('POST', `/system/scheduler/refresh/${encodeURIComponent(installedAppId)}`),
   triggerRefreshAll: () =>
     request<{ triggered: number; skipped: number; errors: string[] }>('POST', '/system/scheduler/refresh-all'),
-  getAutoRefreshStates: () => request<AutoRefreshState[]>('GET', '/system/scheduler/states', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/system/scheduler/states' }),
-  helperDoctor: () => request<{
+  getAutoRefreshStates: (opts?: ReadRequestOptions) => request<AutoRefreshState[]>('GET', '/system/scheduler/states', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/scheduler/states', ...opts }),
+  helperDoctor: (opts?: ReadRequestOptions) => request<{
     platform: string;
     helperIpaPath: string;
     helperIpaExists: boolean;
@@ -457,7 +459,7 @@ export const api = {
     helperPaired?: boolean;
     detectedTeamId?: string | null;
     detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
-  }>('GET', '/system/helper/doctor', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/system/helper/doctor' }),
+  }>('GET', '/system/helper/doctor', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/system/helper/doctor', ...opts }),
   ensureHelperIpa: (teamId?: string) =>
     request<{
       built: boolean;
@@ -469,9 +471,10 @@ export const api = {
   createHelperPairingCode: () =>
     request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string }>('POST', '/system/helper/pairing-code'),
 
-  listAppleAppIds: (sync = false) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`, undefined, { cacheTtlMs: sync ? 0 : 15_000 }),
-  listAppleAppIdUsage: () => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/apple/app-ids/usage' }),
+  listAppleAppIds: (sync = false, opts?: ReadRequestOptions) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`, undefined, { cacheTtlMs: sync ? 0 : 2_500, cacheKey: sync ? undefined : 'GET:/apple/app-ids', ...opts }),
+  listAppleAppIdUsage: (opts?: ReadRequestOptions) => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/apple/app-ids/usage', ...opts }),
   deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${encodeURIComponent(id)}`),
-  listAppleCertificates: () => request<AppleCertificateRecord[]>('GET', '/apple/certificates', undefined, { cacheTtlMs: 20_000, cacheKey: 'GET:/apple/certificates' }),
-  health: () => request<{ status: string; uptime: number }>('GET', '/health', undefined, { cacheTtlMs: 15_000, cacheKey: 'GET:/health' }),
+  listAppleCertificates: (opts?: ReadRequestOptions) => request<AppleCertificateRecord[]>('GET', '/apple/certificates', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/apple/certificates', ...opts }),
+  rotateCertificate: (accountId: string) => request<{ newCertificate: { id: string; serialNumber: string; commonName: string; expiresAt: string; createdAt: string }; revokedCount: number }>('POST', `/apple/accounts/${encodeURIComponent(accountId)}/rotate-certificate`),
+  health: (opts?: ReadRequestOptions) => request<{ status: string; uptime: number }>('GET', '/health', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/health', ...opts }),
 };

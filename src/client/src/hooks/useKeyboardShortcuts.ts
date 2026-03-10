@@ -71,6 +71,7 @@ export function useGlobalShortcuts() {
     { key: '6', meta: true, action: () => navigate('/installed'), label: 'Go to Installed' },
     { key: '7', meta: true, action: () => navigate('/logs'),      label: 'Go to Logs' },
     { key: '8', meta: true, action: () => navigate('/settings'),  label: 'Go to Settings' },
+    { key: '9', meta: true, action: () => navigate('/sources'),   label: 'Go to Sources' },
   ];
 
   useKeyboardShortcuts(shortcuts);

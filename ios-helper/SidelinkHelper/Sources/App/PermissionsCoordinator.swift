@@ -82,8 +82,11 @@ final class PermissionCoordinator: ObservableObject {
     @Published private(set) var backgroundRefresh: SidelinkPermissionState = .unknown
 
     private let localNetworkStateKey = "sidelink.permission.local-network"
+    private let localNetworkBonjourType = "_sidelink._tcp"
     private var localNetworkBrowser: NWBrowser?
     private var localNetworkTimeout: DispatchWorkItem?
+    private var localNetworkDialogTrigger: NWConnection?
+    private var localNetworkReceivedDenial = false
 
     private init() {
         if let stored = UserDefaults.standard.string(forKey: localNetworkStateKey),
@@ -99,9 +102,11 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     func requestAllIfNeeded() async {
+        // Fire local network first — it is non-blocking and the system dialog
+        // can appear while the user responds to the subsequent await-ed dialogs.
+        requestLocalNetworkIfNeeded(force: true)
         await requestNotificationsIfNeeded()
         await requestCameraIfNeeded()
-        requestLocalNetworkIfNeeded(force: true)
         refreshBackgroundRefreshStatus()
     }
 
@@ -134,20 +139,35 @@ final class PermissionCoordinator: ObservableObject {
 
         cancelLocalNetworkProbe()
         localNetwork = .requesting
+        localNetworkReceivedDenial = false
 
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
 
-        let browser = NWBrowser(for: .bonjour(type: "_services._dns-sd._udp", domain: nil), using: parameters)
+        let browser = NWBrowser(for: .bonjour(type: localNetworkBonjourType, domain: nil), using: parameters)
         browser.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
                 switch state {
                 case .ready:
-                    self.finishLocalNetworkProbe(with: .granted)
-                case .waiting(let error), .failed(let error):
-                    let resolved: SidelinkPermissionState = Self.isPolicyDenied(error) ? .denied : .unknown
-                    self.finishLocalNetworkProbe(with: resolved)
+                    // Browser started — does NOT mean permission was granted yet.
+                    // On first launch, iOS shows the dialog asynchronously after
+                    // .ready, so we must wait for browseResults or a denial error
+                    // before deciding.
+                    break
+                case .waiting(let error):
+                    if Self.isPolicyDenied(error) {
+                        self.localNetworkReceivedDenial = true
+                        self.finishLocalNetworkProbe(with: .denied)
+                    }
+                    // For non-policy waits (network down, etc.), keep waiting
+                case .failed(let error):
+                    if Self.isPolicyDenied(error) {
+                        self.localNetworkReceivedDenial = true
+                        self.finishLocalNetworkProbe(with: .denied)
+                    } else {
+                        self.finishLocalNetworkProbe(with: .unknown)
+                    }
                 default:
                     break
                 }
@@ -162,16 +182,24 @@ final class PermissionCoordinator: ObservableObject {
         localNetworkBrowser = browser
         browser.start(queue: DispatchQueue(label: "com.sidelink.permissions.local-network", qos: .userInitiated))
 
+        // Secondary trigger: a brief multicast connection forces iOS to present
+        // the Local Network permission dialog more reliably than NWBrowser alone,
+        // particularly on first app launch.
+        triggerLocalNetworkDialogViaMulticast()
+
         let timeout = DispatchWorkItem { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
                 if self.localNetwork == .requesting {
-                    self.finishLocalNetworkProbe(with: .unknown)
+                    // If no denial arrived and the browser stayed alive, the user
+                    // very likely granted access (no browse results just means no
+                    // _sidelink._tcp services are advertising right now).
+                    self.finishLocalNetworkProbe(with: self.localNetworkReceivedDenial ? .denied : .granted)
                 }
             }
         }
         localNetworkTimeout = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12.0, execute: timeout)
     }
 
     func openSystemSettings() {
@@ -219,6 +247,34 @@ final class PermissionCoordinator: ObservableObject {
         localNetworkTimeout = nil
         localNetworkBrowser?.cancel()
         localNetworkBrowser = nil
+        localNetworkDialogTrigger?.cancel()
+        localNetworkDialogTrigger = nil
+    }
+
+    /// Creates a brief UDP connection to the mDNS multicast address.  On iOS
+    /// this reliably triggers the Local Network permission dialog even when
+    /// NWBrowser alone does not (common on first app launch).
+    private func triggerLocalNetworkDialogViaMulticast() {
+        localNetworkDialogTrigger?.cancel()
+        let connection = NWConnection(host: "224.0.0.251", port: 5353, using: .udp)
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                // Send a tiny packet so the network stack actually transmits on
+                // the local interface, which is what iOS gates behind the dialog.
+                let emptyPacket = Data([0])
+                connection.send(content: emptyPacket, completion: .contentProcessed { _ in
+                    connection.cancel()
+                    Task { @MainActor in self?.localNetworkDialogTrigger = nil }
+                })
+            case .failed, .cancelled:
+                Task { @MainActor in self?.localNetworkDialogTrigger = nil }
+            default:
+                break
+            }
+        }
+        localNetworkDialogTrigger = connection
+        connection.start(queue: .global(qos: .userInitiated))
     }
 
     private static func mapNotificationStatus(_ status: UNAuthorizationStatus) -> SidelinkPermissionState {

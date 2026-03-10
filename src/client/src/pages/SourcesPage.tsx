@@ -31,6 +31,7 @@ export default function SourcesPage() {
   const [appSearch, setAppSearch] = useState('');
   const [trustedSources, setTrustedSources] = useState<TrustedSourceRecord[]>(warmSnapshot?.data.trustedSources ?? []);
 
+  const [activeTab, setActiveTab] = useState<'browse' | 'configured' | 'self-hosted'>('browse');
   const { toast } = useToast();
   const confirm = useConfirm();
 
@@ -47,13 +48,13 @@ export default function SourcesPage() {
     setUiSnapshot('page:sources', next);
   };
 
-  const reload = async () => {
+  const reload = async (force = false) => {
     if (!sources.length && !selfHostedText) {
       setLoading(true);
     }
     try {
       const [sourceRes, selfHostedRes] = await Promise.all([
-        api.listSources(),
+        api.listSources({ bypassCache: force }),
         api.getSelfHostedSource(),
       ]);
       const loadedManifest = selfHostedRes.data ?? emptySelfHostedManifest();
@@ -69,8 +70,8 @@ export default function SourcesPage() {
       setLoadingCatalog(true);
 
       const [combinedRes, trustedSourceRes] = await Promise.all([
-        api.getCombinedSources(),
-        api.listTrustedSources().catch(() => ({ data: [] as TrustedSourceRecord[] })),
+        api.getCombinedSources({ bypassCache: force }),
+        api.listTrustedSources({ bypassCache: force }).catch(() => ({ data: [] as TrustedSourceRecord[] })),
       ]);
 
       syncSnapshot({
@@ -88,7 +89,7 @@ export default function SourcesPage() {
     }
   };
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 20_000 });
 
   const enabledSources = useMemo(() => sources.filter((s) => s.enabled), [sources]);
   const totalApps = useMemo(() => enabledSources.reduce((sum, s) => sum + (s.appCount ?? 0), 0), [enabledSources]);
@@ -321,6 +322,24 @@ export default function SourcesPage() {
         </div>
       </section>
 
+      <div className="sl-card !p-1 !rounded-xl flex gap-0.5">
+        {(['browse', 'configured', 'self-hosted'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 rounded-lg px-4 py-2.5 text-[13px] font-medium transition-all ${
+              activeTab === tab
+                ? 'bg-[var(--sl-accent)] text-white shadow-sm'
+                : 'text-[var(--sl-muted)] hover:text-[var(--sl-text)] hover:bg-[var(--sl-surface-soft)]'
+            }`}
+          >
+            {tab === 'browse' ? 'Browse & Discover' : tab === 'configured' ? 'Configured Sources' : 'Self-Hosted Editor'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'browse' && (
+        <>
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Trusted Sources</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">One-click import for curated AltStore-compatible feeds.</p>
@@ -398,7 +417,10 @@ export default function SourcesPage() {
           )}
         </div>
       </section>
+        </>
+      )}
 
+      {activeTab === 'configured' && (
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Configured Sources</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Built-in and custom feeds currently tracked by SideLink.</p>
@@ -442,7 +464,9 @@ export default function SourcesPage() {
           )}
         </div>
       </section>
+      )}
 
+      {activeTab === 'self-hosted' && (
       <section className="sl-card p-4">
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Self-Hosted Source Editor</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Edit the manifest served by <code>/api/sources/self-hosted</code>.</p>
@@ -559,6 +583,7 @@ export default function SourcesPage() {
           <button onClick={() => void reload()} className="sl-btn-ghost">Reload</button>
         </div>
       </section>
+      )}
     </div>
   );
 }

@@ -568,7 +568,22 @@ final class HelperViewModel: ObservableObject {
                 toastMessage = recoveryMessages.joined(separator: " ")
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if case HelperAPIError.unauthorized = error {
+                // Token is no longer valid — clear it so the user is prompted to
+                // re-pair instead of repeatedly hitting 401 on every refresh.
+                updateHelperToken("")
+                backendURL = ""
+                accounts = []
+                devices = []
+                ipas = []
+                installedApps = []
+                config = nil
+                status = nil
+                sseClient.disconnect()
+                errorMessage = "Your helper token is no longer valid. Please re-pair with your desktop."
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   api,
   type Apple2FAChallenge,
@@ -32,10 +32,18 @@ export default function AppleAccountPage() {
   const [loading, setLoading] = useState(!warmSnapshot);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+  const snapshotRef = useRef<AppleAccountsPageSnapshot>({
+    accounts: warmSnapshot?.data.accounts ?? [],
+    usageByAccount: warmSnapshot?.data.usageByAccount ?? {},
+    appIds: warmSnapshot?.data.appIds ?? [],
+    appIdUsage: warmSnapshot?.data.appIdUsage ?? [],
+    certificates: warmSnapshot?.data.certificates ?? [],
+  });
 
   useEffect(() => { document.title = 'Apple ID — SideLink'; }, []);
 
   const syncSnapshot = useCallback((next: AppleAccountsPageSnapshot) => {
+    snapshotRef.current = next;
     setAccounts(next.accounts);
     setUsageByAccount(next.usageByAccount);
     setAppIds(next.appIds);
@@ -44,31 +52,31 @@ export default function AppleAccountPage() {
     setUiSnapshot('page:apple', next);
   }, []);
 
-  const reload = useCallback(async () => {
-    if (!accounts.length) {
+  const reload = useCallback(async (force = false) => {
+    if (!snapshotRef.current.accounts.length) {
       setLoading(true);
     }
 
     const [accountsResponse, dashboardResponse] = await Promise.all([
-      api.listAppleAccounts(),
-      api.dashboard().catch(() => ({ data: { weeklyAppIdUsage: {} } as DashboardState })),
+      api.listAppleAccounts({ bypassCache: force }),
+      api.dashboard({ bypassCache: force }).catch(() => ({ data: { weeklyAppIdUsage: {} } as DashboardState })),
     ]);
 
     const coreSnapshot: AppleAccountsPageSnapshot = {
       accounts: accountsResponse.data ?? [],
       usageByAccount: dashboardResponse.data?.weeklyAppIdUsage ?? {},
-      appIds,
-      appIdUsage,
-      certificates,
+      appIds: snapshotRef.current.appIds,
+      appIdUsage: snapshotRef.current.appIdUsage,
+      certificates: snapshotRef.current.certificates,
     };
     syncSnapshot(coreSnapshot);
     setLoading(false);
     setLoadingDetails(true);
 
     const [appIdsResponse, appIdUsageResponse, certificatesResponse] = await Promise.all([
-      api.listAppleAppIds().catch(() => ({ data: [] as AppleAppIdRecord[] })),
-      api.listAppleAppIdUsage().catch(() => ({ data: [] as AppleAppIdUsageRecord[] })),
-      api.listAppleCertificates().catch(() => ({ data: [] as AppleCertificateRecord[] })),
+      api.listAppleAppIds(false, { bypassCache: force }).catch(() => ({ data: [] as AppleAppIdRecord[] })),
+      api.listAppleAppIdUsage({ bypassCache: force }).catch(() => ({ data: [] as AppleAppIdUsageRecord[] })),
+      api.listAppleCertificates({ bypassCache: force }).catch(() => ({ data: [] as AppleCertificateRecord[] })),
     ]);
 
     syncSnapshot({
@@ -79,9 +87,9 @@ export default function AppleAccountPage() {
       certificates: certificatesResponse.data ?? [],
     });
     setLoadingDetails(false);
-  }, [accounts.length, appIdUsage, appIds, certificates, syncSnapshot]);
+  }, [syncSnapshot]);
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 15_000 });
 
   return (
     <div className="sl-page animate-fadeIn">
@@ -103,7 +111,7 @@ export default function AppleAccountPage() {
         ]}
       />
 
-      {showSignIn && <SignInForm onDone={() => { setShowSignIn(false); reload(); }} />}
+      {showSignIn && <SignInForm onDone={() => { setShowSignIn(false); void reload(true); }} />}
 
       {loading && accounts.length === 0 ? (
         <PageLoader message="Loading accounts..." />
@@ -158,9 +166,11 @@ export default function AppleAccountPage() {
           </section>
 
           <section className="sl-card p-5 space-y-4">
-            <div>
-              <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Certificates</h3>
-              <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Current signing certificates tracked for your Apple IDs.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Certificates</h3>
+                <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Signing certificates tracked for your Apple IDs. Rotate when PPQ blocks app verification.</p>
+              </div>
             </div>
 
             {loadingDetails && certificates.length === 0 ? (
@@ -169,20 +179,43 @@ export default function AppleAccountPage() {
               <p className="text-[12px] text-[var(--sl-muted)]">No signing certificates tracked yet.</p>
             ) : (
               <div className="space-y-2">
-                {certificates.map((certificate) => (
-                  <div key={certificate.id} className="rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[12px] font-semibold text-[var(--sl-text)] truncate">{certificate.commonName}</p>
-                        <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">{certificate.serialNumber}</p>
-                        <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
-                          Expires {new Date(certificate.expiresAt).toLocaleString()}
-                        </p>
-                        <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{certificate.accountAppleId ?? certificate.teamName ?? certificate.teamId}</p>
+                {certificates.map((certificate) => {
+                  const expiresAt = new Date(certificate.expiresAt);
+                  const daysLeft = Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+                  const isExpired = daysLeft <= 0;
+                  const isExpiring = daysLeft <= 2;
+                  const isRevoked = !!certificate.revokedAt;
+                  const matchingAccount = accounts.find((a) => a.id === certificate.accountId);
+
+                  return (
+                    <div key={certificate.id} className={`rounded-xl border p-3 ${isRevoked ? 'border-[var(--sl-border)] bg-[var(--sl-surface-soft)] opacity-60' : isExpired ? 'border-red-500/20 bg-red-500/[0.04]' : isExpiring ? 'border-amber-500/20 bg-amber-500/[0.04]' : 'border-[var(--sl-border)] bg-[var(--sl-surface-soft)]'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-[12px] font-semibold text-[var(--sl-text)] truncate">{certificate.commonName}</p>
+                            {isRevoked && <span className="shrink-0 rounded-full border border-[var(--sl-border)] bg-[var(--sl-surface)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--sl-muted)]">Revoked</span>}
+                            {!isRevoked && isExpired && <span className="shrink-0 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red-300">Expired</span>}
+                            {!isRevoked && !isExpired && isExpiring && <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">Expiring</span>}
+                            {!isRevoked && !isExpired && !isExpiring && <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">Active</span>}
+                          </div>
+                          <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">Serial: {certificate.serialNumber}</p>
+                          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
+                            {isExpired ? 'Expired' : `${daysLeft}d remaining`} · Expires {expiresAt.toLocaleDateString()}
+                          </p>
+                          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{certificate.accountAppleId ?? certificate.teamName ?? certificate.teamId}</p>
+                          {!isRevoked && !isExpired && (
+                            <div className="mt-2 h-1 w-full max-w-[200px] overflow-hidden rounded-full bg-[var(--sl-bg)]">
+                              <div className={`h-full rounded-full ${isExpiring ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (daysLeft / 7) * 100)}%` }} />
+                            </div>
+                          )}
+                        </div>
+                        {!isRevoked && matchingAccount?.status === 'active' && (
+                          <CertRotateButton accountId={certificate.accountId} onRotated={() => void reload(true)} />
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -294,14 +327,14 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
 
   return (
     <div className="sl-card overflow-hidden animate-fadeInUp">
-      <div className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 ${needsReAuth ? 'bg-amber-500/10' : 'bg-indigo-500/10'}`}>
             <svg className={`w-4.5 h-4.5 ${needsReAuth ? 'text-amber-400' : 'text-indigo-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
           </div>
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--sl-text)]">{account.appleId}</p>
-            <div className="flex items-center gap-2 mt-0.5">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{account.appleId}</p>
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
               <StatusBadge status={account.status} />
               <span className="text-[11px] text-[var(--sl-muted)]">
                 {account.teamName ?? 'Unknown Team'} · {account.accountType ?? 'free'}
@@ -526,5 +559,48 @@ function SignInForm({ onDone }: { onDone: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+function CertRotateButton({ accountId, onRotated }: { accountId: string; onRotated: () => void }) {
+  const [rotating, setRotating] = useState(false);
+  const { toast } = useToast();
+  const confirm = useConfirm();
+
+  const handleRotate = async () => {
+    const ok = await confirm({
+      title: 'Rotate Certificate',
+      message: 'This will revoke the current signing certificate and create a new one. All active apps signed with this certificate will need to be re-signed. Continue?',
+      confirmLabel: 'Rotate',
+      danger: true,
+    });
+    if (!ok) return;
+
+    setRotating(true);
+    try {
+      const res = await api.rotateCertificate(accountId);
+      const data = res.data;
+      toast('success', `Certificate rotated. ${data?.revokedCount ?? 0} old cert(s) revoked.`);
+      onRotated();
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Certificate rotation failed'));
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleRotate}
+      disabled={rotating}
+      className="sl-btn-ghost shrink-0 !px-3 !py-1.5 !text-[11px] flex items-center gap-1.5"
+    >
+      {rotating ? (
+        <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--sl-muted)]/40 border-t-[var(--sl-muted)]" />
+      ) : (
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
+      )}
+      {rotating ? 'Rotating...' : 'Rotate'}
+    </button>
   );
 }

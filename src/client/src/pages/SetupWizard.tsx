@@ -490,6 +490,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
   const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(true);
+  const [addedAccounts, setAddedAccounts] = useState<string[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -531,6 +532,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
         setPhase('2fa');
       } else {
         toast('success', 'Apple ID connected');
+        setAddedAccounts(prev => [...prev, appleId]);
         setPhase('success');
       }
     } catch (e: unknown) {
@@ -552,6 +554,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     try {
       await api.submitApple2FA({ appleId, password, code });
       toast('success', 'Apple ID verified');
+      setAddedAccounts(prev => [...prev, appleId]);
       setPhase('success');
     } catch (e: unknown) {
       setError(getErrorMessage(e, '2FA failed'));
@@ -560,14 +563,25 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     }
   };
 
+  const addAnother = () => {
+    setAppleId('');
+    setPassword('');
+    setCode('');
+    setError('');
+    setTwoFAInfo(null);
+    setPhase('form');
+  };
+
   if (phase === 'success') {
     return (
       <div>
         <div className="mb-4">
-          <InlineNotice title="Signing Identity Connected" tone="success">
+          <InlineNotice title={addedAccounts.length === 1 ? 'Signing Identity Connected' : `${addedAccounts.length} Signing Identities Connected`} tone="success">
             <div className="space-y-1">
-              <p className="font-medium text-emerald-50">{appleId}</p>
-              <p>This Apple ID is now available to the signing pipeline.</p>
+              {addedAccounts.map((id) => (
+                <p key={id} className="font-medium text-emerald-50">{id}</p>
+              ))}
+              <p>{addedAccounts.length === 1 ? 'This Apple ID is' : 'These Apple IDs are'} now available to the signing pipeline.</p>
             </div>
           </InlineNotice>
         </div>
@@ -575,9 +589,16 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           <svg aria-hidden="true" className="w-10 h-10 text-emerald-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <p className="text-emerald-400 font-medium">Apple ID Connected</p>
-          <p className="text-emerald-400/60 text-xs mt-1">Provisioning and install requests can now use this identity.</p>
+          <p className="text-emerald-400 font-medium">{addedAccounts.length === 1 ? 'Apple ID Connected' : `${addedAccounts.length} Apple IDs Connected`}</p>
+          <p className="text-emerald-400/60 text-xs mt-1">Provisioning and install requests can now use {addedAccounts.length === 1 ? 'this identity' : 'these identities'}.</p>
         </div>
+        <button
+          onClick={addAnother}
+          className="sl-btn-ghost w-full mb-4 flex items-center justify-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          Add Another Apple ID
+        </button>
         <StepActions onBack={onBack} onNext={onNext} />
       </div>
     );
@@ -940,7 +961,7 @@ function DoneStep({ onFinish }: { onFinish: () => void }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2">
         <Card className="p-3 text-center">
           <p className="text-xs text-[var(--sl-muted)]">What's Next</p>
           <p className="text-sm text-[var(--sl-text)] mt-0.5">Go to Install page</p>

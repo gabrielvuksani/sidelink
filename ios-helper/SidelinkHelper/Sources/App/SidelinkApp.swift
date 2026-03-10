@@ -61,14 +61,21 @@ struct SidelinkAppRootView: View {
         .task {
             await model.refreshAll()
             await permissions.refreshStatuses()
-            await permissions.requestAllIfNeeded()
+            // Only auto-request all permissions when onboarding is done.
+            // During onboarding, the onboarding flow handles permission
+            // requests step-by-step to avoid queuing multiple dialogs.
+            if didCompleteOnboarding {
+                await permissions.requestAllIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 Task {
                     await model.refreshAllSilently()
                     await permissions.refreshStatuses()
-                    permissions.requestLocalNetworkIfNeeded(force: true)
+                    if didCompleteOnboarding {
+                        permissions.requestLocalNetworkIfNeeded(force: true)
+                    }
                 }
             }
         }

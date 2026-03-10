@@ -16,7 +16,7 @@ struct SidelinkHelperApp: App {
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
-            }
-        }
-    }
+                Task { @MainActor in
+                    await PermissionCoordinator.shared.refreshStatuses()
+                
 }

@@ -5,7 +5,7 @@ import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, SectionHeading, StepIcon } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
@@ -20,9 +20,9 @@ export default function InstallPage() {
 
   useEffect(() => { document.title = 'Install — SideLink'; }, []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     try {
-      const res = await api.listJobs();
+      const res = await api.listJobs({ bypassCache: force });
       const nextJobs = res.data ?? [];
       setJobs(nextJobs);
       setUiSnapshot('page:install-jobs', nextJobs);
@@ -33,7 +33,7 @@ export default function InstallPage() {
     }
   }, [toast]);
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 8_000, revalidateOnFocus: false });
 
   const hydrateJobLogs = useCallback(async (jobId: string) => {
     try {
@@ -125,20 +125,25 @@ export default function InstallPage() {
               const formatted = isFailed && j.error ? formatJobError(j.error) : null;
               return (
                 <div key={j.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <span className="text-[11px] text-[var(--sl-muted)] font-mono">{j.id.slice(0, 8)}</span>
-                      <span className="text-[12px] text-[var(--sl-muted)]">{j.currentStep ?? '-'}</span>
+                      <span className="text-[12px] text-[var(--sl-muted)] truncate">{j.currentStep ?? '-'}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {formatted && (
-                        <span className="text-[11px] text-red-400/70 truncate max-w-[220px]">{formatted.title}</span>
+                        <span className="text-[11px] text-red-400/70 truncate max-w-[180px]">{formatted.title}</span>
                       )}
                       <StatusBadge status={j.status} />
                     </div>
                   </div>
                   {formatted && (
                     <p className="text-[11px] text-[var(--sl-muted)] mt-1.5 leading-relaxed">{formatted.description}</p>
+                  )}
+                  {j.status === 'completed' && (
+                    <p className="text-[11px] text-amber-400/70 mt-1.5 leading-relaxed">
+                      If the app shows a &ldquo;Verify App&rdquo; error, open <strong>Settings → General → VPN &amp; Device Management</strong> and trust the developer profile.
+                    </p>
                   )}
                 </div>
               );
@@ -288,10 +293,4 @@ function JobErrorDisplay({ error }: { error: string }) {
   );
 }
 
-function StepIcon({ status }: { status: string }) {
-  if (status === 'completed') return <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  if (status === 'running') return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 bg-[var(--sl-accent)] rounded-full animate-pulse" /></span>;
-  if (status === 'waiting_2fa') return <svg className="w-4 h-4 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
-  if (status === 'failed') return <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 border border-[var(--sl-muted)] rounded-full" /></span>;
-}
+// StepIcon is now imported from '../components/Shared'

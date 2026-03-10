@@ -4,7 +4,7 @@ import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord } from '../lib/a
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
 import { useSSE } from '../hooks/useSSE';
-import { StatusBadge } from './Shared';
+import { StatusBadge, StepIcon, ToggleSwitch } from './Shared';
 import type { AppleAccount, IpaArtifact, DeviceInfo, InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
 
@@ -53,12 +53,15 @@ function resolveInventorySelection(
   const activeAccounts = filterActiveAccounts(snapshot.accounts);
   const lastAccountId = localStorage.getItem(STORAGE_KEYS.lastInstallAccountId) ?? '';
   const lastDeviceUdid = localStorage.getItem(STORAGE_KEYS.lastInstallDeviceUdid) ?? '';
+  const hasMultipleActiveAccounts = activeAccounts.length > 1;
 
   const accountId = current.accountId && activeAccounts.some((account) => account.id === current.accountId)
     ? current.accountId
-    : activeAccounts.some((account) => account.id === lastAccountId)
+    : !hasMultipleActiveAccounts && activeAccounts.some((account) => account.id === lastAccountId)
       ? lastAccountId
-      : activeAccounts[0]?.id ?? '';
+      : activeAccounts.length === 1
+        ? activeAccounts[0].id
+        : '';
 
   const ipaId = preselect.ipaId && snapshot.ipas.some((ipa) => ipa.id === preselect.ipaId)
     ? preselect.ipaId
@@ -154,6 +157,8 @@ function InstallModal({
   const [selectedIpa, setSelectedIpa] = useState(warmSelection?.ipaId ?? preselect.ipaId ?? '');
   const [selectedDevice, setSelectedDevice] = useState(warmSelection?.deviceUdid ?? preselect.deviceUdid ?? '');
   const [includeExtensions, setIncludeExtensions] = useState(false);
+  const [bundleIdStrategy, setBundleIdStrategy] = useState<'randomized' | 'deterministic'>('randomized');
+  const [customDisplayName, setCustomDisplayName] = useState('');
   const [installing, setInstalling] = useState(false);
   const [activeJob, setActiveJob] = useState<InstallJob | null>(null);
   const [error, setError] = useState('');
@@ -333,6 +338,14 @@ function InstallModal({
     }
   }, []);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   // SSE for job updates and live inventory refreshes
   useSSE({
     'device-update': () => { scheduleInventoryReload({ silent: true }); },
@@ -379,6 +392,8 @@ function InstallModal({
         ipaId: selectedIpa,
         deviceUdid: selectedDevice,
         includeExtensions,
+        bundleIdStrategy,
+        customDisplayName: customDisplayName.trim() || undefined,
       });
       setActiveJob(res.data ?? null);
     } catch (e: unknown) {
@@ -442,63 +457,64 @@ function InstallModal({
   ].filter(Boolean) as string[];
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
+    <div className="sl-modal-overlay z-[92] animate-fadeIn">
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fadeIn"
+        className="absolute inset-0"
         onClick={() => (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') && onClose()}
       />
 
-      <div className="relative flex min-h-full items-start justify-center px-3 py-3 sm:px-4 sm:py-5">
-        {/* Panel */}
+      <div className="sl-modal-frame">
         <div
           ref={panelRef}
-          className="relative flex h-[min(920px,calc(100dvh-1.5rem))] w-full max-w-5xl flex-col overflow-hidden sl-card shadow-2xl animate-fadeInUp sm:h-[min(920px,calc(100dvh-2.5rem))]"
+          className="sl-modal-panel sl-modal-panel-wide relative flex h-[min(920px,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden sl-card shadow-2xl animate-fadeInUp sm:h-[min(920px,calc(100dvh-2.5rem))]"
         >
-        {/* Header */}
-        <div className="shrink-0 border-b border-[var(--sl-border)] px-6 py-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+
+        <div className="relative shrink-0 overflow-hidden border-b border-[var(--sl-border)] bg-[linear-gradient(135deg,rgba(18,30,40,0.98),rgba(8,14,22,0.98))] px-4 py-5 sm:px-7">
+          <div className="pointer-events-none absolute -left-16 top-[-3.5rem] h-40 w-40 rounded-full bg-indigo-400/12 blur-3xl" />
+          <div className="pointer-events-none absolute right-[-2rem] top-[-1.5rem] h-32 w-32 rounded-full bg-teal-400/10 blur-3xl" />
+          <div className="sl-modal-header">
           <div>
-            <h2 className="text-base font-semibold text-[var(--sl-text)]">Install App</h2>
-            <p className="mt-1 text-[12px] text-[var(--sl-muted)]">One live installer for devices, accounts, quota pressure, and pipeline progress.</p>
+            <p className="sl-kicker">Install Pipeline</p>
+            <h2 className="mt-3 text-[1.3rem] font-semibold tracking-[-0.04em] text-[var(--sl-text)] sm:text-[1.5rem]">Install App</h2>
+            <p className="mt-2 max-w-2xl text-[13px] leading-6 text-[var(--sl-muted)]">Select an IPA, target device, and Apple account. Monitor pipeline progress, respond to 2FA, and review logs from one place.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="sl-modal-header-actions items-center sm:justify-end">
             {!activeJob && (
               <button
                 onClick={() => { void reloadInventory(); }}
                 disabled={refreshingInventory}
-                className="sl-btn-ghost !px-3 !py-1.5 !text-[11px]"
+                className="sl-btn-ghost justify-center !px-3 !py-2 !text-[12px]"
               >
                 {refreshingInventory ? 'Refreshing…' : 'Refresh data'}
               </button>
             )}
           <button
             onClick={() => { if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') onClose(); }}
-            className={`transition-colors p-1 ${activeJob && activeJob.status !== 'completed' && activeJob.status !== 'failed' ? 'text-[var(--sl-muted)] opacity-30 cursor-not-allowed' : 'text-[var(--sl-muted)] hover:text-[var(--sl-text)]'}`}
+            className="sl-btn-ghost justify-center !px-3 !py-2 !text-[12px]"
             disabled={!!activeJob && activeJob.status !== 'completed' && activeJob.status !== 'failed'}
             aria-label="Close"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            Close
           </button>
           </div>
         </div>
         </div>
 
         {loading ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-16">
+          <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-16 sm:px-6">
             <div className="w-6 h-6 border-2 border-[var(--sl-accent)] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : activeJob ? (
           /* Pipeline progress view */
-          <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] text-[var(--sl-muted)]">Pipeline Progress</span>
-              <StatusBadge status={activeJob.status} />
-            </div>
-            <div className="space-y-2">
-              {(activeJob.steps ?? []).map((step: PipelineStep, i: number) => (
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4 sm:p-7">
+            <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">Pipeline Progress</p>
+                <StatusBadge status={activeJob.status} />
+              </div>
+              <div className="mt-4 space-y-2">
+                {(activeJob.steps ?? []).map((step: PipelineStep, i: number) => (
                 <div key={i} className="flex items-center gap-3">
                   <StepIcon status={step.status === 'running' && activeJob.status === 'waiting_2fa' ? 'waiting_2fa' : step.status} />
                   <span className={`text-[13px] ${
@@ -518,13 +534,14 @@ function InstallModal({
                   )}
                 </div>
               ))}
+              </div>
             </div>
 
             {/* 2FA input */}
             {activeJob.status === 'waiting_2fa' && (
-              <div className="sl-card !border-amber-500/15 !bg-amber-500/[0.04] p-4 mt-3">
-                <p className="text-amber-300 text-[13px] font-semibold mb-2">2FA Code Required</p>
-                <div className="flex gap-2">
+              <div className="rounded-[24px] border border-amber-500/15 bg-amber-500/[0.04] p-4 sm:p-5">
+                <p className="text-amber-300 text-[13px] font-semibold mb-3">2FA Code Required</p>
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     type="text"
                     value={twoFACode}
@@ -551,10 +568,10 @@ function InstallModal({
 
             {/* Done actions */}
             {jobDone && (
-              <div className="flex gap-2 pt-2">
+              <div className="sl-modal-footer-actions pt-2">
                 <button
                   onClick={onClose}
-                  className="flex-1 sl-btn-ghost"
+                  className="flex-1 sl-btn-ghost justify-center"
                 >
                   Close
                 </button>
@@ -562,13 +579,13 @@ function InstallModal({
                   <>
                     <button
                       onClick={() => { setActiveJob(null); setError(''); }}
-                      className="flex-1 sl-btn-primary"
+                      className="flex-1 sl-btn-primary justify-center"
                     >
                       Try Again
                     </button>
                     <a
                       href="/logs"
-                      className="flex-1 sl-btn-ghost text-center"
+                      className="flex-1 sl-btn-ghost justify-center text-center"
                     >
                       View Logs
                     </a>
@@ -577,15 +594,15 @@ function InstallModal({
               </div>
             )}
 
-            <div className="border border-[var(--sl-border)] bg-[var(--sl-bg)] rounded-xl overflow-hidden">
+            <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-bg)] overflow-hidden">
               <button
                 onClick={() => setShowVerboseLogs((prev) => !prev)}
-                className="w-full px-3 py-2 text-left text-[12px] text-[var(--sl-muted)] hover:text-[var(--sl-text)] hover:bg-[var(--sl-surface-soft)] transition-colors"
+                className="w-full px-4 py-3 text-left text-[12px] text-[var(--sl-muted)] hover:text-[var(--sl-text)] hover:bg-[var(--sl-surface-soft)] transition-colors"
               >
                 {showVerboseLogs ? '\u25be' : '\u25b8'} Verbose Install Log ({jobLogs.length})
               </button>
               {showVerboseLogs && (
-                <div className="max-h-52 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed bg-black/40">
+                <div className="max-h-52 overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed bg-black/40">
                   {jobLogs.length === 0 ? (
                     <p className="text-[var(--sl-muted)]">Waiting for pipeline output...</p>
                   ) : jobLogs.map((line) => (
@@ -600,9 +617,9 @@ function InstallModal({
           </div>
         ) : (
           /* Selection form */
-          <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4 sm:p-7">
             {refreshingInventory && (
-              <div className="rounded-xl border border-sky-400/20 bg-sky-400/[0.06] px-3 py-2 text-[11px] text-sky-100">
+              <div className="rounded-[20px] border border-sky-400/20 bg-sky-400/[0.06] px-4 py-2.5 text-[12px] text-sky-100">
                 Refreshing installer inventory…
               </div>
             )}
@@ -684,43 +701,52 @@ function InstallModal({
 
               <div className="space-y-4">
 
-                {/* Account selection (only if multiple) */}
-                {accounts.length > 1 && (
-                  <div>
-                    <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Apple Account</label>
-                    <select
-                      value={selectedAccount}
-                      onChange={e => setSelectedAccount(e.target.value)}
-                      className="sl-input w-full"
-                    >
-                      <option value="">Select account...</option>
-                      {accounts.map(a => (
-                        <option key={a.id} value={a.id}>{a.appleId} ({a.accountType})</option>
-                      ))}
-                    </select>
-                    {selectedAccountUsage && (
-                      <p className="mt-1 text-[11px] text-amber-300/90">
-                        Active App IDs: {selectedAccountUsage.active}/{selectedAccountUsage.maxActive} · This week: {selectedAccountUsage.weeklyCreated}/{selectedAccountUsage.maxWeekly}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {accounts.length === 0 && (
-                  <p className="text-xs text-amber-400">No active Apple ID. Add one in Apple ID settings.</p>
-                )}
-
-                {accounts.length === 1 && selectedAccountObj && (
-                  <div className="sl-card p-3">
-                    <p className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider">Apple Account</p>
-                    <p className="mt-1 text-[13px] text-[var(--sl-text)]">{selectedAccountObj.appleId}</p>
-                    <p className="text-[11px] text-[var(--sl-muted)]">{selectedAccountObj.teamName} · {selectedAccountObj.accountType}</p>
-                    {selectedAccountUsage && (
-                      <p className="mt-2 text-[11px] text-amber-300/90">
-                        Active App IDs: {selectedAccountUsage.active}/{selectedAccountUsage.maxActive} · This week: {selectedAccountUsage.weeklyCreated}/{selectedAccountUsage.maxWeekly}
-                      </p>
-                    )}
-                  </div>
-                )}
+                {/* Account selection */}
+                <div>
+                  <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Apple Account</label>
+                  {accounts.length === 0 ? (
+                    <p className="text-xs text-amber-400">No active Apple ID. Add one in Apple ID settings.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {accounts.map(a => {
+                        const usage = appIdUsage.find((entry) => entry.accountId === a.id);
+                        const needsReAuth = a.status === 'requires_2fa' || a.status === 'session_expired';
+                        return (
+                          <button
+                            key={a.id}
+                            onClick={() => setSelectedAccount(a.id)}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all ${
+                              selectedAccount === a.id
+                                ? 'bg-indigo-500/[0.12] ring-1 ring-indigo-500/30'
+                                : needsReAuth
+                                  ? 'bg-amber-500/[0.06] hover:bg-amber-500/[0.1]'
+                                  : 'bg-[var(--sl-surface-soft)] hover:bg-[var(--sl-surface-raised)]'
+                            }`}
+                          >
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${needsReAuth ? 'bg-amber-500/10' : 'bg-indigo-500/10'}`}>
+                              <svg className={`w-4 h-4 ${needsReAuth ? 'text-amber-400' : 'text-indigo-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] text-[var(--sl-text)] truncate">{a.appleId}</p>
+                              <p className="text-[11px] text-[var(--sl-muted)]">
+                                {a.teamName ?? 'Unknown Team'} · {a.accountType}
+                                {needsReAuth && <span className="text-amber-400 ml-1">· Re-auth needed</span>}
+                              </p>
+                              {usage && (
+                                <p className="text-[10px] text-[var(--sl-muted)] mt-0.5">
+                                  App IDs: {usage.active}/{usage.maxActive} active · {usage.weeklyCreated}/{usage.maxWeekly} this week
+                                </p>
+                              )}
+                            </div>
+                            {selectedAccount === a.id && (
+                              <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
                 {selectedAccountObj && selectedAccountUsage && (
                   <div className="sl-card p-3">
@@ -777,21 +803,7 @@ function InstallModal({
                           )}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={includeExtensions}
-                        onClick={() => setIncludeExtensions(!includeExtensions)}
-                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--sl-accent)]/40 ${
-                          includeExtensions ? 'bg-[var(--sl-accent)]' : 'bg-[var(--sl-surface-raised)]'
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                            includeExtensions ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
+                      <ToggleSwitch checked={includeExtensions} onChange={setIncludeExtensions} label="Include extensions" />
                     </div>
                     {includeExtensions && (
                       <p className="text-[11px] text-amber-400/80 mt-2">
@@ -800,6 +812,43 @@ function InstallModal({
                     )}
                   </div>
                 )}
+
+                {/* Bundle ID Strategy — PPQ avoidance */}
+                <div className="sl-card p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[13px] text-[var(--sl-text)] font-medium">Randomize Bundle ID</p>
+                      <p className="text-[11px] text-[var(--sl-muted)] mt-0.5">
+                        Prevents Apple&rsquo;s PPQ check from flagging sideloaded apps as unverified
+                      </p>
+                    </div>
+                    <ToggleSwitch checked={bundleIdStrategy === 'randomized'} onChange={(v) => setBundleIdStrategy(v ? 'randomized' : 'deterministic')} label="Randomize bundle ID" />
+                  </div>
+                  {bundleIdStrategy === 'randomized' && (
+                    <p className="text-[11px] text-emerald-400/80 mt-2">
+                      The bundle ID will be randomized so Apple cannot correlate it with known App Store apps. This is the recommended setting.
+                    </p>
+                  )}
+                  {bundleIdStrategy === 'deterministic' && (
+                    <p className="text-[11px] text-amber-400/80 mt-2">
+                      The bundle ID will use a deterministic hash. Apps may trigger Apple&rsquo;s &ldquo;Unable to Verify App&rdquo; check.
+                    </p>
+                  )}
+                </div>
+
+                {/* Custom Display Name */}
+                <div className="sl-card p-3">
+                  <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Custom Display Name</label>
+                  <input
+                    type="text"
+                    value={customDisplayName}
+                    onChange={(e) => setCustomDisplayName(e.target.value)}
+                    placeholder={selectedIpaObj?.bundleName ?? 'Leave empty to use default'}
+                    maxLength={50}
+                    className="sl-input !text-[13px]"
+                  />
+                  <p className="text-[10px] text-[var(--sl-muted)] mt-1.5">Optional. Overrides the app name shown on the home screen.</p>
+                </div>
 
                 {error && (
                   <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3">
@@ -827,19 +876,36 @@ function InstallModal({
                   </div>
                 )}
 
-                <div className="sl-card p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sl-muted)]">Install summary</p>
+                <div className="rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(135deg,rgba(45,212,191,0.08),rgba(10,18,27,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">Install summary</p>
                   {selectedIpaObj && selectedDeviceObj ? (
-                    <p className="mt-2 text-[12px] leading-5 text-[var(--sl-muted)]">
-                      Install <span className="text-[var(--sl-text)]">{selectedIpaObj.bundleName ?? selectedIpaObj.originalName}</span> on <span className="text-[var(--sl-text)]">{selectedDeviceObj.name || 'iOS Device'}</span>.
-                    </p>
+                    <>
+                      <p className="mt-3 text-[13px] leading-6 text-[var(--sl-muted)]">
+                        Install <span className="font-semibold text-[var(--sl-text)]">{selectedIpaObj.bundleName ?? selectedIpaObj.originalName}</span> on <span className="font-semibold text-[var(--sl-text)]">{selectedDeviceObj.name || 'iOS Device'}</span>.
+                      </p>
+                      {selectedAccountObj ? (
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-black/15 px-3 py-3 text-[12px] leading-6 text-[var(--sl-muted)]">
+                          <p>
+                            Signing with <span className="font-semibold text-[var(--sl-text)]">{selectedAccountObj.appleId}</span>
+                            {' '}on team <span className="font-mono text-[var(--sl-text)]">{selectedAccountObj.teamId}</span>.
+                          </p>
+                          <p className="mt-1 text-[11px] text-amber-200/90">
+                            If iOS later shows &ldquo;Verify App&rdquo;, trust this exact developer profile on the device.
+                          </p>
+                        </div>
+                      ) : accounts.length > 1 ? (
+                        <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-3 py-3 text-[11px] leading-6 text-amber-200">
+                          Choose the Apple account you want to sign with. SideLink no longer guesses when multiple Apple IDs are active.
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
-                    <p className="mt-2 text-[12px] leading-5 text-[var(--sl-muted)]">Choose an IPA, target device, and Apple account to start the install pipeline.</p>
+                    <p className="mt-3 text-[13px] leading-6 text-[var(--sl-muted)]">Choose an IPA, target device, and Apple account to start the install pipeline.</p>
                   )}
                   <button
                     onClick={install}
                     disabled={!canInstall || freeLimitReached}
-                    className="mt-4 w-full sl-btn-primary disabled:opacity-40 disabled:cursor-not-allowed py-3"
+                    className="mt-4 w-full sl-btn-primary disabled:opacity-40 disabled:cursor-not-allowed py-3 text-[13px] font-semibold"
                   >
                     {installing ? (
                       <span className="flex items-center justify-center gap-2">
@@ -859,10 +925,4 @@ function InstallModal({
   );
 }
 
-function StepIcon({ status }: { status: string }) {
-  if (status === 'completed') return <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  if (status === 'running') return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 bg-[var(--sl-accent)] rounded-full animate-pulse" /></span>;
-  if (status === 'waiting_2fa') return <svg className="w-4 h-4 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
-  if (status === 'failed') return <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 border border-[var(--sl-muted)] rounded-full" /></span>;
-}
+// StepIcon is now imported from './Shared'

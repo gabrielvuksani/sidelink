@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import type { AppContext } from '../context';
 import { Apple2FARequiredError } from '../utils/errors';
+import { appleAuthRateLimit } from '../utils/security';
 import { validators } from '../utils/validators';
 import {
   deleteAppleAppId,
@@ -22,7 +23,7 @@ export function appleRoutes(ctx: AppContext): Router {
   const router = Router();
 
   // Sign in with Apple ID
-  router.post('/signin', validators.appleSignIn, async (req, res, next) => {
+  router.post('/signin', appleAuthRateLimit, validators.appleSignIn, async (req, res, next) => {
     try {
       const { appleId, password } = req.body;
       if (!appleId || !password) {
@@ -46,7 +47,7 @@ export function appleRoutes(ctx: AppContext): Router {
   });
 
   // Submit 2FA code
-  router.post('/2fa', validators.apple2FA, async (req, res, next) => {
+  router.post('/2fa', appleAuthRateLimit, validators.apple2FA, async (req, res, next) => {
     try {
       const { appleId, password, code, method } = req.body;
       if (!appleId || !code) {
@@ -65,7 +66,7 @@ export function appleRoutes(ctx: AppContext): Router {
   });
 
   // Request SMS 2FA
-  router.post('/2fa/sms', validators.appleSMS, async (req, res, next) => {
+  router.post('/2fa/sms', appleAuthRateLimit, validators.appleSMS, async (req, res, next) => {
     try {
       const { appleId, phoneNumberId } = req.body;
       if (!appleId || phoneNumberId === undefined) {
@@ -91,7 +92,7 @@ export function appleRoutes(ctx: AppContext): Router {
   });
 
   // Re-authenticate an existing account (when requires_2fa or session_expired)
-  router.post('/accounts/:id/reauth', async (req, res, next) => {
+  router.post('/accounts/:id/reauth', appleAuthRateLimit, async (req, res, next) => {
     try {
       const account = await ctx.appleAccounts.reauthenticate(req.params.id);
       res.json({ ok: true, data: toSafeAppleAccount(account) });
@@ -111,7 +112,7 @@ export function appleRoutes(ctx: AppContext): Router {
   });
 
   // Submit 2FA for re-auth of an existing account
-  router.post('/accounts/:id/reauth/2fa', validators.apple2FACode, async (req, res, next) => {
+  router.post('/accounts/:id/reauth/2fa', appleAuthRateLimit, validators.apple2FACode, async (req, res, next) => {
     try {
       const { code } = req.body;
       const account = await ctx.appleAccounts.complete2FAForAccount(req.params.id, code);
@@ -154,6 +155,60 @@ export function appleRoutes(ctx: AppContext): Router {
 
   router.get('/certificates', (_req, res) => {
     res.json({ ok: true, data: listAppleCertificates(ctx) });
+  });
+
+  router.post('/accounts/:id/rotate-certificate', async (req, res, next) => {
+    try {
+      const account = ctx.appleAccounts.get(req.params.id);
+      if (!account) {
+        return res.status(404).json({ ok: false, error: 'Account not found' });
+      }
+      if (account.status !== 'active') {
+        return res.status(400).json({ ok: false, error: 'Account must be active to rotate certificates' });
+      }
+
+      const client = await ctx.appleAccounts.getDevClient(account.id);
+
+      // Revoke existing certificates
+      const existingCerts = ctx.db.listCertificates(account.id);
+      for (const cert of existingCerts) {
+        if (!cert.revokedAt) {
+          try {
+            await client.revokeCertificate(account.teamId, cert.portalCertificateId);
+          } catch {
+            // Best-effort revocation on portal
+          }
+          ctx.db.saveCertificate({ ...cert, revokedAt: new Date().toISOString() });
+        }
+      }
+
+      // Create a fresh certificate (ensureCertificate handles CSR + portal submission)
+      const { CertificateManager } = await import('../apple/certificate-manager');
+      const certManager = new CertificateManager(ctx.db, client);
+      const newCert = await certManager.ensureCertificate(account.id, account.teamId);
+
+      ctx.logs.info('CERT_ROTATED', `Certificate rotated for ${account.appleId}`, {
+        accountId: account.id,
+        newCertId: newCert.id,
+        revokedCount: existingCerts.filter((c) => !c.revokedAt).length,
+      });
+
+      res.json({
+        ok: true,
+        data: {
+          newCertificate: {
+            id: newCert.id,
+            serialNumber: newCert.serialNumber,
+            commonName: newCert.commonName,
+            expiresAt: newCert.expiresAt,
+            createdAt: newCert.createdAt,
+          },
+          revokedCount: existingCerts.filter((c) => !c.revokedAt).length,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;

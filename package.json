@@ -179,7 +179,10 @@
       "icon": "build/icons/icon.icns",
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "SideLink discovers nearby helpers and device services on your local network so pairing and desktop control work out of the box."
+      }
     },
     "win": {
       "target": [

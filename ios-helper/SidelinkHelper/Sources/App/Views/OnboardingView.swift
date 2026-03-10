@@ -52,7 +52,7 @@ struct OnboardingView: View {
         }
         .interactiveDismissDisabled()
         .task {
-            await permissions.refreshStatuses()
+            await permissions.requestAllIfNeeded()
         }
     }
 
@@ -235,13 +235,12 @@ struct OnboardingView: View {
     private var pairingStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Pair with your desktop helper")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                    Text("Start with the 6-digit code. Use QR only when the camera handoff is more convenient.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                SidelinkSectionIntro(
+                    eyebrow: "Pairing",
+                    title: "Pair with your desktop helper",
+                    subtitle: "Start with the 6-digit code. Use QR only when the camera handoff is more convenient."
+                )
+                .liquidPanel()
                 .padding(.horizontal, 24)
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -367,15 +366,14 @@ struct OnboardingView: View {
     private var finishStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(model.isPaired ? "You’re connected." : "You’re ready to explore.")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                    Text(model.isPaired
+                SidelinkSectionIntro(
+                    eyebrow: model.isPaired ? "Connected" : "All Set",
+                    title: model.isPaired ? "You're connected." : "You're ready to explore.",
+                    subtitle: model.isPaired
                         ? "Home, Search, Sources, and Installed now keep your primary signing identity and target device visible while you work."
-                         : "You can start exploring now, then return to Settings any time to pair and add signing accounts.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                        : "You can start exploring now, then return to Settings any time to pair and add signing accounts."
+                )
+                .liquidPanel()
                 .padding(.horizontal, 24)
 
                 VStack(spacing: 12) {
@@ -484,7 +482,7 @@ struct OnboardingView: View {
                 }
                     .buttonStyle(.borderedProminent)
                     .tint(state.isGranted ? .slSuccess : tint)
-                    .disabled(state == .requesting || state == .unavailable)
+                    .disabled(state == .unavailable)
             } else {
                 Text(state.actionLabel)
                     .font(.caption.weight(.semibold))

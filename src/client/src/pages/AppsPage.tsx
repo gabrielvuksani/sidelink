@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type DragEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type DragEvent } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
@@ -6,29 +6,63 @@ import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
 import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { IpaArtifact } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
 const MAX_FILE_SIZE = UI_LIMITS.maxIpaFileSizeBytes;
 
 export default function AppsPage() {
-  const [ipas, setIpas] = useState<IpaArtifact[]>([]);
-  const [loading, setLoading] = useState(true);
+  const warmSnapshot = getUiSnapshot<IpaArtifact[]>('page:ipas');
+  const [ipas, setIpas] = useState<IpaArtifact[]>(warmSnapshot?.data ?? []);
+  const [loading, setLoading] = useState(!warmSnapshot);
+  const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const ipasRef = useRef<IpaArtifact[]>(warmSnapshot?.data ?? []);
+  const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const confirm = useConfirm();
   const { openInstall } = useInstallModal();
 
+  const filteredIpas = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return ipas;
+    return ipas.filter((ipa) =>
+      (ipa.bundleName ?? ipa.originalName).toLowerCase().includes(q)
+      || ipa.bundleId.toLowerCase().includes(q)
+      || (ipa.bundleShortVersion ?? '').toLowerCase().includes(q),
+    );
+  }, [ipas, searchQuery]);
+
   useEffect(() => { document.title = 'IPAs — SideLink'; }, []);
 
-  const reload = useCallback(() => {
-    api.listIpas().then(r => setIpas(r.data ?? [])).finally(() => setLoading(false));
+  useEffect(() => {
+    ipasRef.current = ipas;
+  }, [ipas]);
+
+  const reload = useCallback((force = false) => {
+    if (!ipasRef.current.length) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+
+    api.listIpas({ bypassCache: force })
+      .then((response) => {
+        const nextIpas = response.data ?? [];
+        setIpas(nextIpas);
+        setUiSnapshot('page:ipas', nextIpas);
+      })
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   }, []);
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 20_000 });
 
   const upload = async (file: File) => {
     if (uploading) return;
@@ -41,7 +75,7 @@ export default function AppsPage() {
     try {
       await api.uploadIpa(file, setUploadPct);
       toast('success', `Uploaded ${file.name}`);
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Upload failed'));
     } finally {
@@ -83,7 +117,7 @@ export default function AppsPage() {
     try {
       await api.deleteIpa(ipa.id);
       toast('success', 'IPA deleted');
-      reload();
+      void reload(true);
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to delete IPA'));
     }
@@ -107,6 +141,10 @@ export default function AppsPage() {
         title="Upload or drop new IPA artifacts"
         description="Drag-and-drop stays available, but the upload panel now reads like an ingestion workflow instead of a generic file field."
       />
+
+      {refreshing && !uploading && (
+        <div className="sl-card px-4 py-2 text-[12px] text-[var(--sl-muted)]">Refreshing IPA library...</div>
+      )}
 
       {/* Upload zone */}
       <div
@@ -162,7 +200,21 @@ export default function AppsPage() {
             description="Hover actions remain quick, but the visual hierarchy now favors app identity, version, size, and extension readiness."
             action={<button onClick={() => openInstall()} className="sl-btn-primary">Install App</button>}
           />
-          {ipas.map(ipa => (
+          {ipas.length > 3 && (
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search IPAs by name, bundle ID, or version..."
+              className="sl-input !py-2.5 !text-[13px]"
+              aria-label="Search IPAs"
+            />
+          )}
+          {filteredIpas.length === 0 && searchQuery ? (
+            <div className="sl-card px-4 py-8 text-center">
+              <p className="text-[13px] text-[var(--sl-muted)]">No IPAs matching &ldquo;{searchQuery}&rdquo;</p>
+            </div>
+          ) : filteredIpas.map(ipa => (
             <div key={ipa.id} className="sl-card sl-card-interactive group flex items-center justify-between p-3.5 animate-fadeInUp">
               <div className="flex items-center gap-3 min-w-0">
                 {ipa.iconData ? (
@@ -187,10 +239,10 @@ export default function AppsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0 ml-3">
-                <button onClick={() => openInstall({ ipaId: ipa.id })} className="sl-btn-primary !text-[12px] !px-3 !py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => openInstall({ ipaId: ipa.id })} className="sl-btn-primary !text-[12px] !px-3 !py-1.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                   Install
                 </button>
-                <button onClick={() => remove(ipa)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => remove(ipa)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                   Delete
                 </button>
               </div>

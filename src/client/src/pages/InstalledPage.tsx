@@ -7,12 +7,10 @@ import { SSEIndicator, useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
-import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading, relativeTime } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { InstalledApp, AutoRefreshState, AppleAccount } from '../../../shared/types';
 import type { AppleAppIdRecord, AppleAppIdUsageRecord } from '../lib/api';
-
-const FALLBACK_REFRESH_MS = 5000;
 
 type InstalledSnapshot = {
   apps: InstalledApp[];
@@ -39,28 +37,53 @@ export default function InstalledPage() {
   const [staleSections, setStaleSections] = useState<string[]>(warmSnapshot?.data.staleSections ?? []);
   const [lastSnapshotAt, setLastSnapshotAt] = useState<number | null>(warmSnapshot?.updatedAt ?? null);
   const [loading, setLoading] = useState(!warmSnapshot);
+  const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const confirmDialog = useConfirm();
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
   const inFlightRef = useRef(false);
   const lastLoadedAtRef = useRef(0);
+  const stateRef = useRef<InstalledSnapshot>({
+    apps: warmSnapshot?.data.apps ?? [],
+    refreshStates: warmSnapshot?.data.refreshStates ?? [],
+    accounts: warmSnapshot?.data.accounts ?? [],
+    appIds: warmSnapshot?.data.appIds ?? [],
+    appIdUsage: warmSnapshot?.data.appIdUsage ?? [],
+    staleSections: warmSnapshot?.data.staleSections ?? [],
+  });
 
   useEffect(() => { document.title = 'Installed — SideLink'; }, []);
 
-  const loadSnapshot = useCallback(async (): Promise<InstalledSnapshot> => {
-    const currentApps = apps;
-    const currentRefreshStates = refreshStates;
-    const currentAccounts = accounts;
-    const currentAppIds = appIds;
-    const currentAppIdUsage = appIdUsage;
+  const allActiveApps = apps.filter(app => app.status !== 'deactivated');
+  const deactivatedApps = apps.filter(app => app.status === 'deactivated');
+  const activeApps = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allActiveApps;
+    return allActiveApps.filter((app) =>
+      (app.appName || '').toLowerCase().includes(q)
+      || app.originalBundleId.toLowerCase().includes(q)
+      || (app.appVersion ?? '').toLowerCase().includes(q),
+    );
+  }, [allActiveApps, searchQuery]);
+  const expiringSoon = allActiveApps.filter((app) => {
+    if (!app.expiresAt) return false;
+    return new Date(app.expiresAt).getTime() - Date.now() <= 1000 * 60 * 60 * 24 * 2;
+  }).length;
+
+  const loadSnapshot = useCallback(async (force = false): Promise<InstalledSnapshot> => {
+    const currentApps = stateRef.current.apps;
+    const currentRefreshStates = stateRef.current.refreshStates;
+    const currentAccounts = stateRef.current.accounts;
+    const currentAppIds = stateRef.current.appIds;
+    const currentAppIdUsage = stateRef.current.appIdUsage;
 
     const [appsRes, statesRes, accountsRes, appIdsRes, appIdUsageRes] = await Promise.allSettled([
-      api.listInstalledApps(),
-      api.getAutoRefreshStates(),
-      api.listAppleAccounts(),
-      api.listAppleAppIds(),
-      api.listAppleAppIdUsage(),
+      api.listInstalledApps({ bypassCache: force }),
+      api.getAutoRefreshStates({ bypassCache: force }),
+      api.listAppleAccounts({ bypassCache: force }),
+      api.listAppleAppIds(false, { bypassCache: force }),
+      api.listAppleAppIdUsage({ bypassCache: force }),
     ]);
 
     const stale: string[] = [];
@@ -89,9 +112,10 @@ export default function InstalledPage() {
       appIdUsage: nextAppIdUsage,
       staleSections: stale,
     };
-  }, [accounts, appIdUsage, appIds, apps, refreshStates]);
+  }, []);
 
   const applySnapshot = useCallback((snapshot: InstalledSnapshot) => {
+    stateRef.current = snapshot;
     setApps(snapshot.apps);
     setRefreshStates(snapshot.refreshStates);
     setAccounts(snapshot.accounts);
@@ -108,7 +132,7 @@ export default function InstalledPage() {
 
     inFlightRef.current = true;
     try {
-      applySnapshot(await loadSnapshot());
+      applySnapshot(await loadSnapshot(force));
       lastLoadedAtRef.current = Date.now();
     } finally {
       inFlightRef.current = false;
@@ -126,23 +150,7 @@ export default function InstalledPage() {
     }, 200);
   }, []);
 
-  usePageRefresh(reload);
-
-  useEffect(() => {
-    void reload(true);
-  }, [reload]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void reload(true);
-      }
-    }, FALLBACK_REFRESH_MS);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [reload]);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 8_000 });
 
   useEffect(() => () => {
     if (refreshTimerRef.current !== null) {
@@ -248,6 +256,17 @@ export default function InstalledPage() {
     return account.appleId || account.teamName || `${account.id.slice(0, 8)}...`;
   };
 
+  const trustProfiles = useMemo(() => {
+    const seen = new Set<string>();
+    return activeApps
+      .map((app) => accounts.find((entry) => entry.id === app.accountId) ?? null)
+      .filter((account): account is AppleAccount => {
+        if (!account || seen.has(account.id)) return false;
+        seen.add(account.id);
+        return true;
+      });
+  }, [accounts, activeApps]);
+
   const appIdConsumersByAccount = useMemo(() => {
     const consumers = new Map<string, AppIdConsumer[]>();
 
@@ -285,22 +304,29 @@ export default function InstalledPage() {
     [appIds, apps],
   );
 
+  const feedHealthTone = staleSections.length > 0
+    ? 'border-amber-300/15 bg-amber-300/10 text-amber-100'
+    : sseState === 'connected'
+      ? 'border-emerald-300/15 bg-emerald-300/10 text-emerald-100'
+      : 'border-sky-300/15 bg-sky-300/10 text-sky-100';
+
+  const feedHealthHeadline = staleSections.length > 0
+    ? 'Partial data snapshot'
+    : sseState === 'connected'
+      ? 'Live installed feed'
+      : 'Polling fallback active';
+
   const feedHealthDetail = staleSections.length > 0
     ? `Using the last successful snapshot while ${staleSections.join(', ')} ${staleSections.length === 1 ? 'retries' : 'retry'}.`
-    : 'Direct app-change events update this page, with a 5-second polling fallback if SSE drops.';
+    : refreshStates.length === 0 && activeApps.length > 0
+      ? 'Tracked installs are loaded, but refresh-state details have not landed yet. The page will keep polling until scheduler state catches up.'
+      : 'Direct app-change events update this page, with a 5-second polling fallback if SSE drops.';
 
   const lastSnapshotLabel = lastSnapshotAt
     ? new Date(lastSnapshotAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
     : null;
 
   if (loading && apps.length === 0) return <PageLoader message="Loading installed apps..." />;
-
-  const activeApps = apps.filter(app => app.status !== 'deactivated');
-  const deactivatedApps = apps.filter(app => app.status === 'deactivated');
-  const expiringSoon = activeApps.filter((app) => {
-    if (!app.expiresAt) return false;
-    return new Date(app.expiresAt).getTime() - Date.now() <= 1000 * 60 * 60 * 24 * 2;
-  }).length;
 
   return (
     <div className="sl-page animate-fadeIn">
@@ -335,10 +361,16 @@ export default function InstalledPage() {
       <div className="sl-card flex items-center justify-between gap-3 p-3">
         <div>
           <p className="text-[12px] font-semibold text-[var(--sl-text)]">Installed feed health</p>
+          <p className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${feedHealthTone}`}>
+            {feedHealthHeadline}
+          </p>
           <p className="text-[11px] text-[var(--sl-muted)]">{feedHealthDetail}</p>
           {lastSnapshotLabel && (
             <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Last snapshot: {lastSnapshotLabel}</p>
           )}
+          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
+            {apps.length} tracked app{apps.length === 1 ? '' : 's'} • {refreshStates.length} refresh state{refreshStates.length === 1 ? '' : 's'} • {appIdUsage.length} quota snapshot{appIdUsage.length === 1 ? '' : 's'}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <SSEIndicator state={sseState} />
@@ -349,6 +381,83 @@ export default function InstalledPage() {
           )}
         </div>
       </div>
+
+      {activeApps.length > 0 && (
+        <details className="sl-card overflow-hidden group">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 px-5 py-4 border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] select-none">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10">
+                <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-[var(--sl-text)]">App Verification &amp; PPQ Troubleshooting</p>
+                <p className="text-[12px] text-[var(--sl-muted)]">Fix &ldquo;Unable to Verify App&rdquo; errors on installed apps</p>
+              </div>
+            </div>
+            <svg className="h-4 w-4 text-[var(--sl-muted)] transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+          </summary>
+          <div className="space-y-4 p-5">
+            <div className="rounded-2xl border border-amber-500/15 bg-amber-500/[0.04] p-4">
+              <p className="text-[13px] font-semibold text-amber-300">What is the &ldquo;Unable to Verify App&rdquo; error?</p>
+              <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">
+                Apple&rsquo;s PPQ (Provisioning Profile Query) system checks sideloaded apps against Apple&rsquo;s servers when you first launch them. If the bundle ID matches a known App Store app, or if Apple flags your certificate, the app will show &ldquo;Unable to Verify App&rdquo; and refuse to open.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-[13px] font-semibold">Randomize Bundle IDs</p>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
+                  Use the &ldquo;Randomize Bundle ID&rdquo; toggle in the Install modal (enabled by default). This generates a random bundle ID so Apple cannot correlate it with known apps.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
+                <div className="flex items-center gap-2 text-sky-400">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
+                  <p className="text-[13px] font-semibold">Rotate Certificate</p>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
+                  If apps stop opening, go to Apple ID settings and use &ldquo;Rotate Certificate&rdquo; to revoke the flagged cert and create a fresh one. Then re-sign all apps.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
+                <div className="flex items-center gap-2 text-violet-400">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
+                  <p className="text-[13px] font-semibold">Toggle Developer Mode</p>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
+                  On the device: Settings → Privacy &amp; Security → Developer Mode. Toggle it off, restart, try to open the app, re-enable Developer Mode when prompted.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
+                <div className="flex items-center gap-2 text-amber-400">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" /></svg>
+                  <p className="text-[13px] font-semibold">Block PPQ Servers (DNS)</p>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
+                  Use NextDNS or AdGuard to block <code className="text-[10px] font-mono">ppq.apple.com</code>. This prevents Apple from verifying the developer certificate, allowing sideloaded apps to launch.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
+              <p className="text-[12px] font-semibold text-[var(--sl-text)]">Trust Developer Profile</p>
+              <p className="mt-1.5 text-[11px] leading-5 text-[var(--sl-muted)]">
+                After a first install, you must trust the developer certificate on the device. Go to <strong>Settings → General → VPN &amp; Device Management</strong> and tap the developer profile to trust it.
+                {trustProfiles.length > 0 && (
+                  <> Active profiles for: {trustProfiles.map((a) => a.appleId).join(', ')}.</>
+                )}
+              </p>
+            </div>
+          </div>
+        </details>
+      )}
 
       {appIdUsage.length > 0 && (
         <section className="space-y-2">
@@ -433,9 +542,47 @@ export default function InstalledPage() {
         />
       ) : (
         <div className="space-y-6 stagger-children">
+          <div className="sl-card !border-amber-500/15 !bg-amber-500/[0.04] px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+              <div className="space-y-1.5 text-[12px] text-[var(--sl-muted)] leading-relaxed">
+                <p>
+                  <span className="text-amber-300 font-semibold">Seeing &ldquo;Verify App&rdquo;?</span>{' '}
+                  Open <strong className="text-[var(--sl-text)]">Settings → General → VPN &amp; Device Management</strong> on your device and trust the exact developer profile that signed the app. This is required once per signing certificate.
+                </p>
+                {trustProfiles.length > 0 && (
+                  <p>
+                    Current installs are signed by{' '}
+                    {trustProfiles.map((account, index) => (
+                      <span key={account.id}>
+                        <strong className="text-[var(--sl-text)]">{account.appleId}</strong>
+                        {' '}(<span className="font-mono text-[var(--sl-text)]">{account.teamId}</span>)
+                        {index < trustProfiles.length - 2 ? ', ' : index === trustProfiles.length - 2 ? ' and ' : ''}
+                      </span>
+                    ))}.
+                    {trustProfiles.length > 1 ? ' Trust the matching profile for the app you installed.' : ''}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
           <section className="space-y-2">
-            <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${activeApps.length} install${activeApps.length === 1 ? '' : 's'} currently tracked across your devices.`} />
-            {activeApps.map(app => {
+            <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${allActiveApps.length} install${allActiveApps.length === 1 ? '' : 's'} currently tracked across your devices.`} />
+            {allActiveApps.length > 3 && (
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search installed apps by name, bundle ID, or version..."
+                className="sl-input !py-2.5 !text-[13px]"
+                aria-label="Search installed apps"
+              />
+            )}
+            {activeApps.length === 0 && searchQuery ? (
+              <div className="sl-card px-4 py-8 text-center">
+                <p className="text-[13px] text-[var(--sl-muted)]">No installed apps matching &ldquo;{searchQuery}&rdquo;</p>
+              </div>
+            ) : activeApps.map(app => {
             const refreshState = getRefreshState(app.id);
             const expiresAt = app.expiresAt ? new Date(app.expiresAt) : null;
             const daysLeft = expiresAt
@@ -446,7 +593,7 @@ export default function InstalledPage() {
 
               return (
               <div key={app.id} className="sl-card sl-card-interactive p-4 animate-fadeInUp group">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -456,7 +603,7 @@ export default function InstalledPage() {
                       <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid?.slice(0, 8)}...</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
                       Refresh
                     </button>
@@ -490,7 +637,8 @@ export default function InstalledPage() {
                 {/* Auto-refresh indicator */}
                 {refreshState && (
                   <div className="mt-2 flex items-center gap-3 text-[11px] text-[var(--sl-muted)]">
-                    {refreshState.lastRefreshAt && <span>Last refreshed: {new Date(refreshState.lastRefreshAt).toLocaleString()}</span>}
+                    {refreshState.lastRefreshAt && <span title={new Date(refreshState.lastRefreshAt).toLocaleString()}>Last refreshed: {relativeTime(refreshState.lastRefreshAt)}</span>}
+                    {refreshState.refreshInProgress && <span className="text-sky-400 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" /> Refreshing...</span>}
                     {refreshState.lastError && <span className="text-red-400">Error: {refreshState.lastError}</span>}
                   </div>
                 )}
@@ -504,7 +652,7 @@ export default function InstalledPage() {
               <SectionHeading eyebrow="Standby" title="Deactivated installs" description="These stay available for one-click reactivation without losing the app record." />
               {deactivatedApps.map(app => (
                 <div key={app.id} className="sl-card p-4 animate-fadeInUp border border-amber-500/15 bg-amber-500/[0.03]">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -513,7 +661,7 @@ export default function InstalledPage() {
                         <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button onClick={() => reactivateApp(app)} className="sl-btn-primary !text-[12px] !px-3 !py-1.5">
                         Reactivate
                       </button>

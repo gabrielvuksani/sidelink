@@ -29,6 +29,7 @@ struct APIClient {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = requestTimeout
         config.timeoutIntervalForResource = 300
+        config.waitsForConnectivity = true
         session = URLSession(configuration: config)
     }
 

@@ -6,8 +6,8 @@
   "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/.vitepress/public/source/cortex-icon.png",
   "tintColor": "#1d9a8a",
   "featured": true,
-  "versionDate": "2026-03-09",
-  "versionDescription": "First public Cortex release through the official SideLink source.",
+  "versionDate": "2026-03-10",
+  "versionDescription": "Updated Cortex build through the official SideLink source.",
   "appPermissions": {
     "entitlements": [],
     "privacy": [

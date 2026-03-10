@@ -23,7 +23,7 @@ import type {
 } from '../../shared/types';
 import type { EncryptionProvider } from '../types';
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 10;
 
 // Migration steps — each bumps the version by 1
 type Migration = { version: number; description: string; sql: string };
@@ -203,6 +203,35 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE installed_apps_v8 RENAME TO installed_apps;
       CREATE INDEX IF NOT EXISTS idx_installed_expires ON installed_apps(expires_at);
       CREATE INDEX IF NOT EXISTS idx_installed_status ON installed_apps(status);
+    `,
+  },
+  {
+    version: 9,
+    description: 'Persist Apple developer session identity',
+    sql: `
+      ALTER TABLE apple_accounts ADD COLUMN session_id TEXT;
+    `,
+  },
+  {
+    version: 10,
+    description: 'Bundle ID randomization mappings and job strategy tracking',
+    sql: `
+      CREATE TABLE IF NOT EXISTS bundle_id_mappings (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        team_id TEXT NOT NULL,
+        device_udid TEXT NOT NULL,
+        original_bundle_id TEXT NOT NULL,
+        effective_bundle_id TEXT NOT NULL,
+        strategy TEXT NOT NULL DEFAULT 'deterministic',
+        display_name TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (account_id) REFERENCES apple_accounts(id) ON DELETE CASCADE,
+        UNIQUE(account_id, team_id, device_udid, original_bundle_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bid_map_lookup ON bundle_id_mappings(account_id, team_id, original_bundle_id);
+      ALTER TABLE jobs ADD COLUMN bundle_id_strategy TEXT NOT NULL DEFAULT 'deterministic';
+      ALTER TABLE jobs ADD COLUMN custom_display_name TEXT;
     `,
   },
 ];
@@ -481,6 +510,7 @@ export class Database {
     accountType: string;
     passwordEncrypted: string;
     cookiesJson: string;
+    sessionId?: string | null;
     status: string;
   }): string {
     const existing = this.db.prepare('SELECT id FROM apple_accounts WHERE apple_id = ?')
@@ -489,8 +519,8 @@ export class Database {
     const now = new Date().toISOString();
 
     this.db.prepare(`
-      INSERT INTO apple_accounts (id, apple_id, team_id, team_name, account_type, status, password_encrypted, cookies_json, last_auth_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO apple_accounts (id, apple_id, team_id, team_name, account_type, status, password_encrypted, cookies_json, session_id, last_auth_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(apple_id) DO UPDATE SET
         team_id = excluded.team_id,
         team_name = excluded.team_name,
@@ -498,10 +528,11 @@ export class Database {
         status = excluded.status,
         password_encrypted = excluded.password_encrypted,
         cookies_json = excluded.cookies_json,
+        session_id = excluded.session_id,
         last_auth_at = excluded.last_auth_at
     `).run(id, params.appleId, params.teamId, params.teamName,
       params.accountType, params.status, params.passwordEncrypted,
-      params.cookiesJson, now, now);
+      params.cookiesJson, params.sessionId ?? null, now, now);
     return id;
   }
 
@@ -530,6 +561,14 @@ export class Database {
     this.db.prepare('UPDATE apple_accounts SET cookies_json = ? WHERE id = ?').run(cookiesJson, id);
   }
 
+  updateAppleAccountSession(id: string, params: { cookiesJson: string; sessionId: string; status?: string }): void {
+    this.db.prepare(`
+      UPDATE apple_accounts
+      SET cookies_json = ?, session_id = ?, status = COALESCE(?, status), last_auth_at = ?
+      WHERE id = ?
+    `).run(params.cookiesJson, params.sessionId, params.status ?? null, new Date().toISOString(), id);
+  }
+
   deleteAppleAccount(id: string): void {
     this.db.prepare('DELETE FROM apple_accounts WHERE id = ?').run(id);
   }
@@ -544,6 +583,7 @@ export class Database {
       status: row.status,
       passwordEncrypted: row.password_encrypted,
       cookiesJson: row.cookies_json,
+      sessionId: row.session_id,
       lastAuthAt: row.last_auth_at,
       createdAt: row.created_at,
     };
@@ -767,11 +807,12 @@ export class Database {
 
   createJob(job: InstallJob): void {
     this.db.prepare(`
-      INSERT INTO jobs (id, ipa_id, device_udid, account_id, status, current_step, steps_json, error, created_at, updated_at, include_extensions)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO jobs (id, ipa_id, device_udid, account_id, status, current_step, steps_json, error, created_at, updated_at, include_extensions, bundle_id_strategy, custom_display_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(job.id, job.ipaId, job.deviceUdid, job.accountId, job.status,
       job.currentStep, JSON.stringify(job.steps), job.error,
-      job.createdAt, job.updatedAt, job.includeExtensions ? 1 : 0);
+      job.createdAt, job.updatedAt, job.includeExtensions ? 1 : 0,
+      job.bundleIdStrategy ?? 'deterministic', job.customDisplayName ?? null);
   }
 
   updateJob(job: InstallJob): void {
@@ -803,6 +844,8 @@ export class Database {
       id: row.id, ipaId: row.ipa_id, deviceUdid: row.device_udid,
       accountId: row.account_id,
       includeExtensions: row.include_extensions === 1,
+      bundleIdStrategy: row.bundle_id_strategy ?? 'deterministic',
+      customDisplayName: row.custom_display_name ?? null,
       status: row.status,
       currentStep: row.current_step,
       steps: row.steps_json ? JSON.parse(row.steps_json) : [],
@@ -998,6 +1041,82 @@ export class Database {
       createdAt: row.created_at,
       cachedManifest: manifest,
     };
+  }
+
+  // ─── Bundle ID Mappings ─────────────────────────────────────────
+
+  saveBundleIdMapping(mapping: {
+    id: string;
+    accountId: string;
+    teamId: string;
+    deviceUdid: string;
+    originalBundleId: string;
+    effectiveBundleId: string;
+    strategy: string;
+    displayName: string | null;
+    createdAt: string;
+  }): void {
+    this.db.prepare(`
+      INSERT INTO bundle_id_mappings (id, account_id, team_id, device_udid, original_bundle_id, effective_bundle_id, strategy, display_name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account_id, team_id, device_udid, original_bundle_id) DO UPDATE SET
+        effective_bundle_id = excluded.effective_bundle_id,
+        strategy = excluded.strategy,
+        display_name = excluded.display_name
+    `).run(
+      mapping.id, mapping.accountId, mapping.teamId, mapping.deviceUdid,
+      mapping.originalBundleId, mapping.effectiveBundleId,
+      mapping.strategy, mapping.displayName, mapping.createdAt,
+    );
+  }
+
+  getBundleIdMapping(accountId: string, teamId: string, deviceUdid: string, originalBundleId: string): {
+    id: string; accountId: string; teamId: string; deviceUdid: string;
+    originalBundleId: string; effectiveBundleId: string; strategy: string;
+    displayName: string | null; createdAt: string;
+  } | null {
+    const row = this.db.prepare(
+      'SELECT * FROM bundle_id_mappings WHERE account_id = ? AND team_id = ? AND device_udid = ? AND original_bundle_id = ?',
+    ).get(accountId, teamId, deviceUdid, originalBundleId) as any;
+    if (!row) return null;
+    return {
+      id: row.id, accountId: row.account_id, teamId: row.team_id,
+      deviceUdid: row.device_udid, originalBundleId: row.original_bundle_id,
+      effectiveBundleId: row.effective_bundle_id, strategy: row.strategy,
+      displayName: row.display_name, createdAt: row.created_at,
+    };
+  }
+
+  getBundleIdMappingByAccount(accountId: string, teamId: string, originalBundleId: string): {
+    id: string; accountId: string; teamId: string; deviceUdid: string;
+    originalBundleId: string; effectiveBundleId: string; strategy: string;
+    displayName: string | null; createdAt: string;
+  } | null {
+    const row = this.db.prepare(
+      'SELECT * FROM bundle_id_mappings WHERE account_id = ? AND team_id = ? AND original_bundle_id = ? ORDER BY created_at DESC LIMIT 1',
+    ).get(accountId, teamId, originalBundleId) as any;
+    if (!row) return null;
+    return {
+      id: row.id, accountId: row.account_id, teamId: row.team_id,
+      deviceUdid: row.device_udid, originalBundleId: row.original_bundle_id,
+      effectiveBundleId: row.effective_bundle_id, strategy: row.strategy,
+      displayName: row.display_name, createdAt: row.created_at,
+    };
+  }
+
+  listBundleIdMappings(accountId: string): Array<{
+    id: string; accountId: string; teamId: string; deviceUdid: string;
+    originalBundleId: string; effectiveBundleId: string; strategy: string;
+    displayName: string | null; createdAt: string;
+  }> {
+    return (this.db.prepare(
+      'SELECT * FROM bundle_id_mappings WHERE account_id = ? ORDER BY created_at DESC',
+    ).all(accountId) as any[]).map((row) => ({
+      id: row.id, accountId: row.account_id, teamId: row.team_id,
+      deviceUdid: row.device_udid, originalBundleId: row.original_bundle_id,
+      effectiveBundleId: row.effective_bundle_id, strategy: row.strategy,
+      displayName: row.display_name, createdAt: row.created_at,
+    }));
   }
 
   // ─── Internal Typed Prepare (used by auth-service) ──────────────────

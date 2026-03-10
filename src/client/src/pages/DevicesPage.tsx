@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
@@ -14,21 +14,26 @@ export default function DevicesPage() {
   const [loading, setLoading] = useState(!warmSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
+  const devicesRef = useRef<DeviceInfo[]>(warmSnapshot?.data ?? []);
 
   useEffect(() => { document.title = 'Devices — SideLink'; }, []);
 
-  const reload = useCallback(() => {
-    if (!devices.length) {
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  const reload = useCallback((force = false) => {
+    if (!devicesRef.current.length) {
       setLoading(true);
     }
-    api.listDevices().then((r) => {
+    api.listDevices({ bypassCache: force }).then((r) => {
       const nextDevices = r.data ?? [];
       setDevices(nextDevices);
       setUiSnapshot('page:devices', nextDevices);
     }).finally(() => setLoading(false));
-  }, [devices.length]);
+  }, []);
 
-  usePageRefresh(reload);
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 12_000 });
 
   useSSE({ 'device-update': (data) => {
     const nextDevices = Array.isArray(data) ? data as DeviceInfo[] : [];
@@ -112,16 +117,27 @@ function DeviceCard({ device, onRefresh }: { device: DeviceInfo; onRefresh: () =
   };
 
   const isUSB = device.transport === 'usb';
+  const isOnline = device.connection === 'online';
+  const isPaired = device.paired;
 
   return (
     <div className="sl-card sl-card-interactive p-4 animate-fadeInUp">
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--sl-surface-soft)] shrink-0 mt-0.5">
-            <svg className="w-4.5 h-4.5 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--sl-surface-soft)] shrink-0 mt-0.5">
+            <svg className="w-5 h-5 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
+            <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--sl-bg-soft)] ${isOnline ? 'bg-emerald-400' : 'bg-[var(--sl-muted)]/40'}`} title={isOnline ? 'Online' : 'Offline'} />
           </div>
           <div>
-            <p className="text-[13px] font-semibold text-[var(--sl-text)]">{device.name || 'iOS Device'}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[13px] font-semibold text-[var(--sl-text)]">{device.name || 'iOS Device'}</p>
+              {isPaired && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-400">
+                  <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.556a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.06" /></svg>
+                  Paired
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md ${
                 isUSB ? 'bg-emerald-500/10 text-emerald-400' : 'bg-cyan-500/10 text-cyan-400'
@@ -130,6 +146,7 @@ function DeviceCard({ device, onRefresh }: { device: DeviceInfo; onRefresh: () =
               </span>
               {device.productType && <span className="text-[11px] text-[var(--sl-muted)]">{device.productType}</span>}
               {device.iosVersion && <span className="text-[11px] text-[var(--sl-muted)]">iOS {device.iosVersion}</span>}
+              {device.model && <span className="text-[11px] text-[var(--sl-muted)]">{device.model}</span>}
             </div>
             <p className="text-[10px] font-mono text-[var(--sl-muted)] opacity-60 mt-1">{device.udid?.slice(0, 16)}...</p>
           </div>

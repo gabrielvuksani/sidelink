@@ -127,7 +127,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   const sidebar = (
     <>
-      <div className={`px-4 pb-4 pt-5 ${macChromeInset ? 'md:pt-12' : ''}`}>
+        <div className={`px-4 pb-4 pt-5 pl-[max(1rem,env(safe-area-inset-left))] ${macChromeInset ? 'md:pt-12' : ''}`}>
         <div className="sl-card-soft flex items-center gap-3 px-3 py-3">
           <BrandIcon className="h-9 w-9" />
           <div>
@@ -187,6 +187,16 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
               {scanningDevices ? 'Scanning...' : 'Scan Devices'}
             </button>
           </div>
+          <button
+            onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
+            className="mt-2 flex w-full items-center justify-between rounded-lg border border-[var(--sl-border)] bg-[rgba(8,16,25,0.4)] px-3 py-2 text-left text-[11px] text-[var(--sl-muted)] transition-colors hover:border-[var(--sl-border-hover)] hover:text-[var(--sl-text)]"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              Search commands
+            </span>
+            <kbd className="rounded border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-1.5 py-0.5 text-[9px] font-semibold">⌘K</kbd>
+          </button>
         </div>
         <button
           onClick={handleLogout}
@@ -201,10 +211,11 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-[var(--sl-bg)] text-[var(--sl-text)]">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-[var(--sl-accent)] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-lg">Skip to content</a>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.06),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(251,146,60,0.06),transparent_20%)]" />
       <button
         onClick={() => setMobileOpen(true)}
-        className={`fixed left-3 z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-3'}`}
+        className={`fixed left-[max(0.75rem,env(safe-area-inset-left))] z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-[max(0.75rem,env(safe-area-inset-top))]'}`}
         aria-label="Open menu"
       >
         <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
@@ -213,7 +224,19 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
       </button>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)} />
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+      )}
+
+      {mobileOpen && (
+        <button
+          onClick={() => setMobileOpen(false)}
+          className={`fixed z-[52] right-[max(0.75rem,env(safe-area-inset-right))] rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-[max(0.75rem,env(safe-area-inset-top))]'}`}
+          aria-label="Close menu"
+        >
+          <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       )}
 
       <aside
@@ -227,26 +250,26 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         {sidebar}
       </aside>
 
-      <main className={`relative z-10 flex-1 overflow-y-auto pt-14 md:pt-0 ${macChromeInset ? 'md:pt-8' : ''}`}>
-        <header className={`sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-6 py-4 backdrop-blur-xl md:px-8 ${macChromeInset ? 'md:pt-10' : ''}`}>
+      <main id="main-content" className={`relative z-10 flex-1 overflow-y-auto pt-16 md:pt-0 ${macChromeInset ? 'md:pt-8' : ''}`}>
+        <header className={`sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-4 py-4 backdrop-blur-xl sm:px-6 md:px-8 ${macChromeInset ? 'md:pt-10' : ''}`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="sl-section-label">Desktop Workflow</p>
-              <h2 className="mt-1 text-[1.3rem] font-semibold tracking-tight text-[var(--sl-text)]">{pageTitle}</h2>
+              <h2 className="mt-1 text-[1.15rem] font-semibold tracking-tight text-[var(--sl-text)] sm:text-[1.3rem]">{pageTitle}</h2>
               <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{pageDescription}</p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <NavLink to="/install" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Install Center</NavLink>
-              <NavLink to="/apple" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Signing</NavLink>
-              <NavLink to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">System</NavLink>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <NavLink to="/install" className="sl-btn-primary w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">Install Center</NavLink>
+              <NavLink to="/apple" className="sl-btn-ghost w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">Signing</NavLink>
+              <NavLink to="/settings" className="sl-btn-ghost w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">System</NavLink>
             </div>
           </div>
         </header>
 
         <UpdateBanner />
 
-        <div className="mx-auto max-w-[1440px] px-6 py-6 md:px-8 md:py-8">{children}</div>
+        <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-8">{children}</div>
       </main>
     </div>
   );

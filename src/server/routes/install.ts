@@ -18,12 +18,14 @@ export function installRoutes(ctx: AppContext): Router {
   // Start install
   router.post('/', validators.startInstall, async (req, res, next) => {
     try {
-      const { accountId, ipaId, deviceUdid, includeExtensions } = req.body;
+      const { accountId, ipaId, deviceUdid, includeExtensions, bundleIdStrategy, customDisplayName } = req.body;
       const result = await startValidatedInstall(ctx, {
         accountId,
         ipaId,
         deviceUdid,
         includeExtensions: !!includeExtensions,
+        bundleIdStrategy: bundleIdStrategy === 'deterministic' ? 'deterministic' : 'randomized',
+        customDisplayName: typeof customDisplayName === 'string' && customDisplayName.trim() ? customDisplayName.trim() : undefined,
       });
 
       if (result.kind === 'missing-ipa') {

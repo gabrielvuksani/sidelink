@@ -22,6 +22,8 @@ export interface AppleAccount {
   passwordEncrypted?: string;
   /** JSON-serialized auth cookies */
   cookiesJson?: string;
+  /** Persisted Apple DSID / identity identifier for developer-services reuse */
+  sessionId?: string;
   lastAuthAt: string | null;  // ISO
   createdAt: string;
 }
@@ -155,6 +157,8 @@ export interface PipelineStep {
   error: string | null;
 }
 
+export type BundleIdStrategy = 'deterministic' | 'randomized';
+
 export interface InstallJob {
   id: string;
   ipaId: string;
@@ -162,6 +166,10 @@ export interface InstallJob {
   accountId: string;
   /** Whether extensions should be included in signing */
   includeExtensions: boolean;
+  /** Bundle ID generation strategy for PPQ avoidance */
+  bundleIdStrategy: BundleIdStrategy;
+  /** Optional custom display name for the installed app */
+  customDisplayName: string | null;
   status: JobStatus;
   currentStep: string | null;
   steps: PipelineStep[];
@@ -301,6 +309,8 @@ export interface InstallRequest {
   deviceUdid: string;
   accountId: string;
   mode?: 'full' | 'resign-only';
+  bundleIdStrategy?: BundleIdStrategy;
+  customDisplayName?: string;
 }
 
 // ─── Sources ─────────────────────────────────────────────────────────
@@ -415,6 +425,29 @@ export interface UserSource {
 
 export interface UserSourceWithManifest extends UserSource {
   cachedManifest: SourceManifest | null;
+}
+
+// ─── Helper Diagnostics ─────────────────────────────────────────────
+
+export interface HelperDoctorSnapshot {
+  platform: string;
+  helperIpaPath: string;
+  helperIpaExists: boolean;
+  helperProjectDir: string;
+  xcodeProjectExists: boolean;
+  projectYmlExists: boolean;
+  hasXcodebuild: boolean;
+  hasXcodegen: boolean;
+  appleAuthReady?: boolean;
+  appleAuthError?: string | null;
+  helperPaired?: boolean;
+  detectedTeamId?: string | null;
+  detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
+}
+
+export interface HealthSnapshot {
+  status: string;
+  uptime: number;
 }
 
 // ─── SSE Events ─────────────────────────────────────────────────────

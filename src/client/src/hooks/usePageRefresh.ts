@@ -1,12 +1,30 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
-export function usePageRefresh(reload: () => Promise<unknown> | unknown, options?: { enabled?: boolean; minIntervalMs?: number }) {
+type UsePageRefreshOptions = {
+  enabled?: boolean;
+  minIntervalMs?: number;
+  initialForce?: boolean;
+  revalidateOnFocus?: boolean;
+  revalidateOnVisibility?: boolean;
+  revalidateOnRouteChange?: boolean;
+};
+
+export function usePageRefresh(reload: (force?: boolean) => Promise<unknown> | unknown, options?: UsePageRefreshOptions) {
   const location = useLocation();
   const enabled = options?.enabled ?? true;
-  const minIntervalMs = options?.minIntervalMs ?? 1_500;
+  const minIntervalMs = options?.minIntervalMs ?? 10_000;
+  const initialForce = options?.initialForce ?? false;
+  const revalidateOnFocus = options?.revalidateOnFocus ?? true;
+  const revalidateOnVisibility = options?.revalidateOnVisibility ?? true;
+  const revalidateOnRouteChange = options?.revalidateOnRouteChange ?? true;
   const lastRunAtRef = useRef(0);
   const runningRef = useRef(false);
+  const reloadRef = useRef(reload);
+
+  useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
 
   const triggerRefresh = useCallback(async (force = false) => {
     if (!enabled || runningRef.current) return;
@@ -18,35 +36,46 @@ export function usePageRefresh(reload: () => Promise<unknown> | unknown, options
 
     runningRef.current = true;
     try {
-      await reload();
+      await reloadRef.current(force);
       lastRunAtRef.current = Date.now();
     } finally {
       runningRef.current = false;
     }
-  }, [enabled, minIntervalMs, reload]);
+  }, [enabled, minIntervalMs]);
 
   useEffect(() => {
-    void triggerRefresh(true);
-  }, [location.key, triggerRefresh]);
+    if (!enabled || !revalidateOnRouteChange) return;
+    void triggerRefresh(initialForce);
+  }, [enabled, initialForce, location.pathname, revalidateOnRouteChange, triggerRefresh]);
 
   useEffect(() => {
     if (!enabled) return;
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
+      if (revalidateOnVisibility && document.visibilityState === 'visible') {
         void triggerRefresh();
       }
     };
 
     const onFocus = () => {
-      void triggerRefresh();
+      if (revalidateOnFocus) {
+        void triggerRefresh();
+      }
     };
 
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onFocus);
+    if (revalidateOnVisibility) {
+      document.addEventListener('visibilitychange', onVisible);
+    }
+    if (revalidateOnFocus) {
+      window.addEventListener('focus', onFocus);
+    }
     return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onFocus);
+      if (revalidateOnVisibility) {
+        document.removeEventListener('visibilitychange', onVisible);
+      }
+      if (revalidateOnFocus) {
+        window.removeEventListener('focus', onFocus);
+      }
     };
-  }, [enabled, triggerRefresh]);
+  }, [enabled, revalidateOnFocus, revalidateOnVisibility, triggerRefresh]);
 }

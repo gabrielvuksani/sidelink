@@ -159,6 +159,8 @@ export async function startValidatedInstall(
     accountId: string;
     deviceUdid: string;
     includeExtensions?: boolean;
+    bundleIdStrategy?: 'deterministic' | 'randomized';
+    customDisplayName?: string;
   },
 ) {
   const ipa = ctx.db.getIpa(params.ipaId);
@@ -184,6 +186,8 @@ export async function startValidatedInstall(
     accountId: params.accountId,
     deviceUdid: params.deviceUdid,
     includeExtensions: params.includeExtensions,
+    bundleIdStrategy: params.bundleIdStrategy,
+    customDisplayName: params.customDisplayName,
   });
 
   return { kind: 'ok' as const, job, ipa, account, device };

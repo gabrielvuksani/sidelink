@@ -50,6 +50,57 @@ const sessionCache = new Map<string, CachedSession>();
 /** Sessions are considered fresh for the configured auth session TTL. */
 const SESSION_FRESHNESS_MS = DEFAULTS.authSessionTtlHours * 60 * 60 * 1000;
 
+function parseMyacinfoToken(cookiesJson?: string): string | null {
+  if (!cookiesJson) return null;
+
+  try {
+    const cookies = JSON.parse(cookiesJson) as unknown;
+    if (!Array.isArray(cookies)) return null;
+
+    for (const cookie of cookies) {
+      if (typeof cookie !== 'string') continue;
+      const match = cookie.match(/(?:^|;)\s*myacinfo=([^;]+)/);
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function buildPersistedSession(account: AppleAccount): AuthSession | null {
+  if (!account.sessionId) return null;
+
+  const sessionToken = parseMyacinfoToken(account.cookiesJson);
+  if (!sessionToken) return null;
+
+  let cookies: string[] = [];
+  if (account.cookiesJson) {
+    try {
+      const parsed = JSON.parse(account.cookiesJson) as unknown;
+      if (Array.isArray(parsed)) {
+        cookies = parsed.filter((entry): entry is string => typeof entry === 'string');
+      }
+    } catch {
+      cookies = [`myacinfo=${sessionToken}`];
+    }
+  }
+
+  if (cookies.length === 0) {
+    cookies = [`myacinfo=${sessionToken}`];
+  }
+
+  return {
+    cookies,
+    sessionToken,
+    scnt: '',
+    sessionId: account.sessionId,
+  };
+}
+
 export class AppleAccountService {
   constructor(
     private db: Database,
@@ -210,6 +261,15 @@ export class AppleAccountService {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');
     }
 
+    const lastAuthAtMs = account.lastAuthAt ? new Date(account.lastAuthAt).getTime() : 0;
+    if (!forceRefresh && lastAuthAtMs > 0 && (Date.now() - lastAuthAtMs) < SESSION_FRESHNESS_MS) {
+      const persistedSession = buildPersistedSession(account);
+      if (persistedSession) {
+        sessionCache.set(accountId, { session: persistedSession, cachedAt: Date.now() });
+        return persistedSession;
+      }
+    }
+
     // Decrypt stored password
     const password = this.encryption.decrypt(account.passwordEncrypted ?? '');
     if (!password) {
@@ -219,9 +279,11 @@ export class AppleAccountService {
     try {
       const result = await initiateAuth(account.appleId, password);
 
-      // Update cookies
-      this.db.updateAppleAccountCookies(accountId, JSON.stringify(result.session.cookies));
-      this.db.updateAppleAccountStatus(accountId, 'active');
+      this.db.updateAppleAccountSession(accountId, {
+        cookiesJson: JSON.stringify(result.session.cookies),
+        sessionId: result.session.sessionId,
+        status: 'active',
+      });
 
       // Cache the fresh session
       sessionCache.set(accountId, { session: result.session, cachedAt: Date.now() });
@@ -333,6 +395,7 @@ export class AppleAccountService {
       accountType,
       passwordEncrypted: encryptedPassword,
       cookiesJson,
+      sessionId: session.sessionId,
       status: 'active',
     });
 

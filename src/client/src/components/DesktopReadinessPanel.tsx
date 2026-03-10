@@ -4,34 +4,16 @@ import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useElectron } from '../hooks/useElectron';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
-
-type HelperDoctorSnapshot = {
-  platform: string;
-  helperIpaPath: string;
-  helperIpaExists: boolean;
-  helperProjectDir: string;
-  xcodeProjectExists: boolean;
-  projectYmlExists: boolean;
-  hasXcodebuild: boolean;
-  hasXcodegen: boolean;
-  appleAuthReady?: boolean;
-  appleAuthError?: string | null;
-  helperPaired?: boolean;
-  detectedTeamId?: string | null;
-  detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
-};
-
-type HealthSnapshot = {
-  status: string;
-  uptime: number;
-};
+import type { HelperDoctorSnapshot, HealthSnapshot } from '../../../shared/types';
 
 export function DesktopReadinessPanel({
   activeAccountCount,
   deviceCount,
+  embedded = false,
 }: {
   activeAccountCount: number;
   deviceCount: number;
+  embedded?: boolean;
 }) {
   const { info } = useElectron();
   const warmSnapshot = getUiSnapshot<{ doctor: HelperDoctorSnapshot | null; health: HealthSnapshot | null }>('panel:desktop-readiness');
@@ -43,8 +25,10 @@ export function DesktopReadinessPanel({
   useEffect(() => {
     let cancelled = false;
 
-    const load = async () => {
-      setLoading(true);
+    const load = async (options?: { silent?: boolean }) => {
+      if (!options?.silent || !warmSnapshot) {
+        setLoading(true);
+      }
       try {
         const [healthRes, doctorRes] = await Promise.all([
           api.health(),
@@ -62,13 +46,13 @@ export function DesktopReadinessPanel({
         if (cancelled) return;
         setError(getErrorMessage(err, 'Failed to load desktop readiness diagnostics'));
       } finally {
-        if (!cancelled) {
+        if (!cancelled && (!options?.silent || !warmSnapshot)) {
           setLoading(false);
         }
       }
     };
 
-    void load();
+    void load({ silent: !!warmSnapshot });
     return () => {
       cancelled = true;
     };
@@ -87,9 +71,92 @@ export function DesktopReadinessPanel({
     ? `${isPackaged ? 'Packaged desktop' : 'Development desktop'}${info.version !== '0.0.0' ? ` · v${info.version}` : ''}`
     : 'Browser preview';
 
+  const body = (
+    <div className={`space-y-4 ${embedded ? 'p-0' : 'p-4 sm:p-5'}`}>
+      <div className="grid gap-3 min-[420px]:grid-cols-2">
+        <StatusTile
+          label="Desktop runtime"
+          title={runtimeLabel}
+          detail={loading ? 'Checking backend health...' : runtimeReady ? `Backend healthy${health ? ` · uptime ${formatUptime(health.uptime)}` : ''}` : 'Runtime health could not be confirmed.'}
+          ok={!!runtimeReady}
+        />
+        <StatusTile
+          label="Helper asset"
+          title={helperReady ? 'Bundled helper IPA detected' : 'Helper IPA missing'}
+          detail={loading ? 'Resolving helper path...' : helperReady ? doctor?.helperIpaPath ?? 'Helper IPA available.' : 'The desktop shell cannot import or build the helper IPA from the current runtime.'}
+          ok={helperReady}
+        />
+        <StatusTile
+          label="Apple signing"
+          title={
+            !appleRuntimeReady
+              ? 'Packaged Apple runtime unhealthy'
+              : signingReady
+                ? `${activeAccountCount} active signing account${activeAccountCount === 1 ? '' : 's'}`
+                : 'No active Apple ID'
+          }
+          detail={
+            !appleRuntimeReady
+              ? (doctor?.appleAuthError ?? 'Apple sign-in will fail until the packaged helper runtime is healthy.')
+              : signingReady
+                ? 'Apple account state is sufficient for provisioning and installs.'
+                : 'Connect or re-authenticate an Apple ID before expecting installs to work.'
+          }
+          ok={signingReady}
+        />
+        <StatusTile
+          label="Device transport"
+          title={devicesReady ? `${deviceCount} live device${deviceCount === 1 ? '' : 's'} detected` : 'No devices detected'}
+          detail={devicesReady ? 'USB or network transport is visible to the device service.' : isMac ? 'Trust prompts, USB stack readiness, or local transport discovery still need attention on this Mac.' : 'No device transport is currently visible to the runtime.'}
+          ok={devicesReady}
+        />
+      </div>
+
+      <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Focused diagnosis</p>
+            <p className="mt-2 text-[13px] leading-6 text-[var(--sl-text)]">
+              {helperReady && helperPaired && signingReady && devicesReady
+                ? 'The desktop runtime, helper path, signing roster, and device transport all look healthy from the overview.'
+                : 'The DMG should not feel mysteriously broken anymore. The gaps below point at what is actually missing.'}
+            </p>
+          </div>
+          {helperPaired ? (
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-200">Helper paired</span>
+          ) : (
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">Helper not paired</span>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-2 min-[420px]:grid-cols-2 xl:flex xl:flex-wrap">
+          {!signingReady && <Link to="/apple" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Apple IDs</Link>}
+          {!devicesReady && <Link to="/devices" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Devices</Link>}
+          {(!helperReady || !helperPaired) && <Link to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Open Helper Settings</Link>}
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-4 py-3 text-[12px] leading-5 text-red-100">
+          {error}
+        </div>
+      )}
+
+      {!error && doctor?.appleAuthError && (
+        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3 text-[12px] leading-5 text-amber-100">
+          Apple auth runtime: {doctor.appleAuthError}
+        </div>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return body;
+  }
+
   return (
-    <section className="sl-card overflow-hidden">
-      <div className="border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] px-5 py-4">
+    <section className="sl-card dashboard-widget dashboard-widget-featured overflow-hidden">
+      <div className="border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="sl-section-label">Desktop Readiness</p>
@@ -104,82 +171,7 @@ export function DesktopReadinessPanel({
         </div>
       </div>
 
-      <div className="space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <StatusTile
-            label="Desktop runtime"
-            title={runtimeLabel}
-            detail={loading ? 'Checking backend health...' : runtimeReady ? `Backend healthy${health ? ` · uptime ${formatUptime(health.uptime)}` : ''}` : 'Runtime health could not be confirmed.'}
-            ok={!!runtimeReady}
-          />
-          <StatusTile
-            label="Helper asset"
-            title={helperReady ? 'Bundled helper IPA detected' : 'Helper IPA missing'}
-            detail={loading ? 'Resolving helper path...' : helperReady ? doctor?.helperIpaPath ?? 'Helper IPA available.' : 'The desktop shell cannot import or build the helper IPA from the current runtime.'}
-            ok={helperReady}
-          />
-          <StatusTile
-            label="Apple signing"
-            title={
-              !appleRuntimeReady
-                ? 'Packaged Apple runtime unhealthy'
-                : signingReady
-                  ? `${activeAccountCount} active signing account${activeAccountCount === 1 ? '' : 's'}`
-                  : 'No active Apple ID'
-            }
-            detail={
-              !appleRuntimeReady
-                ? (doctor?.appleAuthError ?? 'Apple sign-in will fail until the packaged helper runtime is healthy.')
-                : signingReady
-                  ? 'Apple account state is sufficient for provisioning and installs.'
-                  : 'Connect or re-authenticate an Apple ID before expecting installs to work.'
-            }
-            ok={signingReady}
-          />
-          <StatusTile
-            label="Device transport"
-            title={devicesReady ? `${deviceCount} live device${deviceCount === 1 ? '' : 's'} detected` : 'No devices detected'}
-            detail={devicesReady ? 'USB or network transport is visible to the device service.' : isMac ? 'Trust prompts, USB stack readiness, or local transport discovery still need attention on this Mac.' : 'No device transport is currently visible to the runtime.'}
-            ok={devicesReady}
-          />
-        </div>
-
-        <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Focused diagnosis</p>
-              <p className="mt-2 text-[13px] leading-6 text-[var(--sl-text)]">
-                {helperReady && helperPaired && signingReady && devicesReady
-                  ? 'The desktop runtime, helper path, signing roster, and device transport all look healthy from the overview.'
-                  : 'The DMG should not feel “mysteriously broken” anymore. The gaps below point at what is actually missing.'}
-              </p>
-            </div>
-            {helperPaired ? (
-              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-200">Helper paired</span>
-            ) : (
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">Helper not paired</span>
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!signingReady && <Link to="/apple" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Apple IDs</Link>}
-            {!devicesReady && <Link to="/devices" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Devices</Link>}
-            {(!helperReady || !helperPaired) && <Link to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Open Helper Settings</Link>}
-          </div>
-        </div>
-
-        {error && (
-          <div className="rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-4 py-3 text-[12px] leading-5 text-red-100">
-            {error}
-          </div>
-        )}
-
-        {!error && doctor?.appleAuthError && (
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3 text-[12px] leading-5 text-amber-100">
-            Apple auth runtime: {doctor.appleAuthError}
-          </div>
-        )}
-      </div>
+      {body}
     </section>
   );
 }

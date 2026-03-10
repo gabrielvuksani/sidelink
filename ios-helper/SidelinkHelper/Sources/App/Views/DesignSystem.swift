@@ -34,8 +34,9 @@ struct SidelinkBrandIcon: View {
             .resizable()
             .renderingMode(.original)
             .interpolation(.high)
-            .scaledToFit()
+            .scaledToFill()
             .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
             .shadow(color: .black.opacity(0.12), radius: size * 0.1, y: size * 0.04)
     }
 }

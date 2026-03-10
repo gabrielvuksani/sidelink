@@ -294,3 +294,57 @@ describe("Code Signature Structures", () => {
     expect(() => parseMachO(buf)).toThrow(/unreasonable/i);
   });
 });
+
+describe("Bundle ID Strategies", () => {
+  it("deterministic strategy produces same ID for same inputs", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const id1 = mgr.generateBundleId("com.example.app", "TEAM123");
+    const id2 = mgr.generateBundleId("com.example.app", "TEAM123");
+    expect(id1).toBe(id2);
+    expect(id1).toMatch(/^com\.sidelink\.\w+\.\w{8}$/);
+  });
+
+  it("deterministic strategy produces different ID for different inputs", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const id1 = mgr.generateBundleId("com.example.app1", "TEAM123");
+    const id2 = mgr.generateBundleId("com.example.app2", "TEAM123");
+    expect(id1).not.toBe(id2);
+  });
+
+  it("randomized strategy produces unique IDs each call", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const id1 = mgr.generateRandomizedBundleId("TEAM123");
+    const id2 = mgr.generateRandomizedBundleId("TEAM123");
+    expect(id1).not.toBe(id2);
+    expect(id1).toMatch(/^com\.\w+\.sl[0-9a-f]{10}$/);
+  });
+
+  it("resolveBundleId returns existing mapping when available", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const result = mgr.resolveBundleId(
+      "com.example.app",
+      "TEAM123",
+      "randomized",
+      { effectiveBundleId: "com.existing.mapped" },
+    );
+    expect(result).toBe("com.existing.mapped");
+  });
+
+  it("resolveBundleId uses deterministic when strategy is deterministic and no mapping", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const result = mgr.resolveBundleId("com.example.app", "TEAM123", "deterministic", null);
+    expect(result).toMatch(/^com\.sidelink\.\w+\.\w{8}$/);
+  });
+
+  it("resolveBundleId uses randomized when strategy is randomized and no mapping", async () => {
+    const { AppIdManager } = await import("../src/server/services/app-id-manager");
+    const mgr = new (AppIdManager as any)(null, null);
+    const result = mgr.resolveBundleId("com.example.app", "TEAM123", "randomized", null);
+    expect(result).toMatch(/^com\.\w+\.sl[0-9a-f]{10}$/);
+  });
+});

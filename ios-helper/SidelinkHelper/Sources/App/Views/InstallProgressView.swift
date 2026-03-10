@@ -119,6 +119,20 @@ struct InstallProgressView: View {
                 .padding(.vertical, 2)
             }
 
+            if job.status == "completed" {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Trust Developer Profile", systemImage: "person.badge.shield.checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    Text("If the app shows a \"Verify App\" error on first launch, open **Settings → General → VPN & Device Management** and tap **Trust** on the developer profile.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+
             if showsVerboseLogs && !logs.isEmpty {
                 DisclosureGroup(isExpanded: $showVerboseLogs) {
                     InstallVerboseLogConsole(logs: logs, maxHeight: 210)

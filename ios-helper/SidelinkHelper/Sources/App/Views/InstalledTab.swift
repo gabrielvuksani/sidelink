@@ -121,6 +121,8 @@ struct InstalledTab: View {
     private var installedContent: some View {
         VStack(spacing: 24) {
             installedHero
+            developerTrustBanner
+            ppqTroubleshootingSection
             installedControlStrip
 
             if !model.appIdUsage.isEmpty {
@@ -133,6 +135,81 @@ struct InstalledTab: View {
 
             installedSections
             librarySection
+        }
+    }
+
+    @ViewBuilder
+    private var ppqTroubleshootingSection: some View {
+        if !activeApps.isEmpty {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Apple's PPQ system checks sideloaded apps against their servers. If the bundle ID matches a known App Store app or your certificate is flagged, the app will show \"Unable to Verify App\".")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        ppqFixRow(
+                            icon: "checkmark.shield",
+                            color: .green,
+                            title: "Randomize Bundle IDs",
+                            detail: "Use the \"Randomize Bundle ID\" toggle when installing. This is enabled by default in SideLink."
+                        )
+                        ppqFixRow(
+                            icon: "arrow.triangle.2.circlepath",
+                            color: .blue,
+                            title: "Rotate Certificate",
+                            detail: "In the desktop app, go to Apple ID → Certificates → Rotate to create a fresh signing certificate."
+                        )
+                        ppqFixRow(
+                            icon: "iphone",
+                            color: .purple,
+                            title: "Toggle Developer Mode",
+                            detail: "Settings → Privacy & Security → Developer Mode. Toggle off, restart, then re-enable when prompted."
+                        )
+                        ppqFixRow(
+                            icon: "network",
+                            color: .orange,
+                            title: "Block PPQ Servers",
+                            detail: "Use NextDNS or AdGuard to block ppq.apple.com to prevent Apple from verifying the developer certificate."
+                        )
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.shield")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("App Verification Troubleshooting")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Fix \"Unable to Verify App\" errors")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .tint(.secondary)
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func ppqFixRow(icon: String, color: Color, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -359,6 +436,24 @@ struct InstalledTab: View {
         }
         .liquidPanel()
         .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var developerTrustBanner: some View {
+        if !activeApps.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Verify App?", systemImage: "person.badge.shield.checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("If a newly installed app shows a \"Verify App\" error, open **Settings → General → VPN & Device Management** and tap **Trust** on the developer profile. This is required once per signing certificate.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, 20)
+        }
     }
 
     private var installedControlStrip: some View {

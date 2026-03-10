@@ -7,7 +7,7 @@ import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { useConfirm } from '../components/ConfirmModal';
-import { PageHeader } from '../components/Shared';
+import { PageHeader, PasswordInput } from '../components/Shared';
 import type { SchedulerSnapshot } from '../../../shared/types';
 
 
@@ -28,7 +28,7 @@ export default function SettingsPage() {
         ]}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr),minmax(420px,0.98fr)] 2xl:grid-cols-[minmax(0,1fr),minmax(520px,0.95fr)]">
         <SchedulerSettings />
         <HelperControlPanel />
       </div>
@@ -173,9 +173,9 @@ function PasswordChange() {
   return (
     <Panel title="Security" subtitle="Rotate dashboard credentials and invalidate old sessions.">
       <div className="space-y-3">
-        <input type="password" autoComplete="current-password" placeholder="Current password" value={current} onChange={e => setCurrent(e.target.value)} className="sl-input" />
-        <input type="password" autoComplete="new-password" placeholder="New password" value={newPwd} onChange={e => setNewPwd(e.target.value)} className="sl-input" />
-        <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} className="sl-input" />
+        <PasswordInput autoComplete="current-password" placeholder="Current password" value={current} onChange={setCurrent} />
+        <PasswordInput autoComplete="new-password" placeholder="New password" value={newPwd} onChange={setNewPwd} />
+        <PasswordInput autoComplete="new-password" placeholder="Confirm new password" value={confirmPwd} onChange={setConfirmPwd} />
         <button
           onClick={submit}
           disabled={loading || !current || !newPwd || !confirmPwd}

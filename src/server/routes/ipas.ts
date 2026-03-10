@@ -14,6 +14,7 @@ import { Readable } from 'node:stream';
 import crypto from 'node:crypto';
 import type { AppContext } from '../context';
 import { UI_LIMITS } from '../../shared/constants';
+import { uploadRateLimit } from '../utils/security';
 
 export function ipaRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -31,7 +32,7 @@ export function ipaRoutes(ctx: AppContext): Router {
   });
 
   // Upload IPA
-  router.post('/upload', upload.single('ipa'), async (req, res, next) => {
+  router.post('/upload', uploadRateLimit, upload.single('ipa'), async (req, res, next) => {
     try {
       if (!req.file) {
         return res.status(400).json({ ok: false, error: 'No IPA file uploaded' });
@@ -71,7 +72,7 @@ export function ipaRoutes(ctx: AppContext): Router {
   });
 
   // Import IPA from URL
-  router.post('/import-url', async (req, res, next) => {
+  router.post('/import-url', uploadRateLimit, async (req, res, next) => {
     const rawUrl = String(req.body?.url ?? '').trim();
     if (!rawUrl) {
       return res.status(400).json({ ok: false, error: 'url is required' });

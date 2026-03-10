@@ -56,7 +56,7 @@ def brandmark_svg() -> str:
 """
 
 
-def draw_master_icon(size: int = 1024) -> Image.Image:
+def draw_master_icon(size: int = 1024, *, mask_corners: bool = True) -> Image.Image:
     start = (48, 91, 255)
     end = (142, 64, 255)
 
@@ -71,13 +71,13 @@ def draw_master_icon(size: int = 1024) -> Image.Image:
         b = int(start[2] * (1 - t) + end[2] * t)
         draw.line([(0, y), (size, y)], fill=(r, g, b, 255))
 
-    # Rounded mask
     corner = int(size * 0.215)
     inset = int(size * 0.03125)
-    mask = Image.new("L", (size, size), 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.rounded_rectangle([(inset, inset), (size - inset, size - inset)], radius=corner, fill=255)
-    base.putalpha(mask)
+    if mask_corners:
+        mask = Image.new("L", (size, size), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.rounded_rectangle([(inset, inset), (size - inset, size - inset)], radius=corner, fill=255)
+        base.putalpha(mask)
 
     # Soft top highlight
     overlay = Image.new("RGBA", (size, size), (255, 255, 255, 0))
@@ -120,13 +120,14 @@ def draw_master_icon(size: int = 1024) -> Image.Image:
     final_icon = Image.alpha_composite(base, glyph)
 
     # Border polish
-    border_draw = ImageDraw.Draw(final_icon)
-    border_draw.rounded_rectangle(
-        [(inset + 1, inset + 1), (size - inset - 1, size - inset - 1)],
-        radius=corner,
-        outline=(255, 255, 255, 60),
-        width=max(2, int(size * 0.003)),
-    )
+    if mask_corners:
+        border_draw = ImageDraw.Draw(final_icon)
+        border_draw.rounded_rectangle(
+            [(inset + 1, inset + 1), (size - inset - 1, size - inset - 1)],
+            radius=corner,
+            outline=(255, 255, 255, 60),
+            width=max(2, int(size * 0.003)),
+        )
 
     return final_icon
 
@@ -268,10 +269,11 @@ def write_ios_brandmark_imageset(master: Image.Image) -> None:
 
 def main() -> None:
     master = draw_master_icon(1024)
+    ios_master = draw_master_icon(1024, mask_corners=False)
     write_pngs(master)
     write_web_brandmark()
-    write_ios_appiconset(master)
-    write_ios_brandmark_imageset(master)
+    write_ios_appiconset(ios_master)
+    write_ios_brandmark_imageset(ios_master)
     build_icns()
     build_ico(master)
     print(f"Generated desktop icon assets in: {BUILD_DIR}")

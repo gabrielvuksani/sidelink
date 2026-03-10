@@ -71,6 +71,8 @@ export interface SigningParams {
   includeExtensions?: boolean;
   /** Per-extension provisioning profiles (keyed by rewritten bundle ID) */
   extensionProfiles?: Array<{ bundleId: string; profileData: Buffer }>;
+  /** Custom display name to write into CFBundleDisplayName */
+  customDisplayName?: string;
 }
 
 /** Result of a signing operation */

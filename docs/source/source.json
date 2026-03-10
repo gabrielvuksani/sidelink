@@ -10,6 +10,7 @@
   "sourceURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json",
   "featuredApps": [
     "com.sidelink.ioshelper",
+    "com.contrail.app",
     "com.cortex.app"
   ],
   "news": [
@@ -38,7 +39,7 @@
           "date": "2026-03-06",
           "localizedDescription": "Introduces a redesigned iPhone experience with a home feed, dedicated search, installed-app import tools, re-auth visibility, and upgraded onboarding.",
           "downloadURL": "https://github.com/gabrielvuksani/sidelink/releases/latest/download/SidelinkHelper.ipa",
-          "size": 1102182
+          "size": 1168102
         }
       ],
       "appPermissions": {
@@ -48,6 +49,30 @@
         "privacy": [
           "LocalNetwork: Discover and pair with the SideLink desktop helper on your network",
           "Notifications: Receive background refresh status updates"
+        ]
+      }
+    },
+    {
+      "name": "Contrail",
+      "bundleIdentifier": "com.contrail.app",
+      "developerName": "Gabriel Vuksani",
+      "subtitle": "Automatic flight tracking for iPhone",
+      "localizedDescription": "Contrail scans your calendar for flight bookings and turns them into trackable trips with live status, gate changes, and delay alerts — all imported automatically so you never have to search for a flight number.",
+      "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/.vitepress/public/source/contrail-icon.png",
+      "tintColor": "#3b82f6",
+      "versions": [
+        {
+          "version": "1.0",
+          "date": "2026-03-10",
+          "localizedDescription": "First public Contrail release through the official SideLink source.",
+          "downloadURL": "https://github.com/gabrielvuksani/sidelink/releases/latest/download/Contrail.ipa",
+          "size": 5148219
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": [
+          "Calendars: Scan your calendar to detect flight bookings and import them automatically."
         ]
       }
     },
@@ -62,10 +87,10 @@
       "versions": [
         {
           "version": "1.0.0",
-          "date": "2026-03-09",
-          "localizedDescription": "First public Cortex release through the official SideLink source.",
+          "date": "2026-03-10",
+          "localizedDescription": "Updated Cortex build through the official SideLink source.",
           "downloadURL": "https://github.com/gabrielvuksani/sidelink/releases/latest/download/Cortex.ipa",
-          "size": 5553258
+          "size": 12135156
         }
       ],
       "appPermissions": {

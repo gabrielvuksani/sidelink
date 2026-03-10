@@ -140,6 +140,16 @@ export async function signIpa(
     }
     auditStep('rewrite-bundle-id', `${originalBundleId} → ${params.targetBundleId}`, Date.now() - stepStart);
 
+    // ── Step 4b: Rewrite display name (optional) ─────────────────
+    if (params.customDisplayName) {
+      stepStart = Date.now();
+      const mainPlist = await parsePlistFile(infoPlistPath);
+      mainPlist['CFBundleDisplayName'] = params.customDisplayName;
+      mainPlist['CFBundleName'] = params.customDisplayName;
+      await writePlistFile(infoPlistPath, mainPlist);
+      auditStep('rewrite-display-name', `Display name → ${params.customDisplayName}`, Date.now() - stepStart);
+    }
+
     // ── Step 5: Embed provisioning profile ────────────────────────
     stepStart = Date.now();
     const profileDest = path.join(appPath, 'embedded.mobileprovision');

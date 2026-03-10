@@ -13,7 +13,7 @@ import { consumePairingCode } from './services/helper-pairing-service';
 import { AppError } from './utils/errors';
 import './types'; // Express Request augmentation
 import { redact } from './utils/redaction';
-import { authRateLimit, generalRateLimit, appleAuthRateLimit, uploadRateLimit, csrfProtection } from './utils/security';
+import { authRateLimit, generalRateLimit, csrfProtection } from './utils/security';
 
 export function createApp(ctx: AppContext): express.Express {
   const app = express();
@@ -143,9 +143,9 @@ export function createApp(ctx: AppContext): express.Express {
 
   // ─── API Routes ─────────────────────────────────────────────────
 
-  app.use('/api/apple', appleAuthRateLimit, appleRoutes(ctx));
+  app.use('/api/apple', appleRoutes(ctx));
   app.use('/api/devices', deviceRoutes(ctx));
-  app.use('/api/ipas', uploadRateLimit, ipaRoutes(ctx));
+  app.use('/api/ipas', ipaRoutes(ctx));
   app.use('/api/install', installRoutes(ctx));
   app.use('/api/sources', sourceRoutes(ctx));
   app.use('/api/system', systemRoutes(ctx));

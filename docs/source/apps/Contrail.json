@@ -1,0 +1,17 @@
+{
+  "name": "Contrail",
+  "developerName": "Gabriel Vuksani",
+  "subtitle": "Automatic flight tracking for iPhone",
+  "localizedDescription": "Contrail scans your calendar for flight bookings and turns them into trackable trips with live status, gate changes, and delay alerts — all imported automatically so you never have to search for a flight number.",
+  "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/.vitepress/public/source/contrail-icon.png",
+  "tintColor": "#3b82f6",
+  "featured": true,
+  "versionDate": "2026-03-10",
+  "versionDescription": "First public Contrail release through the official SideLink source.",
+  "appPermissions": {
+    "entitlements": [],
+    "privacy": [
+      "Calendars: Scan your calendar to detect flight bookings and import them automatically."
+    ]
+  }
+}

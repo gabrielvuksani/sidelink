@@ -45,6 +45,8 @@ function createDb() {
         .map(clone);
     }),
     upsertInstalledApp: vi.fn(),
+    getBundleIdMapping: vi.fn(() => null),
+    saveBundleIdMapping: vi.fn(),
   };
 }
 

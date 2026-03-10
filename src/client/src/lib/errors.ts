@@ -77,8 +77,26 @@ const ERROR_PATTERNS: Array<{ test: RegExp } & FormattedError> = [
   {
     test: /app.*id.*limit|APP_ID_LIMIT/i,
     title: 'App ID Limit Reached',
-    description: 'Free Apple accounts can only create 10 App IDs per week.',
-    action: 'Remove an existing app to free up a slot, or wait 7 days.',
+    description: 'Free Apple accounts can only have 10 active App IDs at a time.',
+    action: 'Remove an existing app or its App ID to free up a slot.',
+  },
+  {
+    test: /weekly.*app.*id|APP_ID_WEEKLY_LIMIT/i,
+    title: 'Weekly App ID Limit Reached',
+    description: 'Free Apple accounts can only create 10 new App IDs per rolling 7-day window.',
+    action: 'Wait for the 7-day window to roll forward, or switch to a different Apple account.',
+  },
+  {
+    test: /unable to verify|ppq|verify.*trust.*developer/i,
+    title: 'App Verification Blocked (PPQ)',
+    description: 'Apple\'s PPQ system flagged this app. The bundle ID may match a known App Store app, or the certificate was flagged.',
+    action: 'Re-install with "Randomize Bundle ID" enabled, rotate your certificate, or toggle Developer Mode on the device.',
+  },
+  {
+    test: /APPLE_SESSION_EXPIRED|session.*expired|code.*1100/i,
+    title: 'Apple Session Expired',
+    description: 'The Apple developer session expired during the operation.',
+    action: 'Go to Apple ID settings and re-authenticate your account.',
   },
   {
     test: /certificate|signing.*identity|SIGNING_IDENTITY/i,
