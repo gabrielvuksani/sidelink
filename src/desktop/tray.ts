@@ -8,6 +8,13 @@ import { IPC } from './ipc-channels';
 import { checkForUpdates } from './auto-updater';
 
 let tray: Tray | null = null;
+let showWindowAction: (() => void) | null = null;
+let navigateAction: ((action: string) => void) | null = null;
+
+type TrayActions = {
+  showWindow?: () => void;
+  navigate?: (action: string) => void;
+};
 
 /**
  * Resolve the tray icon path based on platform and packaging state.
@@ -32,6 +39,10 @@ function getTrayIconPath(): string {
  * Focus or create the main window when the user clicks the tray icon.
  */
 function focusMainWindow(): void {
+  if (showWindowAction) {
+    showWindowAction();
+    return;
+  }
   const windows = BrowserWindow.getAllWindows();
   if (windows.length > 0) {
     const win = windows[0];
@@ -42,6 +53,10 @@ function focusMainWindow(): void {
 }
 
 function navigateFromTray(action: string): void {
+  if (navigateAction) {
+    navigateAction(action);
+    return;
+  }
   const windows = BrowserWindow.getAllWindows();
   if (windows.length === 0) return;
   const win = windows[0];
@@ -55,7 +70,9 @@ function navigateFromTray(action: string): void {
  * Create the system tray icon with context menu.
  * Returns the Tray instance (call `destroy()` on shutdown).
  */
-export function createTray(): Tray {
+export function createTray(actions?: TrayActions): Tray {
+  showWindowAction = actions?.showWindow ?? showWindowAction;
+  navigateAction = actions?.navigate ?? navigateAction;
   if (tray) return tray;
 
   const iconPath = getTrayIconPath();
@@ -91,20 +108,27 @@ export function createTray(): Tray {
 /**
  * Update the tray context menu (call after state changes).
  */
-export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: number }): void {
+export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: number; jobsWaiting2FA?: number }): void {
   if (!tray) return;
 
   const deviceLabel = extra?.deviceCount !== undefined
     ? `Devices Connected: ${extra.deviceCount}`
     : 'Devices: —';
 
-  const jobLabel = extra?.jobsRunning !== undefined && extra.jobsRunning > 0
-    ? `Jobs Running: ${extra.jobsRunning}`
+  const activeJobCount = (extra?.jobsRunning ?? 0) + (extra?.jobsWaiting2FA ?? 0);
+  const jobLabel = activeJobCount > 0
+    ? `Active Jobs: ${activeJobCount}`
     : 'No Active Jobs';
 
-  const statusLabel = extra?.jobsRunning && extra.jobsRunning > 0
-    ? 'Status: Busy'
-    : 'Status: Idle';
+  const twoFALabel = extra?.jobsWaiting2FA && extra.jobsWaiting2FA > 0
+    ? `Waiting for 2FA: ${extra.jobsWaiting2FA}`
+    : 'No 2FA Pending';
+
+  const statusLabel = (extra?.jobsWaiting2FA ?? 0) > 0
+    ? 'Status: Waiting for Input'
+    : (extra?.jobsRunning ?? 0) > 0
+      ? 'Status: Busy'
+      : 'Status: Idle';
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -130,6 +154,10 @@ export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: num
     },
     {
       label: jobLabel,
+      enabled: false,
+    },
+    {
+      label: twoFALabel,
       enabled: false,
     },
     {

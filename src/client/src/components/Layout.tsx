@@ -8,6 +8,7 @@ import { useInstallModal } from './InstallModal';
 import { useToast } from './Toast';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useElectron } from '../hooks/useElectron';
+import { useDesktopHealth } from '../hooks/useDesktopHealth';
 import { BrandIcon } from './BrandIcon';
 
 const icons: Record<string, ReactNode> = {
@@ -68,15 +69,15 @@ const routeTitles: Record<string, string> = {
 };
 
 const routeDescriptions: Record<string, string> = {
-  '/': 'Live readiness for accounts, devices, installs, and helper automation.',
-  '/apple': 'Primary signing accounts, certificate visibility, and App ID pressure.',
-  '/devices': 'Connected hardware, pairing health, and target-device readiness.',
-  '/apps': 'Upload, curate, and launch installs from your desktop IPA library.',
-  '/install': 'Run installs, resolve 2FA, and inspect pipeline logs from one place.',
-  '/installed': 'Track active installs, expiry pressure, and reactivation workflows.',
-  '/logs': 'Operational logs for debugging, support, and release hardening.',
-  '/sources': 'Curated sources, self-hosted feeds, and source app import workflows.',
-  '/settings': 'Scheduler, updates, credentials, runtime, and helper configuration.',
+  '/': 'System health, active jobs, and quick actions.',
+  '/apple': 'Signing accounts, certificates, and App ID usage.',
+  '/devices': 'Connected devices and pairing status.',
+  '/apps': 'Your IPA library for signing and installation.',
+  '/install': 'Active and completed install jobs.',
+  '/installed': 'Tracked apps, expiry dates, and auto-refresh.',
+  '/logs': 'System and pipeline operation logs.',
+  '/sources': 'AltStore-compatible app sources.',
+  '/settings': 'Scheduler, credentials, updates, and helper config.',
 };
 
 export default function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
@@ -85,21 +86,23 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scanningDevices, setScanningDevices] = useState(false);
   const { info } = useElectron();
+  const { data: desktopHealth } = useDesktopHealth({
+    autoRefreshMs: 15_000,
+    snapshotKey: 'desktop-health',
+    warmTtlMs: 15_000,
+  });
   const { openInstall } = useInstallModal();
   const { toast } = useToast();
   const macChromeInset = info.isElectron && info.platform === 'darwin';
+  const workspaceReady = desktopHealth?.readiness.overall ?? false;
 
   useGlobalShortcuts();
 
   const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'SideLink', [location.pathname]);
-  const pageDescription = useMemo(() => routeDescriptions[location.pathname] ?? 'Desktop control surface for installs, accounts, devices, and sources.', [location.pathname]);
+  const pageDescription = useMemo(() => routeDescriptions[location.pathname] ?? '', [location.pathname]);
 
   const handleLogout = async () => {
-    try {
-      await api.logout();
-    } catch {
-      // Keep local logout behavior even if backend call fails.
-    }
+    try { await api.logout(); } catch { /* ignore */ }
     onLogout();
     navigate('/');
   };
@@ -127,30 +130,21 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   const sidebar = (
     <>
-        <div className={`px-4 pb-4 pt-5 pl-[max(1rem,env(safe-area-inset-left))] ${macChromeInset ? 'md:pt-12' : ''}`}>
-        <div className="sl-card-soft flex items-center gap-3 px-3 py-3">
-          <BrandIcon className="h-9 w-9" />
+      {/* Brand header - compact */}
+      <div className={`px-4 pb-3 pt-4 pl-[max(1rem,env(safe-area-inset-left))] ${macChromeInset ? 'md:pt-11' : ''}`}>
+        <div className="flex items-center gap-2.5 px-2">
+          <BrandIcon className="h-7 w-7" />
           <div>
-            <p className="text-sm font-bold tracking-tight text-[var(--sl-text)]">SideLink Command</p>
-            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--sl-muted)]">Desktop Control Surface</p>
-          </div>
-        </div>
-
-        <div className="mt-3 grid gap-2">
-          <div className="rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.45)] px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Workspace</p>
-            <p className="mt-1 text-[13px] font-semibold text-[var(--sl-text)]">Desktop ready</p>
-            <p className="mt-1 text-[11px] leading-5 text-[var(--sl-muted)]">Installs, helper automation, and device operations share one shell.</p>
-          </div>
-          {info.isElectron && (
-            <div className="rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.38)] px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Runtime</p>
-              <p className="mt-1 text-[12px] font-medium text-[var(--sl-text)]">{info.platform} v{info.version}</p>
+            <p className="text-[13px] font-bold tracking-tight text-[var(--sl-text)]">SideLink</p>
+            <div className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${workspaceReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+              <p className="text-[10px] font-medium text-[var(--sl-muted)]">{workspaceReady ? 'Ready' : 'Needs setup'}</p>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
+      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 pb-2" aria-label="Main navigation">
         {navSections.map((section, sectionIndex) => (
           <div key={sectionIndex} className={sectionIndex > 0 ? 'mt-4' : ''}>
@@ -178,29 +172,27 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         ))}
       </nav>
 
+      {/* Bottom actions */}
       <div className="border-t border-[var(--sl-border)] px-3 py-3">
-        <div className="mb-3 rounded-2xl border border-[var(--sl-border)] bg-[rgba(8,16,25,0.42)] p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Fast Actions</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button onClick={handleOpenInstall} className="sl-btn-primary !px-3 !py-1.5 !text-[11px]">New Install</button>
-            <button onClick={() => { void handleScanDevices(); }} disabled={scanningDevices} className="sl-btn-ghost !px-3 !py-1.5 !text-[11px] disabled:opacity-50">
-              {scanningDevices ? 'Scanning...' : 'Scan Devices'}
-            </button>
-          </div>
-          <button
-            onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
-            className="mt-2 flex w-full items-center justify-between rounded-lg border border-[var(--sl-border)] bg-[rgba(8,16,25,0.4)] px-3 py-2 text-left text-[11px] text-[var(--sl-muted)] transition-colors hover:border-[var(--sl-border-hover)] hover:text-[var(--sl-text)]"
-          >
-            <span className="flex items-center gap-2">
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-              Search commands
-            </span>
-            <kbd className="rounded border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-1.5 py-0.5 text-[9px] font-semibold">⌘K</kbd>
+        <div className="mb-2 flex flex-wrap gap-2 px-1">
+          <button onClick={handleOpenInstall} className="sl-btn-primary sl-btn-sm flex-1">New Install</button>
+          <button onClick={() => { void handleScanDevices(); }} disabled={scanningDevices} className="sl-btn-ghost sl-btn-sm flex-1 disabled:opacity-50">
+            {scanningDevices ? 'Scanning...' : 'Scan Devices'}
           </button>
         </div>
         <button
+          onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))}
+          className="mb-2 flex w-full items-center justify-between rounded-lg border border-[var(--sl-border)] bg-[rgba(8,16,25,0.4)] px-3 py-2 text-left text-[11px] text-[var(--sl-muted)] transition-colors hover:border-[var(--sl-border-hover)] hover:text-[var(--sl-text)]"
+        >
+          <span className="flex items-center gap-2">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+            Search commands
+          </span>
+          <kbd className="rounded border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-1.5 py-0.5 text-[9px] font-semibold">⌘K</kbd>
+        </button>
+        <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-[9px] text-[13px] font-medium text-[var(--sl-muted)] transition-all hover:bg-red-500/8 hover:text-red-400"
+          className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13px] font-medium text-[var(--sl-muted)] transition-all hover:bg-red-500/8 hover:text-red-400"
         >
           {icons.logout}
           Sign Out
@@ -213,6 +205,8 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
     <div className="relative flex h-screen overflow-hidden bg-[var(--sl-bg)] text-[var(--sl-text)]">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-[var(--sl-accent)] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-lg">Skip to content</a>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.06),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(251,146,60,0.06),transparent_20%)]" />
+
+      {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
         className={`fixed left-[max(0.75rem,env(safe-area-inset-left))] z-40 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-[max(0.75rem,env(safe-area-inset-top))]'}`}
@@ -223,8 +217,9 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         </svg>
       </button>
 
+      {/* Mobile overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fadeIn" onClick={() => setMobileOpen(false)} aria-hidden="true" />
       )}
 
       {mobileOpen && (
@@ -239,10 +234,11 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         </button>
       )}
 
+      {/* Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 flex w-[290px] flex-col border-r border-[var(--sl-border)]
-          bg-[linear-gradient(180deg,rgba(10,18,26,0.96),rgba(6,11,17,0.98))] transition-transform duration-200
+          fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[var(--sl-border)]
+          bg-[linear-gradient(180deg,rgba(10,18,26,0.97),rgba(6,11,17,0.99))] transition-transform duration-200
           md:static md:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -250,19 +246,20 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
         {sidebar}
       </aside>
 
+      {/* Main content */}
       <main id="main-content" className={`relative z-10 flex-1 overflow-y-auto pt-16 md:pt-0 ${macChromeInset ? 'md:pt-8' : ''}`}>
-        <header className={`sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.82)] px-4 py-4 backdrop-blur-xl sm:px-6 md:px-8 ${macChromeInset ? 'md:pt-10' : ''}`}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="sl-section-label">Desktop Workflow</p>
-              <h2 className="mt-1 text-[1.15rem] font-semibold tracking-tight text-[var(--sl-text)] sm:text-[1.3rem]">{pageTitle}</h2>
-              <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{pageDescription}</p>
+        <header className={`sticky top-0 z-20 border-b border-[var(--sl-border)] bg-[rgba(8,16,25,0.85)] px-4 py-3.5 backdrop-blur-xl sm:px-6 md:px-8 ${macChromeInset ? 'md:pt-10' : ''}`}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-[1.1rem] font-semibold tracking-tight text-[var(--sl-text)] sm:text-[1.2rem] truncate">{pageTitle}</h2>
+              <p className="mt-0.5 text-[12px] text-[var(--sl-muted)] truncate">{pageDescription}</p>
             </div>
 
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <NavLink to="/install" className="sl-btn-primary w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">Install Center</NavLink>
-              <NavLink to="/apple" className="sl-btn-ghost w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">Signing</NavLink>
-              <NavLink to="/settings" className="sl-btn-ghost w-full justify-center !px-3.5 !py-2 !text-[12px] min-[420px]:w-auto">System</NavLink>
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
+              <button onClick={handleOpenInstall} className="sl-btn-primary sl-btn-sm flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                Install
+              </button>
             </div>
           </div>
         </header>

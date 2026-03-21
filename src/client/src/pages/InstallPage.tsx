@@ -5,9 +5,9 @@ import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageHeader, PageLoader, SectionHeading, StepIcon } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, SectionHeading, PipelineStepper } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
-import type { InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
+import type { InstallJob, JobLogEntry } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
 
 export default function InstallPage() {
@@ -120,31 +120,48 @@ export default function InstallPage() {
         <div>
           <SectionHeading eyebrow="Archive" title="Recent install history" description="Completed and failed runs stay visible with their latest error summaries for quick support and retry decisions." />
           <div className="sl-card divide-y divide-[var(--sl-border)]">
-            {completedJobs.slice(0, 15).map(j => {
+            {completedJobs.slice(0, 15).map((j, idx, arr) => {
               const isFailed = j.status === 'failed';
               const formatted = isFailed && j.error ? formatJobError(j.error) : null;
+              const jobDate = new Date(j.createdAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+              const prevDate = idx > 0 ? new Date(arr[idx - 1].createdAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : null;
+              const showDateHeader = idx === 0 || jobDate !== prevDate;
+
               return (
-                <div key={j.id} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="text-[11px] text-[var(--sl-muted)] font-mono">{j.id.slice(0, 8)}</span>
-                      <span className="text-[12px] text-[var(--sl-muted)] truncate">{j.currentStep ?? '-'}</span>
+                <div key={j.id}>
+                  {showDateHeader && (
+                    <div className="px-4 pt-3 pb-1">
+                      <span className="text-[10px] uppercase tracking-wider text-[var(--sl-muted)] font-semibold">{jobDate}</span>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {formatted && (
-                        <span className="text-[11px] text-red-400/70 truncate max-w-[180px]">{formatted.title}</span>
-                      )}
-                      <StatusBadge status={j.status} />
+                  )}
+                  <div className="px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {j.customDisplayName && (
+                          <span className="text-[12px] text-[var(--sl-text)] font-medium">{j.customDisplayName}</span>
+                        )}
+                        <span className="text-[11px] text-[var(--sl-muted)] font-mono">{j.id.slice(0, 8)}</span>
+                        <span className="text-[12px] text-[var(--sl-muted)] truncate">{j.currentStep ?? '-'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {formatted && (
+                          <span className="text-[11px] text-red-400/70 truncate max-w-[180px]">{formatted.title}</span>
+                        )}
+                        <StatusBadge status={j.status} />
+                        <button
+                          onClick={() => openInstall({ ipaId: j.ipaId, deviceUdid: j.deviceUdid })}
+                          className="text-[11px] text-[var(--sl-muted)] hover:text-[var(--sl-accent)] transition-colors ml-1"
+                          title="Retry this install"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
+                        </button>
+                      </div>
                     </div>
+                    {formatted && (
+                      <p className="text-[11px] text-[var(--sl-muted)] mt-1.5 leading-relaxed">{formatted.description}</p>
+                    )}
+                    {j.status === 'completed' && <VerifyAppHint />}
                   </div>
-                  {formatted && (
-                    <p className="text-[11px] text-[var(--sl-muted)] mt-1.5 leading-relaxed">{formatted.description}</p>
-                  )}
-                  {j.status === 'completed' && (
-                    <p className="text-[11px] text-amber-400/70 mt-1.5 leading-relaxed">
-                      If the app shows a &ldquo;Verify App&rdquo; error, open <strong>Settings → General → VPN &amp; Device Management</strong> and trust the developer profile.
-                    </p>
-                  )}
                 </div>
               );
             })}
@@ -181,31 +198,36 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 bg-[var(--sl-accent)] rounded-full animate-pulse" />
-          <span className="text-[13px] text-indigo-300 font-semibold">Installing</span>
-          <span className="text-[11px] text-[var(--sl-muted)] font-mono ml-1">{job.id.slice(0, 8)}</span>
+          {job.customDisplayName ? (
+            <>
+              <span className="text-[13px] text-[var(--sl-text)] font-semibold">{job.customDisplayName}</span>
+              <span className="text-[11px] text-[var(--sl-muted)] font-mono">{job.id.slice(0, 8)}</span>
+            </>
+          ) : (
+            <>
+              <span className="text-[13px] text-indigo-300 font-semibold">Installing</span>
+              <span className="text-[11px] text-[var(--sl-muted)] font-mono ml-1">{job.id.slice(0, 8)}</span>
+            </>
+          )}
         </div>
         <StatusBadge status={job.status} />
       </div>
 
-      <div className="space-y-1.5">
-        {steps.map((step: PipelineStep, i: number) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <StepIcon status={step.status === 'running' && job.status === 'waiting_2fa' ? 'waiting_2fa' : step.status} />
-            <span className={`text-[13px] ${step.status === 'running' ? (job.status === 'waiting_2fa' ? 'text-amber-400' : 'text-indigo-400') : step.status === 'completed' ? 'text-emerald-400' : step.status === 'failed' ? 'text-red-400' : 'text-[var(--sl-muted)]'}`}>
-              {step.name}
-            </span>
-            {step.error && (
-              <span className="text-[11px] text-red-400/70 ml-auto truncate max-w-xs" title={step.error}>
-                {formatJobError(step.error).title}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+      <PipelineStepper
+        steps={steps.map(step => ({
+          ...step,
+          status: step.status === 'running' && job.status === 'waiting_2fa' ? 'waiting_2fa' : step.status,
+          error: step.error ?? undefined,
+        }))}
+      />
 
       {job.status === 'waiting_2fa' && (
-        <div className="mt-4 sl-card !border-amber-500/15 !bg-amber-500/[0.04] p-4">
-          <p className="text-amber-300 text-[13px] font-semibold mb-2">2FA Required</p>
+        <div className="mt-4 sl-card !border-amber-500/40 !bg-amber-500/[0.06] p-5 ring-1 ring-amber-500/20">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-5 h-5 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+            <p className="text-amber-300 text-[14px] font-semibold">Two-Factor Authentication Required</p>
+          </div>
+          <p className="text-amber-400/70 text-[12px] mb-3">Enter the 6-digit code sent to your trusted device.</p>
           <div className="flex gap-2">
             <input
               type="text"
@@ -215,9 +237,9 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
               placeholder="000000"
               maxLength={6}
               autoFocus
-              className="sl-input flex-1 text-center text-lg font-mono tracking-[0.3em]"
+              className="sl-input flex-1 text-center text-xl font-mono tracking-[0.4em] !border-amber-500/30 focus:!border-amber-400 py-3"
             />
-            <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500">
+            <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 px-6 text-[13px]">
               {submitting2FA ? 'Verifying...' : 'Submit'}
             </button>
           </div>
@@ -293,4 +315,27 @@ function JobErrorDisplay({ error }: { error: string }) {
   );
 }
 
-// StepIcon is now imported from '../components/Shared'
+const VERIFY_HINT_DISMISSED_KEY = 'sl:verify-app-hint-dismissed';
+
+function VerifyAppHint() {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(VERIFY_HINT_DISMISSED_KEY) === '1'; } catch { return false; }
+  });
+
+  if (dismissed) return null;
+
+  return (
+    <div className="flex items-start gap-2 mt-1.5">
+      <p className="text-[11px] text-amber-400/70 leading-relaxed flex-1">
+        If the app shows a &ldquo;Verify App&rdquo; error, open <strong>Settings &rarr; General &rarr; VPN &amp; Device Management</strong> and trust the developer profile.
+      </p>
+      <button
+        onClick={() => { setDismissed(true); try { localStorage.setItem(VERIFY_HINT_DISMISSED_KEY, '1'); } catch {} }}
+        className="text-[var(--sl-muted)] hover:text-[var(--sl-text)] shrink-0 mt-0.5 transition-colors"
+        title="Dismiss hint"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+  );
+}

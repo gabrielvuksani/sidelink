@@ -11,6 +11,7 @@ export const IPC = {
   APP_IS_PACKAGED: 'app:isPackaged',
   APP_DATA_DIR: 'app:dataDir',
   APP_RESET_FRESH: 'app:resetFresh',
+  APP_RENDERER_READY: 'app:rendererReady',
 
   // ── Window management ──────────────────────────────────────────────
   WIN_MINIMIZE: 'win:minimize',
@@ -24,6 +25,7 @@ export const IPC = {
   UPDATER_CHECK: 'updater:check',
   UPDATER_DOWNLOAD: 'updater:download',
   UPDATER_INSTALL: 'updater:install',
+  UPDATER_STATE: 'updater:state',
   /** Main → renderer push event */
   UPDATER_EVENT: 'updater:event',
 

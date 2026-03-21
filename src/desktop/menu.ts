@@ -7,6 +7,13 @@ import { IPC } from './ipc-channels';
 import { checkForUpdates } from './auto-updater';
 
 const isMac = process.platform === 'darwin';
+let showWindowAction: (() => void) | null = null;
+let navigateAction: ((action: string) => void) | null = null;
+
+type MenuActions = {
+  showWindow?: () => void;
+  navigate?: (action: string) => void;
+};
 
 function getMainWindow(): BrowserWindow | null {
   const focused = BrowserWindow.getFocusedWindow();
@@ -16,6 +23,10 @@ function getMainWindow(): BrowserWindow | null {
 }
 
 function sendRoute(action: string): void {
+  if (navigateAction) {
+    navigateAction(action);
+    return;
+  }
   const win = getMainWindow();
   if (!win) return;
   if (win.isMinimized()) win.restore();
@@ -27,7 +38,9 @@ function sendRoute(action: string): void {
 /**
  * Build and set the native application menu.
  */
-export function createAppMenu(): void {
+export function createAppMenu(actions?: MenuActions): void {
+  showWindowAction = actions?.showWindow ?? showWindowAction;
+  navigateAction = actions?.navigate ?? navigateAction;
   const template: Electron.MenuItemConstructorOptions[] = [];
 
   // ── macOS App Menu ────────────────────────────────────────────────
@@ -167,6 +180,10 @@ export function createAppMenu(): void {
         label: 'Show SideLink',
         accelerator: isMac ? 'CmdOrCtrl+Shift+S' : 'Ctrl+Shift+S',
         click: () => {
+          if (showWindowAction) {
+            showWindowAction();
+            return;
+          }
           const win = getMainWindow();
           if (!win) return;
           if (win.isMinimized()) win.restore();

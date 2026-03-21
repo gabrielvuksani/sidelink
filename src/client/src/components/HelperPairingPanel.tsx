@@ -11,6 +11,8 @@ type PairingSnapshot = {
   code: string | null;
   expiresAt: string | null;
   qrPayload: string | null;
+  backendUrl: string | null;
+  candidateAddresses: string[];
 };
 
 interface HelperPairingPanelProps {
@@ -46,6 +48,9 @@ export function HelperPairingPanel({
   const [pairingCode, setPairingCode] = useState<string | null>(warmSnapshot?.data.code ?? null);
   const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(warmSnapshot?.data.expiresAt ?? null);
   const [pairingPayload, setPairingPayload] = useState<string | null>(warmSnapshot?.data.qrPayload ?? null);
+  const [pairingBackendUrl, setPairingBackendUrl] = useState<string | null>(warmSnapshot?.data.backendUrl ?? null);
+  const [pairingCandidateAddresses, setPairingCandidateAddresses] = useState<string[]>(warmSnapshot?.data.candidateAddresses ?? []);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const { toast } = useToast();
   const modalTitleId = useId();
   const previousOpenSignal = useRef(openSignal);
@@ -67,10 +72,14 @@ export function HelperPairingPanel({
         code: res.data?.code ?? null,
         expiresAt: res.data?.expiresAt ?? null,
         qrPayload: res.data?.qrPayload ?? null,
+        backendUrl: res.data?.backendUrl ?? null,
+        candidateAddresses: res.data?.candidateAddresses ?? [],
       };
       setPairingCode(nextSnapshot.code);
       setPairingExpiresAt(nextSnapshot.expiresAt);
       setPairingPayload(nextSnapshot.qrPayload);
+      setPairingBackendUrl(nextSnapshot.backendUrl);
+      setPairingCandidateAddresses(nextSnapshot.candidateAddresses);
       setUiSnapshot(snapshotKey, nextSnapshot);
       if (!options?.silent) {
         toast('success', 'New helper pairing code generated');
@@ -114,6 +123,16 @@ export function HelperPairingPanel({
   }, [isModalOpen]);
 
   useEffect(() => {
+    if (!pairingExpiresAt) return;
+
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [pairingExpiresAt]);
+
+  useEffect(() => {
     if (openSignal === undefined) return;
     if (previousOpenSignal.current === undefined) {
       previousOpenSignal.current = openSignal;
@@ -142,6 +161,12 @@ export function HelperPairingPanel({
     const expires = new Date(pairingExpiresAt);
     return Number.isNaN(expires.getTime()) ? null : expires.toLocaleTimeString();
   }, [pairingExpiresAt]);
+
+  const secondsRemaining = useMemo(() => {
+    if (!pairingExpiresAt) return null;
+    const msRemaining = new Date(pairingExpiresAt).getTime() - nowMs;
+    return msRemaining > 0 ? Math.ceil(msRemaining / 1000) : 0;
+  }, [nowMs, pairingExpiresAt]);
 
   const copyText = async (text: string, successMessage: string) => {
     try {
@@ -261,6 +286,23 @@ export function HelperPairingPanel({
                     {refreshing ? 'Refreshing…' : 'Refresh'}
                   </button>
                 </div>
+
+                {pairingBackendUrl && (
+                  <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
+                    <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost justify-center !py-2 text-center">
+                        Copy address
+                      </button>
+                      {pairingCandidateAddresses.length > 0 && (
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">
+                          {pairingCandidateAddresses.length} LAN candidate{pairingCandidateAddresses.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             </div>
@@ -283,7 +325,7 @@ export function HelperPairingPanel({
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           {expiresLabel && (
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
-              Expires {expiresLabel}
+              {secondsRemaining !== null ? `Expires in ${secondsRemaining}s` : `Expires ${expiresLabel}`}
             </span>
           )}
           {pairingPayload && pairingCode && !loading && showOpenButton && (
@@ -355,6 +397,16 @@ export function HelperPairingPanel({
               ))}
             </ol>
           </div>
+
+          {pairingBackendUrl && (
+            <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
+              <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
+              <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
+                If discovery fails on the iPhone, enter this desktop address manually and then type the same 6-digit code.
+              </p>
+            </div>
+          )}
         </div>
       ) : pairingPayload && pairingCode ? (
         <div className={`mt-4 grid gap-4 ${showInlineQr ? (isFeatureLayout ? 'xl:grid-cols-[168px,1fr]' : 'lg:grid-cols-[188px,1fr]') : '2xl:grid-cols-[minmax(0,1.18fr),minmax(260px,0.82fr)]'}`}>
@@ -409,6 +461,23 @@ export function HelperPairingPanel({
                 ))}
               </ol>
             </div>
+
+            {pairingBackendUrl && (
+              <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
+                <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost justify-center !py-2 text-center">
+                    Copy address
+                  </button>
+                  {pairingCandidateAddresses.length > 0 && (
+                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">
+                      {pairingCandidateAddresses.join(' • ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (

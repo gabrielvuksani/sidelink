@@ -4,6 +4,7 @@ import type { AppContext } from '../context';
 const PAIRING_CODE_KEY = 'helper_pairing_code_sha256';
 const PAIRING_EXPIRES_KEY = 'helper_pairing_expires_at';
 const HELPER_TOKEN_KEY = 'helper_token';
+const HELPER_PAIRED_AT_KEY = 'helper_paired_at';
 
 const CODE_TTL_MS = 60_000;
 
@@ -17,6 +18,32 @@ function createToken(): string {
 
 export function getHelperToken(ctx: AppContext): string | null {
   return ctx.db.getSetting(HELPER_TOKEN_KEY) ?? process.env.SIDELINK_HELPER_TOKEN ?? null;
+}
+
+export function getHelperTokenSource(ctx: AppContext): 'db' | 'env' | 'none' {
+  if (ctx.db.getSetting(HELPER_TOKEN_KEY)) return 'db';
+  if (process.env.SIDELINK_HELPER_TOKEN?.trim()) return 'env';
+  return 'none';
+}
+
+export function getHelperPairingState(ctx: AppContext): {
+  paired: boolean;
+  tokenSource: 'db' | 'env' | 'none';
+  pairedAt: string | null;
+  pairingCodeExpiresAt: string | null;
+  pairingCodeActive: boolean;
+} {
+  const tokenSource = getHelperTokenSource(ctx);
+  const expiresAt = ctx.db.getSetting(PAIRING_EXPIRES_KEY);
+  const expiresAtMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+
+  return {
+    paired: !!getHelperToken(ctx),
+    tokenSource,
+    pairedAt: tokenSource === 'db' ? ctx.db.getSetting(HELPER_PAIRED_AT_KEY) : null,
+    pairingCodeExpiresAt: expiresAt,
+    pairingCodeActive: Number.isFinite(expiresAtMs) && expiresAtMs > Date.now(),
+  };
 }
 
 export function createPairingCode(ctx: AppContext): { code: string; expiresAt: string; ttlMs: number } {
@@ -46,6 +73,7 @@ export function consumePairingCode(ctx: AppContext, code: string): { token: stri
 
   const token = createToken();
   ctx.db.setSetting(HELPER_TOKEN_KEY, token);
+  ctx.db.setSetting(HELPER_PAIRED_AT_KEY, new Date().toISOString());
 
   // One-time use code.
   ctx.db.setSetting(PAIRING_CODE_KEY, hashCode(createToken()));

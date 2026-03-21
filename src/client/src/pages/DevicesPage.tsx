@@ -30,8 +30,10 @@ export default function DevicesPage() {
       const nextDevices = r.data ?? [];
       setDevices(nextDevices);
       setUiSnapshot('page:devices', nextDevices);
+    }).catch((e: unknown) => {
+      toast('error', getErrorMessage(e, 'Failed to load devices'));
     }).finally(() => setLoading(false));
-  }, []);
+  }, [toast]);
 
   usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 12_000 });
 
@@ -62,8 +64,8 @@ export default function DevicesPage() {
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Device Bay"
-        title="See which devices are actually ready to receive installs"
-        description="USB and network targets are surfaced as an inventory board, with pairing actions kept directly on each card so the install path stays short."
+        title="Connected Devices"
+        description="USB and network targets with pairing status and install readiness."
         actions={(
           <button onClick={refresh} disabled={refreshing} className="sl-btn-ghost flex items-center gap-2 disabled:opacity-50">
             {refreshing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/30 border-t-[var(--sl-muted)]" />}
@@ -87,7 +89,7 @@ export default function DevicesPage() {
         />
       ) : (
         <>
-          <SectionHeading eyebrow="Inventory" title="Connected targets" description="Each card keeps the install-critical details visible: transport, model, iOS version, and pairing action." />
+          <SectionHeading eyebrow="Inventory" title="Connected targets" description="Transport, model, iOS version, and pairing status." />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 stagger-children">
           {devices.map(d => (
             <DeviceCard key={d.udid} device={d} onRefresh={reload} />

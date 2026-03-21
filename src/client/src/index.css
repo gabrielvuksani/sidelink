@@ -701,3 +701,172 @@ textarea:focus-visible {
     radial-gradient(circle at center, rgba(45, 212, 191, 0.04), transparent 60%),
     linear-gradient(180deg, rgba(20, 33, 45, 0.92), rgba(12, 22, 31, 0.92));
 }
+
+/* ── Skeleton loading ────────────────────────────────────────────── */
+@keyframes skeletonShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.sl-skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* ── Progress bar ────────────────────────────────────────────────── */
+.sl-progress-bar {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sl-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--sl-accent), #14b8a6);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ── Search input ────────────────────────────────────────────────── */
+.sl-search-input {
+  width: 100%;
+  background: rgba(10, 18, 26, 0.5);
+  border: 1px solid var(--sl-border);
+  border-radius: 12px;
+  padding: 9px 12px 9px 36px;
+  font-size: 13px;
+  color: var(--sl-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sl-search-input:focus {
+  border-color: var(--sl-accent);
+  box-shadow: var(--sl-focus-ring);
+}
+.sl-search-input::placeholder {
+  color: var(--sl-muted);
+  opacity: 0.5;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────── */
+.sl-tooltip {
+  position: relative;
+}
+.sl-tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  background: rgba(20, 33, 45, 0.96);
+  border: 1px solid var(--sl-border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--sl-text);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+.sl-tooltip:hover::after {
+  opacity: 1;
+}
+
+/* ── Badge / tag ─────────────────────────────────────────────────── */
+.sl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.sl-badge-success { background: rgba(74, 222, 128, 0.12); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.2); }
+.sl-badge-warning { background: rgba(251, 191, 36, 0.12); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+.sl-badge-danger { background: rgba(248, 113, 113, 0.12); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
+.sl-badge-info { background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); }
+.sl-badge-neutral { background: rgba(255, 255, 255, 0.05); color: var(--sl-muted); border: 1px solid var(--sl-border); }
+
+/* ── Small / icon buttons ────────────────────────────────────────── */
+.sl-btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+.sl-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--sl-border);
+  background: rgba(8, 16, 25, 0.36);
+  color: var(--sl-muted);
+  transition: all 0.15s;
+}
+.sl-btn-icon:hover {
+  background: rgba(24, 39, 53, 0.92);
+  color: var(--sl-text);
+  border-color: var(--sl-border-hover);
+}
+
+/* ── Divider ─────────────────────────────────────────────────────── */
+.sl-divider {
+  height: 1px;
+  background: var(--sl-border);
+  margin: 1rem 0;
+}
+
+/* ── Expiry urgency ──────────────────────────────────────────────── */
+.sl-expiry-safe { color: var(--sl-success); }
+.sl-expiry-warning { color: var(--sl-warning); }
+.sl-expiry-critical { color: var(--sl-danger); animation: statusPulse 2s ease-in-out infinite; }
+
+/* ── Drag-and-drop zone ──────────────────────────────────────────── */
+.sl-dropzone {
+  border: 2px dashed var(--sl-border);
+  border-radius: var(--sl-radius);
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.sl-dropzone:hover, .sl-dropzone-active {
+  border-color: var(--sl-accent);
+  background: rgba(45, 212, 191, 0.04);
+}
+.sl-dropzone-active {
+  box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.1);
+}
+
+/* ── Stepper / pipeline progress ─────────────────────────────────── */
+.sl-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.sl-stepper-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  position: relative;
+}
+.sl-stepper-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--sl-border);
+  min-width: 16px;
+}
+.sl-stepper-connector-active {
+  background: var(--sl-accent);
+}

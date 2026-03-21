@@ -1,75 +1,37 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
-import { getErrorMessage } from '../lib/errors';
 import { useElectron } from '../hooks/useElectron';
-import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
-import type { HelperDoctorSnapshot, HealthSnapshot } from '../../../shared/types';
+import { useDesktopHealth } from '../hooks/useDesktopHealth';
 
 export function DesktopReadinessPanel({
-  activeAccountCount,
-  deviceCount,
   embedded = false,
 }: {
-  activeAccountCount: number;
-  deviceCount: number;
   embedded?: boolean;
 }) {
   const { info } = useElectron();
-  const warmSnapshot = getUiSnapshot<{ doctor: HelperDoctorSnapshot | null; health: HealthSnapshot | null }>('panel:desktop-readiness');
-  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(warmSnapshot?.data.doctor ?? null);
-  const [health, setHealth] = useState<HealthSnapshot | null>(warmSnapshot?.data.health ?? null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!warmSnapshot);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async (options?: { silent?: boolean }) => {
-      if (!options?.silent || !warmSnapshot) {
-        setLoading(true);
-      }
-      try {
-        const [healthRes, doctorRes] = await Promise.all([
-          api.health(),
-          api.helperDoctor(),
-        ]);
-
-        if (cancelled) return;
-        const nextHealth = healthRes.data ?? null;
-        const nextDoctor = doctorRes.data ?? null;
-        setHealth(nextHealth);
-        setDoctor(nextDoctor);
-        setUiSnapshot('panel:desktop-readiness', { health: nextHealth, doctor: nextDoctor });
-        setError(null);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        setError(getErrorMessage(err, 'Failed to load desktop readiness diagnostics'));
-      } finally {
-        if (!cancelled && (!options?.silent || !warmSnapshot)) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load({ silent: !!warmSnapshot });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, loading, error, refresh } = useDesktopHealth({
+    autoRefreshMs: 15_000,
+    snapshotKey: 'desktop-health',
+    warmTtlMs: 15_000,
+  });
 
   const isPackaged = info.isElectron && info.isPackaged;
   const isMac = info.platform === 'darwin';
+  const doctor = data?.helper.doctor;
+  const pairing = data?.helper.pairing;
+  const activeAccountCount = data?.accounts.active ?? 0;
+  const deviceCount = data?.devices.total ?? 0;
   const helperReady = !!doctor?.helperIpaExists;
-  const helperPaired = !!doctor?.helperPaired;
+  const helperPaired = !!pairing?.paired;
   const appleRuntimeReady = doctor?.appleAuthReady !== false;
   const signingReady = activeAccountCount > 0 && appleRuntimeReady;
   const devicesReady = deviceCount > 0;
-  const runtimeReady = health?.status === 'ok';
-  const overallReady = runtimeReady && helperReady && signingReady && devicesReady;
+  const runtimeReady = data?.runtime.status === 'ok';
+  const overallReady = data?.readiness.overall ?? false;
+  const readinessIssues = data?.readiness.issues ?? [];
   const runtimeLabel = info.isElectron
     ? `${isPackaged ? 'Packaged desktop' : 'Development desktop'}${info.version !== '0.0.0' ? ` · v${info.version}` : ''}`
     : 'Browser preview';
+  const pairedAtLabel = pairing?.pairedAt ? formatTimestamp(pairing.pairedAt) : null;
 
   const body = (
     <div className={`space-y-4 ${embedded ? 'p-0' : 'p-4 sm:p-5'}`}>
@@ -77,7 +39,7 @@ export function DesktopReadinessPanel({
         <StatusTile
           label="Desktop runtime"
           title={runtimeLabel}
-          detail={loading ? 'Checking backend health...' : runtimeReady ? `Backend healthy${health ? ` · uptime ${formatUptime(health.uptime)}` : ''}` : 'Runtime health could not be confirmed.'}
+          detail={loading ? 'Checking backend health...' : runtimeReady ? `Backend healthy${data ? ` · uptime ${formatUptime(data.runtime.uptime)}` : ''}` : 'Runtime health could not be confirmed.'}
           ok={!!runtimeReady}
         />
         <StatusTile
@@ -105,6 +67,14 @@ export function DesktopReadinessPanel({
           ok={signingReady}
         />
         <StatusTile
+          label="Helper pairing"
+          title={helperPaired ? 'iPhone helper paired' : 'Helper not paired'}
+          detail={helperPaired
+            ? `Token source: ${pairing?.tokenSource === 'env' ? 'environment override' : 'desktop pairing'}${pairedAtLabel ? ` · paired ${pairedAtLabel}` : ''}`
+            : 'Generate a fresh pairing code and pair or repair the iPhone helper from Settings or onboarding.'}
+          ok={helperPaired}
+        />
+        <StatusTile
           label="Device transport"
           title={devicesReady ? `${deviceCount} live device${deviceCount === 1 ? '' : 's'} detected` : 'No devices detected'}
           detail={devicesReady ? 'USB or network transport is visible to the device service.' : isMac ? 'Trust prompts, USB stack readiness, or local transport discovery still need attention on this Mac.' : 'No device transport is currently visible to the runtime.'}
@@ -117,7 +87,7 @@ export function DesktopReadinessPanel({
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Focused diagnosis</p>
             <p className="mt-2 text-[13px] leading-6 text-[var(--sl-text)]">
-              {helperReady && helperPaired && signingReady && devicesReady
+              {overallReady
                 ? 'The desktop runtime, helper path, signing roster, and device transport all look healthy from the overview.'
                 : 'The DMG should not feel mysteriously broken anymore. The gaps below point at what is actually missing.'}
             </p>
@@ -133,8 +103,17 @@ export function DesktopReadinessPanel({
           {!signingReady && <Link to="/apple" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Apple IDs</Link>}
           {!devicesReady && <Link to="/devices" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Devices</Link>}
           {(!helperReady || !helperPaired) && <Link to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Open Helper Settings</Link>}
+          <button onClick={() => { void refresh({ bypassCache: true }); }} className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Refresh Health</button>
         </div>
       </div>
+
+      {!error && readinessIssues.length > 0 && (
+        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3 text-[12px] leading-6 text-amber-100">
+          {readinessIssues.map((issue) => (
+            <p key={issue}>{issue}</p>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-4 py-3 text-[12px] leading-5 text-red-100">
@@ -208,4 +187,10 @@ function formatUptime(seconds: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m`;
   return `${Math.max(1, Math.floor(seconds))}s`;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }

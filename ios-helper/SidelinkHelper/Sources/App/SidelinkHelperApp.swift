@@ -18,5 +18,8 @@ struct SidelinkHelperApp: App {
                 BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
                 Task { @MainActor in
                     await PermissionCoordinator.shared.refreshStatuses()
-                
+                }
+            }
+        }
+    }
 }

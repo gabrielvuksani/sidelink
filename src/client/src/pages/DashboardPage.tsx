@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageHeader, PageLoader, SectionHeading } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
@@ -37,7 +37,7 @@ type DashboardWidgetDefinition = {
   defaultSize: DashboardWidgetSize;
   tone?: 'default' | 'feature' | 'warning';
   headerMode?: 'hidden' | 'compact' | 'standard';
-  render: (size: DashboardWidgetSize, editing: boolean) => ReactNode;
+  render: (size: DashboardWidgetSize) => ReactNode;
 };
 
 const OVERVIEW_LAYOUT_STORAGE_KEY = 'sidelink:overview-layout:v3';
@@ -75,7 +75,6 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardState | null>(warmSnapshot?.data ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!warmSnapshot);
-  const [editingLayout, setEditingLayout] = useState(false);
   const [layout, setLayout] = useState<DashboardLayoutItem[]>(() => loadDashboardLayout());
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
@@ -236,14 +235,13 @@ export default function DashboardPage() {
         allowedSizes: ['small', 'medium'] as DashboardWidgetSize[],
         defaultSize: 'small' as DashboardWidgetSize,
         headerMode: 'hidden' as const,
-        render: (size: DashboardWidgetSize, editing: boolean) => (
+        render: () => (
           <OverviewStatCard
             to={stat.to}
             count={stat.count}
             label={stat.label}
             tone={stat.tone}
             icon={stat.icon}
-            emphasis={size}
             editing={editing}
           />
         ),
@@ -265,7 +263,7 @@ export default function DashboardPage() {
         allowedSizes: ['medium', 'wide'],
         defaultSize: 'wide',
         headerMode: 'standard',
-        render: () => <DesktopReadinessPanel activeAccountCount={activeAccounts.length} deviceCount={data?.devices?.length ?? 0} embedded />,
+        render: () => <DesktopReadinessPanel embedded />,
       },
       {
         id: 'active-jobs',
@@ -363,35 +361,18 @@ export default function DashboardPage() {
     }
   }, [layout, normalizedLayout]);
 
-  const updateWidgetSize = useCallback((widgetId: DashboardWidgetId, size: DashboardWidgetSize) => {
-    setLayout((currentLayout) => currentLayout.map((item) => (item.id === widgetId ? { ...item, size } : item)));
-  }, []);
-
-  const moveWidget = useCallback((widgetId: DashboardWidgetId, direction: 'earlier' | 'later') => {
-    setLayout((currentLayout) => {
-      const currentIndex = currentLayout.findIndex((item) => item.id === widgetId);
-      if (currentIndex === -1) return currentLayout;
-      const targetIndex = direction === 'earlier' ? currentIndex - 1 : currentIndex + 1;
-      if (targetIndex < 0 || targetIndex >= currentLayout.length) return currentLayout;
-      const nextLayout = [...currentLayout];
-      const [moved] = nextLayout.splice(currentIndex, 1);
-      nextLayout.splice(targetIndex, 0, moved);
-      return nextLayout;
-    });
-  }, []);
-
-  const resetLayout = useCallback(() => {
-    setLayout(DEFAULT_WIDGET_LAYOUT);
-  }, []);
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 5) return 'Late night session';
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    if (hour < 21) return 'Good evening';
-    return 'Late night session';
-  }, []);
+  const statusSummary = useMemo(() => {
+    if (setupAlerts.length > 0) return `${setupAlerts.length} setup step${setupAlerts.length > 1 ? 's' : ''} remaining`;
+    if (activeJobs.length > 0) return `${activeJobs.length} install${activeJobs.length > 1 ? 's' : ''} in progress`;
+    const expiringCount = data?.installedApps?.filter((app) => {
+      if (!app.expirationDate) return false;
+      const daysLeft = (new Date(app.expirationDate).getTime() - Date.now()) / 86_400_000;
+      return daysLeft <= 3 && daysLeft > 0;
+    })?.length ?? 0;
+    if (expiringCount > 0) return `${expiringCount} app${expiringCount > 1 ? 's' : ''} expiring soon`;
+    if (maxFreeUsage >= 0.8) return 'Weekly quota pressure — watch free limits';
+    return 'All systems ready';
+  }, [setupAlerts.length, activeJobs.length, data?.installedApps, maxFreeUsage]);
 
   if (loading && !data) return <PageLoader message="Loading overview..." />;
 
@@ -411,14 +392,13 @@ export default function DashboardPage() {
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Mission Control"
-        title={`${greeting} — your signing surface is ready`}
+        title={statusSummary}
         description={(
           <>
-            Devices, installs, helper pairing, and signing readiness refresh from one stable dashboard snapshot. The overview board is editable, persistent, and responsive without forcing critical widgets into a fixed sidebar.
+            Devices, installs, helper pairing, and signing readiness in one dashboard snapshot.
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
               <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
               <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
-              <span className="sl-chip">Widget board layout</span>
             </div>
           </>
         )}
@@ -440,83 +420,52 @@ export default function DashboardPage() {
         ]}
       />
 
-      {setupAlerts.map((alert) => (
-        <div key={alert.title} className="sl-card dashboard-widget flex flex-col gap-3 p-4 !border-amber-500/15 !bg-amber-500/[0.04] sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-            <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-amber-300">{alert.title}</p>
-            <p className="mt-0.5 text-[12px] text-amber-400/60">{alert.detail}</p>
-          </div>
-          <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[12px] sm:w-auto">
-            {alert.action}
-          </Link>
-        </div>
-      ))}
-
-      <SectionHeading
-        eyebrow="Operations"
-        title="Resizable overview widgets"
-        description={editingLayout
-          ? 'Resize widgets and move them with the arrow controls. Changes are saved locally and reflow across breakpoints automatically.'
-          : 'The overview board is fluid and dense by default, with an edit mode for sizing and ordering instead of a brittle fixed rail.'}
-        action={(
-          <div className="flex flex-wrap items-center gap-2">
-            {editingLayout && (
-              <button type="button" onClick={resetLayout} className="sl-btn-ghost !px-3 !py-2 text-[12px]">
-                Reset layout
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setEditingLayout((current) => !current)}
-              className={`sl-btn-${editingLayout ? 'ghost' : 'primary'} !px-3.5 !py-2 text-[12px]`}
-            >
-              {editingLayout ? 'Done editing' : 'Edit widgets'}
-            </button>
-          </div>
-        )}
-      />
-
-      {editingLayout && (
-        <div className="sl-card rounded-[24px] border border-sky-400/15 bg-sky-400/[0.05] p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="sl-section-label text-sky-200">Widget editing</p>
-              <p className="mt-2 max-w-3xl text-[13px] leading-6 text-sky-50/90">
-                The board now uses reliable production controls instead of fragile nested drag behavior. Resize with the size chips and reorder with the arrow controls; the grid repacks automatically.
-              </p>
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
-              Layout saved locally
-            </div>
+      {setupAlerts.length > 0 && (
+        <div className="sl-card rounded-[24px] !border-amber-500/15 !bg-amber-500/[0.04] p-4 sm:p-5">
+          <div className="space-y-3">
+            {setupAlerts.map((alert) => (
+              <div key={alert.title} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                  <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold text-amber-300">{alert.title}</p>
+                  <p className="mt-0.5 text-[12px] text-amber-400/60">{alert.detail}</p>
+                </div>
+                <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[12px] sm:w-auto">
+                  {alert.action}
+                </Link>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 items-stretch gap-4 min-[620px]:grid-cols-2 xl:grid-cols-12 xl:grid-flow-dense xl:auto-rows-[minmax(210px,auto)]">
-        {normalizedLayout.map((widget, index) => {
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {normalizedLayout.filter((w) => ['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
           const definition = widgetDefinitionMap[widget.id];
+          return (
+            <section key={widget.id} className="sl-card dashboard-widget flex min-h-[180px] flex-col overflow-hidden">
+              <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+                {definition.render(widget.size)}
+              </div>
+            </section>
+          );
+        })}
+      </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        {normalizedLayout.filter((w) => !['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
+          const definition = widgetDefinitionMap[widget.id];
           return (
             <OverviewWidgetShell
               key={widget.id}
               title={definition.title}
               description={definition.description}
-              size={widget.size}
-              spanClass={getWidgetSpanClass(widget.size)}
               tone={definition.tone ?? 'default'}
               headerMode={definition.headerMode ?? 'standard'}
-              allowedSizes={definition.allowedSizes}
-              editing={editingLayout}
-              canMoveEarlier={index > 0}
-              canMoveLater={index < normalizedLayout.length - 1}
-              onResize={(size) => updateWidgetSize(widget.id, size)}
-              onMoveEarlier={() => moveWidget(widget.id, 'earlier')}
-              onMoveLater={() => moveWidget(widget.id, 'later')}
             >
-              {definition.render(widget.size, editingLayout)}
+              {definition.render(widget.size)}
             </OverviewWidgetShell>
           );
         })}
@@ -528,33 +477,15 @@ export default function DashboardPage() {
 function OverviewWidgetShell({
   title,
   description,
-  size,
-  spanClass,
   tone,
   headerMode,
-  allowedSizes,
-  editing,
-  canMoveEarlier,
-  canMoveLater,
   children,
-  onResize,
-  onMoveEarlier,
-  onMoveLater,
 }: {
   title: string;
   description: string;
-  size: DashboardWidgetSize;
-  spanClass: string;
   tone: 'default' | 'feature' | 'warning';
   headerMode: 'hidden' | 'compact' | 'standard';
-  allowedSizes: DashboardWidgetSize[];
-  editing: boolean;
-  canMoveEarlier: boolean;
-  canMoveLater: boolean;
   children: ReactNode;
-  onResize: (size: DashboardWidgetSize) => void;
-  onMoveEarlier: () => void;
-  onMoveLater: () => void;
 }) {
   const toneClass = {
     default: '',
@@ -562,67 +493,22 @@ function OverviewWidgetShell({
     warning: '!border-amber-500/15 !bg-amber-500/[0.04]',
   }[tone];
 
-  const contentClass = editing ? 'pointer-events-none select-none opacity-95' : '';
-  const showHeader = headerMode !== 'hidden' || editing;
-
   return (
-    <article className={`${spanClass} min-h-0`}>
-      <section className={`sl-card dashboard-widget flex h-full min-h-[210px] flex-col overflow-hidden ${toneClass} ${editing ? 'ring-1 ring-white/8' : ''}`}>
-        {showHeader && (
-          <div className={`border-b border-[var(--sl-border)] ${headerMode === 'standard' ? 'px-4 py-4 sm:px-5' : 'px-4 py-3 sm:px-5'} ${editing ? 'bg-white/[0.03]' : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)]'}`}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              {headerMode !== 'hidden' ? (
-                <div className="min-w-0">
-                  {headerMode === 'standard' ? <p className="sl-section-label">Overview Widget</p> : null}
-                  <h3 className={`${headerMode === 'compact' ? 'text-[14px]' : 'mt-1 text-[15px]'} font-semibold tracking-tight text-[var(--sl-text)]`}>{title}</h3>
-                  <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{description}</p>
-                </div>
-              ) : (
-                <div className="min-w-0">
-                  <p className="text-[12px] font-semibold text-[var(--sl-text)]">{title}</p>
-                  <p className="mt-1 text-[11px] leading-5 text-[var(--sl-muted)]">{description}</p>
-                </div>
-              )}
-
-              {editing ? (
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/10 p-1">
-                    {allowedSizes.map((allowedSize) => (
-                      <button
-                        key={allowedSize}
-                        type="button"
-                        onClick={() => onResize(allowedSize)}
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${allowedSize === size ? 'bg-[var(--sl-accent)] text-[#04131a]' : 'text-[var(--sl-muted)] hover:bg-white/[0.05] hover:text-[var(--sl-text)]'}`}
-                      >
-                        {sizeLabel(allowedSize)}
-                      </button>
-                    ))}
-                  </div>
-                  <button type="button" onClick={onMoveEarlier} disabled={!canMoveEarlier} aria-label="Move widget earlier" title="Move widget earlier" className="sl-btn-ghost !px-2.5 !py-1.5 !text-[11px] disabled:opacity-40">
-                    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5.25l-6 6m6-6l6 6M12 5.25v13.5" />
-                    </svg>
-                  </button>
-                  <button type="button" onClick={onMoveLater} disabled={!canMoveLater} aria-label="Move widget later" title="Move widget later" className="sl-btn-ghost !px-2.5 !py-1.5 !text-[11px] disabled:opacity-40">
-                    <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75l6-6m-6 6l-6-6m6 6V5.25" />
-                    </svg>
-                  </button>
-                </div>
-              ) : headerMode === 'hidden' ? null : (
-                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
-                  {sizeLabel(size)}
-                </span>
-              )}
-            </div>
+    <section className={`sl-card dashboard-widget flex min-h-[210px] flex-col overflow-hidden ${toneClass}`}>
+      {headerMode !== 'hidden' && (
+        <div className={`border-b border-[var(--sl-border)] ${headerMode === 'standard' ? 'px-4 py-4 sm:px-5' : 'px-4 py-3 sm:px-5'} bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)]`}>
+          <div className="min-w-0">
+            {headerMode === 'standard' ? <p className="sl-section-label">Overview Widget</p> : null}
+            <h3 className={`${headerMode === 'compact' ? 'text-[14px]' : 'mt-1 text-[15px]'} font-semibold tracking-tight text-[var(--sl-text)]`}>{title}</h3>
+            <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{description}</p>
           </div>
-        )}
-
-        <div className={`flex min-h-0 flex-1 flex-col p-4 sm:p-5 ${contentClass}`}>
-          {children}
         </div>
-      </section>
-    </article>
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -632,16 +518,12 @@ function OverviewStatCard({
   label,
   tone,
   icon,
-  emphasis,
-  editing,
 }: {
   to: string;
   count: number;
   label: string;
   tone: 'indigo' | 'emerald' | 'violet' | 'cyan';
   icon: ReactNode;
-  emphasis: DashboardWidgetSize;
-  editing: boolean;
 }) {
   const toneClass = {
     indigo: 'bg-indigo-500/10 text-indigo-300',
@@ -650,33 +532,25 @@ function OverviewStatCard({
     cyan: 'bg-cyan-500/10 text-cyan-300',
   }[tone];
 
-  const metricClass = emphasis === 'medium'
-    ? 'text-[clamp(2.4rem,7vw,3.3rem)]'
-    : 'text-[clamp(1.95rem,7vw,2.7rem)]';
-
-  const content = (
-    <div className="flex h-full flex-col justify-between gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
-          <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>{icon}</svg>
+  return (
+    <Link to={to} className="block h-full">
+      <div className="flex h-full flex-col justify-between gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>{icon}</svg>
+          </div>
+          <span className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">
+            View
+          </span>
         </div>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">
-          {editing ? sizeLabel(emphasis) : 'Open'}
-        </span>
-      </div>
 
-      <div>
-        <p className={`${metricClass} font-bold leading-none tracking-[-0.05em] text-[var(--sl-text)]`}>{count}</p>
-        <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px]">{label}</p>
+        <div>
+          <p className="text-3xl font-bold leading-none tracking-[-0.05em] text-[var(--sl-text)]">{count}</p>
+          <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px]">{label}</p>
+        </div>
       </div>
-    </div>
+    </Link>
   );
-
-  if (editing) {
-    return <div className="h-full">{content}</div>;
-  }
-
-  return <Link to={to} className="block h-full">{content}</Link>;
 }
 
 function WidgetListStack({
@@ -876,28 +750,3 @@ function isDashboardWidgetSize(value: unknown): value is DashboardWidgetSize {
   return value === 'small' || value === 'medium' || value === 'wide' || value === 'large';
 }
 
-function getWidgetSpanClass(size: DashboardWidgetSize): string {
-  switch (size) {
-    case 'small':
-      return 'min-[620px]:col-span-1 xl:col-span-3';
-    case 'medium':
-      return 'min-[620px]:col-span-2 xl:col-span-4';
-    case 'wide':
-      return 'min-[620px]:col-span-2 xl:col-span-6';
-    case 'large':
-      return 'min-[620px]:col-span-2 xl:col-span-8';
-  }
-}
-
-function sizeLabel(size: DashboardWidgetSize): string {
-  switch (size) {
-    case 'small':
-      return 'S';
-    case 'medium':
-      return 'M';
-    case 'wide':
-      return 'L';
-    case 'large':
-      return 'XL';
-  }
-}

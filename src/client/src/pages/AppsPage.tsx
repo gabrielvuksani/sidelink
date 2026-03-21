@@ -5,7 +5,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
-import { PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading, SearchInput } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { IpaArtifact } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
@@ -127,8 +127,8 @@ export default function AppsPage() {
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Library"
-        title="A desktop IPA library built for fast installs"
-        description="Upload once, keep the metadata visible, and launch installs directly from the app shelf instead of digging through files every time."
+        title="IPA Library"
+        description="Upload, manage, and install apps from your local IPA collection."
         stats={[
           { label: 'Library Size', value: ipas.length, tone: 'teal' },
           { label: 'Upload State', value: uploading ? `${uploadPct}%` : 'Idle', tone: uploading ? 'amber' : 'slate' },
@@ -137,9 +137,8 @@ export default function AppsPage() {
       />
 
       <SectionHeading
-        eyebrow="Intake"
-        title="Upload or drop new IPA artifacts"
-        description="Drag-and-drop stays available, but the upload panel now reads like an ingestion workflow instead of a generic file field."
+        eyebrow="Upload"
+        title="Add new IPA"
       />
 
       {refreshing && !uploading && (
@@ -196,18 +195,14 @@ export default function AppsPage() {
         <div className="space-y-2 stagger-children">
           <SectionHeading
             eyebrow="Shelf"
-            title="Ready-to-install apps"
-            description="Hover actions remain quick, but the visual hierarchy now favors app identity, version, size, and extension readiness."
-            action={<button onClick={() => openInstall()} className="sl-btn-primary">Install App</button>}
+            title="Ready to install"
+            action={<button onClick={() => openInstall()} className="sl-btn-primary sl-btn-sm">Install App</button>}
           />
           {ipas.length > 3 && (
-            <input
-              type="text"
+            <SearchInput
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search IPAs by name, bundle ID, or version..."
-              className="sl-input !py-2.5 !text-[13px]"
-              aria-label="Search IPAs"
+              onChange={setSearchQuery}
+              placeholder="Search by name, bundle ID, or version..."
             />
           )}
           {filteredIpas.length === 0 && searchQuery ? (

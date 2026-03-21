@@ -16,6 +16,7 @@ import type {
   InstallJob,
   InstalledApp,
   LogEntry,
+  JobLogEntry,
   LogLevel,
   SourceManifest,
   UserSource,
@@ -23,7 +24,7 @@ import type {
 } from '../../shared/types';
 import type { EncryptionProvider } from '../types';
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 // Migration steps — each bumps the version by 1
 type Migration = { version: number; description: string; sql: string };
@@ -232,6 +233,23 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_bid_map_lookup ON bundle_id_mappings(account_id, team_id, original_bundle_id);
       ALTER TABLE jobs ADD COLUMN bundle_id_strategy TEXT NOT NULL DEFAULT 'deterministic';
       ALTER TABLE jobs ADD COLUMN custom_display_name TEXT;
+    `,
+  },
+  {
+    version: 11,
+    description: 'Persist per-job log history',
+    sql: `
+      CREATE TABLE IF NOT EXISTS job_logs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        step TEXT,
+        level TEXT NOT NULL,
+        message TEXT NOT NULL,
+        meta TEXT,
+        at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_job_logs_job_at ON job_logs(job_id, at DESC);
     `,
   },
 ];
@@ -851,6 +869,59 @@ export class Database {
       steps: row.steps_json ? JSON.parse(row.steps_json) : [],
       error: row.error, createdAt: row.created_at, updatedAt: row.updated_at,
     };
+  }
+
+  appendJobLog(entry: JobLogEntry, maxEntries = 300): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO job_logs (id, job_id, step, level, message, meta, at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entry.id,
+        entry.jobId,
+        entry.step ?? null,
+        entry.level,
+        entry.message,
+        entry.meta ? JSON.stringify(entry.meta) : null,
+        entry.at,
+      );
+
+      this.db.prepare(`
+        DELETE FROM job_logs
+        WHERE job_id = ?
+          AND id NOT IN (
+            SELECT id
+            FROM job_logs
+            WHERE job_id = ?
+            ORDER BY at DESC
+            LIMIT ?
+          )
+      `).run(entry.jobId, entry.jobId, maxEntries);
+    });
+
+    tx();
+  }
+
+  listJobLogs(jobId: string, limit = 300): JobLogEntry[] {
+    const rows = this.db.prepare(`
+      SELECT *
+      FROM job_logs
+      WHERE job_id = ?
+      ORDER BY at DESC
+      LIMIT ?
+    `).all(jobId, limit) as any[];
+
+    return rows
+      .reverse()
+      .map((row) => ({
+        id: row.id,
+        jobId: row.job_id,
+        step: row.step,
+        level: row.level as LogLevel,
+        message: row.message,
+        meta: row.meta ? JSON.parse(row.meta) : null,
+        at: row.at,
+      }));
   }
 
   // ─── Installed Apps ─────────────────────────────────────────────

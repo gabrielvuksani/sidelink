@@ -79,9 +79,10 @@ export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => 
           </div>
         </div>
 
-        <p className="mt-5 text-center text-[11px] text-[var(--sl-muted)]/50">
-          SideLink Desktop Control Surface
-        </p>
+        <div className="mt-6 text-center">
+          <p className="text-[11px] text-[var(--sl-muted)]/50">SideLink</p>
+          <p className="mt-0.5 text-[10px] text-[var(--sl-muted)]/30">iOS Sideloading Manager</p>
+        </div>
       </div>
     </div>
   );

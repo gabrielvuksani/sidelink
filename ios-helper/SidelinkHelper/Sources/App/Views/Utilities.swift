@@ -55,7 +55,11 @@ enum SidelinkFormatting {
 enum SidelinkNetworkUtil {
     static func isLocalHost(_ host: String) -> Bool {
         let lower = host.lowercased()
-        if lower == "localhost" || lower.hasSuffix(".local") {
+        if lower == "localhost" || lower.hasSuffix(".local") || lower == "::1" {
+            return true
+        }
+
+        if lower.hasPrefix("fe80:") || lower.hasPrefix("fc") || lower.hasPrefix("fd") {
             return true
         }
 

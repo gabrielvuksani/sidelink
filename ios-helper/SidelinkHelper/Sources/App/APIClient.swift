@@ -883,6 +883,32 @@ struct APIClient {
         return try decodeEnvelope(AccountDTO.self, from: data)
     }
 
+    func requestAppleSMS(baseURL: String, token: String, appleId: String, phoneId: Int) async throws {
+        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apple", "2fa", "sms"]) else {
+            throw HelperAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.httpBody = try JSONEncoder().encode([
+            "appleId": appleId,
+            "phoneId": String(phoneId),
+        ])
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw HelperAPIError.server("Invalid response")
+        }
+        if http.statusCode == 401 {
+            throw HelperAPIError.unauthorized
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "SMS request failed")
+        }
+    }
+
     func reauthenticateAppleAccount(baseURL: String, token: String, accountId: String) async throws -> HelperAppleAuthPayloadDTO {
         guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apple", "accounts", accountId, "reauth"]) else {
             throw HelperAPIError.invalidURL

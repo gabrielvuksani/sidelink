@@ -25,6 +25,7 @@ export interface SidelinkElectronAPI {
   getPlatform(): Promise<string>;
   isPackaged(): Promise<boolean>;
   getDataDir(): Promise<string>;
+  markRendererReady(): void;
   quit(): void;
   relaunch(): void;
   resetFresh(): Promise<void>;
@@ -41,6 +42,7 @@ export interface SidelinkElectronAPI {
   checkForUpdates(): Promise<void>;
   downloadUpdate(): Promise<void>;
   installUpdate(): void;
+  getUpdaterState(): Promise<UpdaterEvent>;
   onUpdaterEvent(callback: (event: UpdaterEvent) => void): () => void;
 
   // Native dialogs

@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import type { AppContext } from '../context';
-import { getJob, getJobLogs, listJobs, submitJobTwoFA } from '../pipeline';
+import { getJob, listJobs, submitJobTwoFA } from '../pipeline';
 import { validators } from '../utils/validators';
 import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
 import { notifyInstalledAppsChanged } from '../services/installed-app-events';
@@ -68,7 +68,7 @@ export function installRoutes(ctx: AppContext): Router {
   router.get('/jobs/:id/logs', (req, res) => {
     const job = getJob(ctx.db, req.params.id);
     if (!job) return res.status(404).json({ ok: false, error: 'Job not found' });
-    res.json({ ok: true, data: getJobLogs(job.id) });
+    res.json({ ok: true, data: ctx.db.listJobLogs(job.id) });
   });
 
   // Submit 2FA code for a waiting job

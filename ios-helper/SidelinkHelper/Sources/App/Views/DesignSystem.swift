@@ -12,6 +12,12 @@ extension Color {
     static let slDanger = Color(red: 0.82, green: 0.19, blue: 0.24)
     static let slMuted = Color.secondary
 
+    // MARK: Semantic Status Colors
+    static let slStatusSuccess = Color(red: 0.13, green: 0.68, blue: 0.38)
+    static let slStatusWarning = Color(red: 0.95, green: 0.62, blue: 0.07)
+    static let slStatusError = Color(red: 0.86, green: 0.21, blue: 0.27)
+    static let slStatusInfo = Color(red: 0.20, green: 0.52, blue: 0.89)
+
     /// Initialize a Color from a hex string like "#6366f1" or "6366f1"
     init?(hex: String?) {
         guard let hex = hex else { return nil }
@@ -312,9 +318,27 @@ struct SidelinkCardStyle: ViewModifier {
         content
             .padding()
             .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(uiColor: colorScheme == .dark ? UIColor.systemGray6 : UIColor.systemBackground))
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.3 : 0.08), radius: 8, y: 2)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: colorScheme == .dark
+                                ? [Color.white.opacity(0.08), Color.white.opacity(0.04)]
+                                : [Color.white.opacity(0.95), Color(red: 0.96, green: 0.97, blue: 0.99)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(
+                                colorScheme == .dark
+                                    ? Color.white.opacity(0.10)
+                                    : Color.black.opacity(0.06),
+                                lineWidth: 0.5
+                            )
+                    }
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.06), radius: 12, y: 4)
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.15 : 0.03), radius: 2, y: 1)
             }
     }
 }
@@ -419,9 +443,31 @@ struct GlassmorphismCard: ViewModifier {
         content
             .padding()
             .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.72))
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.1), radius: 12, y: 4)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: colorScheme == .dark
+                                ? [Color.white.opacity(0.09), Color.white.opacity(0.04)]
+                                : [Color.white.opacity(0.82), Color.white.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(
+                                LinearGradient(
+                                    colors: colorScheme == .dark
+                                        ? [Color.white.opacity(0.14), Color.white.opacity(0.05)]
+                                        : [Color.white.opacity(0.65), Color.white.opacity(0.25)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.5
+                            )
+                    }
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.40 : 0.08), radius: 16, y: 6)
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.15 : 0.03), radius: 2, y: 1)
             }
     }
 }
@@ -566,21 +612,34 @@ struct LinearGaugeBar: View {
 }
 
 // MARK: - Haptic Helpers
-enum SidelinkHaptics {
+struct Haptics {
     static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
+    static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        UINotificationFeedbackGenerator().notificationOccurred(type)
+    }
+    static func selection() {
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
+
+/// Legacy alias kept for backward-compatibility with existing call-sites.
+enum SidelinkHaptics {
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        Haptics.impact(style)
+    }
 
     static func success() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Haptics.notification(.success)
     }
 
     static func error() {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        Haptics.notification(.error)
     }
 
     static func selection() {
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 }
 
@@ -650,5 +709,109 @@ struct SidelinkAsyncImage: View {
                 Image(systemName: "app.fill")
                     .foregroundStyle(.secondary)
             }
+    }
+}
+
+// MARK: - Pulsing Loading Indicator
+struct PulsingLoadingView: View {
+    var tint: Color = .slAccent
+    var size: CGFloat = 48
+    var label: String? = nil
+
+    @State private var isAnimating = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                // Outer pulsing ring
+                Circle()
+                    .stroke(tint.opacity(0.25), lineWidth: 3)
+                    .frame(width: size, height: size)
+                    .scaleEffect(isAnimating ? 1.35 : 1.0)
+                    .opacity(isAnimating ? 0.0 : 0.6)
+
+                // Middle pulsing ring
+                Circle()
+                    .stroke(tint.opacity(0.35), lineWidth: 2.5)
+                    .frame(width: size * 0.72, height: size * 0.72)
+                    .scaleEffect(isAnimating ? 1.25 : 1.0)
+                    .opacity(isAnimating ? 0.0 : 0.7)
+
+                // Inner solid circle
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [tint.opacity(0.9), tint.opacity(0.5)],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: size * 0.25
+                        )
+                    )
+                    .frame(width: size * 0.4, height: size * 0.4)
+                    .scaleEffect(isAnimating ? 1.1 : 0.9)
+            }
+
+            if let label {
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
+    }
+}
+
+// MARK: - Empty State View
+struct EmptyStateView: View {
+    let icon: String
+    let title: String
+    let description: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    var tint: Color = .slAccent
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(colorScheme == .dark ? 0.15 : 0.10))
+                    .frame(width: 80, height: 80)
+                Image(systemName: icon)
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity)
     }
 }

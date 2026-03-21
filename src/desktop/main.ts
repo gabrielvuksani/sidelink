@@ -9,8 +9,10 @@ import { AddressInfo } from 'node:net';
 import { Server } from 'node:http';
 import os from 'node:os';
 import { app, BrowserWindow, dialog, session } from 'electron';
+import { ipcMain } from 'electron';
 
 import { IPC } from './ipc-channels';
+import type { InstallJob } from '../shared/types';
 
 import { registerIpcHandlers } from './ipc-handlers';
 import { setupAutoUpdater } from './auto-updater';
@@ -33,6 +35,9 @@ let mainWindow: BrowserWindow | undefined;
 let backendUrl: string | undefined;
 let trayUpdateTimer: ReturnType<typeof setInterval> | undefined;
 let stopDiscoveryBroadcast: (() => void) | undefined;
+let rendererReady = false;
+let pendingDeepLinks: Array<{ action: string; params: Record<string, string> }> = [];
+let ensureWindowPromise: Promise<BrowserWindow | undefined> | null = null;
 
 // ── Utility ──────────────────────────────────────────────────────────
 
@@ -100,40 +105,46 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    // Someone tried to open a second instance — focus existing window
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
     // Handle deep link from argv on Windows/Linux
     const deepLink = argv.find(arg => arg.startsWith(`${PROTOCOL}://`));
-    if (deepLink) handleDeepLink(deepLink);
+    if (deepLink) {
+      handleDeepLink(deepLink);
+    } else {
+      void ensureMainWindow();
+    }
   });
 }
 
 // macOS: handle deep link when app is already running
 app.on('open-url', (_event, url) => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
   handleDeepLink(url);
 });
 
 function handleDeepLink(url: string): void {
-  // Parse sidelink:// URLs and navigate the renderer
-  // e.g., sidelink://install?ipa=https://...
-  if (!mainWindow) return;
   try {
     const parsed = new URL(url);
-    // Send to renderer via query params on the current page
-    mainWindow.webContents.send(IPC.DEEP_LINK, {
+    enqueueDeepLink({
       action: parsed.hostname || parsed.pathname.replace(/^\//, ''),
       params: Object.fromEntries(parsed.searchParams),
     });
+    void ensureMainWindow();
   } catch {
     // Invalid URL, ignore
   }
+}
+
+function enqueueDeepLink(payload: { action: string; params: Record<string, string> }): void {
+  pendingDeepLinks.push(payload);
+  flushPendingDeepLinks();
+}
+
+function flushPendingDeepLinks(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererReady) return;
+
+  for (const payload of pendingDeepLinks) {
+    mainWindow.webContents.send(IPC.DEEP_LINK, payload);
+  }
+  pendingDeepLinks = [];
 }
 
 // ── Backend Startup ──────────────────────────────────────────────────
@@ -194,7 +205,13 @@ async function startBackend(): Promise<string> {
         reject(new Error('Failed to bind TCP address.'));
         return;
       }
-      resolve(`http://${HOST}:${(addr as AddressInfo).port}`);
+      const listeningPort = (addr as AddressInfo).port;
+      const rendererHost = HOST === '0.0.0.0'
+        ? '127.0.0.1'
+        : HOST === '::'
+          ? '[::1]'
+          : HOST;
+      resolve(`http://${rendererHost}:${listeningPort}`);
     });
     server?.on('error', reject);
   });
@@ -220,11 +237,13 @@ function startTrayPolling(baseUrl: string, authToken: string): void {
     try {
       const [devRes, jobRes] = await Promise.all([
         fetch(`${baseUrl}/api/devices`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
-        fetch(`${baseUrl}/api/install/jobs?status=running`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
+        fetch(`${baseUrl}/api/install/jobs`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
       ]);
       const deviceCount = Array.isArray(devRes.data) ? devRes.data.length : 0;
-      const jobsRunning = Array.isArray(jobRes.data) ? jobRes.data.length : 0;
-      updateTrayMenu({ deviceCount, jobsRunning });
+      const jobs: InstallJob[] = Array.isArray(jobRes.data) ? jobRes.data : [];
+      const jobsRunning = jobs.filter((job) => job?.status === 'running').length;
+      const jobsWaiting2FA = jobs.filter((job) => job?.status === 'waiting_2fa').length;
+      updateTrayMenu({ deviceCount, jobsRunning, jobsWaiting2FA });
     } catch (err) {
       // Non-critical: tray just shows stale data
       console.warn('[tray] Polling failed:', err);
@@ -246,6 +265,7 @@ function stopTrayPolling(): void {
 // ── Window Creation ──────────────────────────────────────────────────
 
 function buildWindow(): BrowserWindow {
+  rendererReady = false;
   const savedState = loadWindowState();
   const win = new BrowserWindow({
     ...(savedState.x !== undefined ? { x: savedState.x, y: savedState.y } : {}),
@@ -268,7 +288,10 @@ function buildWindow(): BrowserWindow {
   if (savedState.isMaximized) win.maximize();
   trackWindowState(win);
   win.once('ready-to-show', () => win.show());
-  win.on('closed', () => { mainWindow = undefined; });
+  win.on('closed', () => {
+    mainWindow = undefined;
+    rendererReady = false;
+  });
   return win;
 }
 
@@ -286,6 +309,44 @@ function createWindowFromExistingBackend(): void {
   if (!backendUrl) return;
   mainWindow = buildWindow();
   void mainWindow.loadURL(backendUrl);
+}
+
+async function ensureMainWindow(): Promise<BrowserWindow | undefined> {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return mainWindow;
+  }
+
+  if (ensureWindowPromise) {
+    return ensureWindowPromise;
+  }
+
+  ensureWindowPromise = (async () => {
+    if (server) {
+      createWindowFromExistingBackend();
+    } else {
+      await createWindow();
+    }
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    return mainWindow;
+  })();
+
+  try {
+    return await ensureWindowPromise;
+  } finally {
+    ensureWindowPromise = null;
+  }
+}
+
+function navigateToAction(action: string): void {
+  enqueueDeepLink({ action, params: {} });
+  void ensureMainWindow();
 }
 
 // ── Backend Shutdown ─────────────────────────────────────────────────
@@ -358,15 +419,26 @@ app.whenReady().then(async () => {
 
   // Register IPC handlers before creating any windows
   registerIpcHandlers();
+  ipcMain.on(IPC.APP_RENDERER_READY, (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) return;
+    rendererReady = true;
+    flushPendingDeepLinks();
+  });
 
   // Set up native menu
-  createAppMenu();
+  createAppMenu({
+    showWindow: () => { void ensureMainWindow(); },
+    navigate: (action) => navigateToAction(action),
+  });
 
   // Set up auto-updater
   setupAutoUpdater();
 
   // Create tray icon
-  createTray();
+  createTray({
+    showWindow: () => { void ensureMainWindow(); },
+    navigate: (action) => navigateToAction(action),
+  });
 
   // Create the main window
   void createWindow().catch(async (err) => {
@@ -379,14 +451,7 @@ app.whenReady().then(async () => {
   });
 
   app.on('activate', () => {
-    // macOS: re-open window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0 && !mainWindow) {
-      if (server) {
-        createWindowFromExistingBackend();
-      } else {
-        void createWindow();
-      }
-    }
+    void ensureMainWindow();
   });
 });
 

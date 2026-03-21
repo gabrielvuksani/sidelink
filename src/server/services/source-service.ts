@@ -2,6 +2,8 @@ import { v4 as uuid } from 'uuid';
 import type { SourceApp, SourceManifest, UserSource, UserSourceWithManifest } from '../../shared/types';
 import type { Database } from '../state/database';
 import { AppError } from '../utils/errors';
+import { fetchJsonWithLimit } from '../utils/fetch';
+import { isLocalNetworkHost } from '../utils/network';
 
 const OFFICIAL_SOURCE_URL = 'https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json';
 
@@ -168,24 +170,16 @@ export class SourceService {
   }
 
   private async fetchManifest(url: string): Promise<SourceManifest> {
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch {
-      throw new AppError('SOURCE_UNREACHABLE', 'Unable to reach source URL', 400);
-    }
-
-    if (!response.ok) {
-      throw new AppError('SOURCE_HTTP_ERROR', `Source responded with HTTP ${response.status}`, 400);
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new AppError('SOURCE_INVALID_JSON', 'Source did not return valid JSON', 400);
-    }
-
+    const payload = await fetchJsonWithLimit<unknown>(url, {
+      contextLabel: 'Source manifest',
+      timeoutMs: 20_000,
+      maxBytes: 2 * 1024 * 1024,
+      errorStatusCode: 400,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'SideLink/desktop-source-fetch',
+      },
+    });
     return validateManifestShape(payload);
   }
 }
@@ -200,6 +194,10 @@ function normalizeSourceUrl(url: string): string {
 
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new AppError('SOURCE_INVALID_PROTOCOL', 'Only http/https source URLs are supported', 400);
+  }
+
+  if (parsed.protocol === 'http:' && !isLocalNetworkHost(parsed.hostname)) {
+    throw new AppError('SOURCE_HTTP_NONLOCAL', 'HTTP sources are only allowed for local-network hosts', 400);
   }
 
   return parsed.toString();

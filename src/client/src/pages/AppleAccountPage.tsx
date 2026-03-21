@@ -10,7 +10,7 @@ import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
-import { StatusBadge, PageHeader, PageLoader, EmptyState, SectionHeading } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, EmptyState, SectionHeading, ExpiryBadge } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { AppleAccount, DashboardState } from '../../../shared/types';
 
@@ -95,8 +95,8 @@ export default function AppleAccountPage() {
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Signing Identity"
-        title="Apple accounts now read like a controlled signing roster"
-        description="Active, expiring, and re-auth pending accounts are separated visually so production signing decisions are obvious before you start an install."
+        title="Apple Accounts"
+        description="Manage signing accounts, certificates, and App ID usage."
         actions={(
           <button onClick={() => setShowSignIn(true)} className="sl-btn-primary flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
@@ -199,9 +199,10 @@ export default function AppleAccountPage() {
                             {!isRevoked && !isExpired && !isExpiring && <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">Active</span>}
                           </div>
                           <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">Serial: {certificate.serialNumber}</p>
-                          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
-                            {isExpired ? 'Expired' : `${daysLeft}d remaining`} · Expires {expiresAt.toLocaleDateString()}
-                          </p>
+                          <div className="mt-1 flex items-center gap-2">
+                            <ExpiryBadge expiresAt={certificate.expiresAt} />
+                            <span className="text-[11px] text-[var(--sl-muted)]">· {expiresAt.toLocaleDateString()}</span>
+                          </div>
                           <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{certificate.accountAppleId ?? certificate.teamName ?? certificate.teamId}</p>
                           {!isRevoked && !isExpired && (
                             <div className="mt-2 h-1 w-full max-w-[200px] overflow-hidden rounded-full bg-[var(--sl-bg)]">

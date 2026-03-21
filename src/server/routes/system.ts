@@ -9,7 +9,6 @@
 
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
@@ -20,10 +19,11 @@ import { validators } from '../utils/validators';
 import { commandExists, runCommandStrict } from '../utils/command';
 import { getHelperIpaPath } from '../utils/paths';
 import { diagnoseAppleRuntime } from '../apple/runtime-diagnostics';
-import { createPairingCode } from '../services/helper-pairing-service';
+import { createPairingCode, getHelperPairingState } from '../services/helper-pairing-service';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
 import { onInstalledAppsChanged } from '../services/installed-app-events';
-import { triggerRefreshAllActiveApps } from '../services/shared-backend';
+import { listSafeAppleAccounts, triggerRefreshAllActiveApps } from '../services/shared-backend';
+import { resolveHelperBackendContext } from '../utils/network';
 
 type TeamResolutionSource =
   | 'request'
@@ -167,49 +167,44 @@ export function systemRoutes(ctx: AppContext): Router {
   });
 
   router.get('/helper/doctor', async (req, res) => {
-    const helperIpaPath = getHelperIpaPath();
-    const helperProjectDir = process.env.SIDELINK_HELPER_PROJECT_DIR
-      ? path.resolve(process.env.SIDELINK_HELPER_PROJECT_DIR)
-      : path.join(process.cwd(), 'ios-helper', 'SidelinkHelper');
-    const xcodeProjectPath = path.join(helperProjectDir, 'SidelinkHelper.xcodeproj');
-    const projectYmlPath = path.join(helperProjectDir, 'project.yml');
-
-    const hasXcodebuild = process.platform === 'darwin' ? await commandExists('xcodebuild') : false;
-    const hasXcodegen = process.platform === 'darwin' ? await commandExists('xcodegen') : false;
-    const resolvedTeam = await resolveHelperTeamId(ctx);
-    const appleRuntime = await diagnoseAppleRuntime();
-
-    res.json({
-      ok: true,
-      data: {
-        platform: process.platform,
-        helperIpaPath,
-        helperIpaExists: fs.existsSync(helperIpaPath),
-        helperProjectDir,
-        xcodeProjectExists: fs.existsSync(xcodeProjectPath),
-        projectYmlExists: fs.existsSync(projectYmlPath),
-        hasXcodebuild,
-        hasXcodegen,
-        appleAuthReady: appleRuntime.ready,
-        appleAuthError: appleRuntime.error ?? null,
-        appleRuntime,
-        detectedTeamId: resolvedTeam.teamId,
-        detectedTeamIdSource: resolvedTeam.source,
-        helperPaired: !!ctx.db.getSetting('helper_token'),
-      },
-    });
+    res.json({ ok: true, data: await buildHelperDoctorSnapshot(ctx) });
   });
 
   router.post('/helper/pairing-code', (req, res) => {
     const pair = createPairingCode(ctx);
+    const serverName = process.env.SIDELINK_SERVER_NAME ?? 'SideLink';
+    const serverVersion = process.env.npm_package_version ?? '1.0.0';
+    const envOverride = process.env.SIDELINK_HELPER_BACKEND_URL?.trim();
+    const backend = envOverride
+      ? {
+          backendUrl: envOverride,
+          apiBasePath: (() => {
+            try {
+              const url = new URL(envOverride);
+              const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '');
+              return pathname || '';
+            } catch {
+              return '';
+            }
+          })(),
+          candidateAddresses: [] as string[],
+        }
+      : resolveHelperBackendContext(req, '/api/system/helper/pairing-code');
     res.json({
       ok: true,
       data: {
         ...pair,
+        backendUrl: backend.backendUrl,
+        apiBasePath: backend.apiBasePath || null,
+        candidateAddresses: backend.candidateAddresses,
+        serverName,
+        serverVersion,
         qrPayload: JSON.stringify({
           code: pair.code,
-          backendUrl: resolveHelperBackendURL(req),
-          serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
+          backendUrl: backend.backendUrl,
+          apiBasePath: backend.apiBasePath || null,
+          serverName,
+          serverVersion,
         }),
       },
     });
@@ -218,62 +213,67 @@ export function systemRoutes(ctx: AppContext): Router {
   router.post('/helper/ensure', ensureHelperIpa);
   router.post('/helper/ensure-ipa', ensureHelperIpa);
 
+  router.get('/desktop-health', async (_req, res) => {
+    const runtime = {
+      status: 'ok',
+      uptime: process.uptime(),
+      version: process.env.npm_package_version ?? '1.0.0',
+      setupComplete: ctx.auth.isSetupComplete(),
+    };
+    const doctor = await buildHelperDoctorSnapshot(ctx);
+    const pairing = getHelperPairingState(ctx);
+    const accounts = ctx.appleAccounts.list();
+    const devices = ctx.devices.list();
+    const jobs = ctx.db.listJobs(undefined, 200);
+    const scheduler = ctx.scheduler.getSnapshot();
+
+    const activeAccounts = accounts.filter((account) => account.status === 'active').length;
+    const accountsNeedingAttention = accounts.filter((account) => account.status !== 'active').length;
+    const waitingFor2FA = jobs.filter((job) => job.status === 'waiting_2fa').length;
+    const runningJobs = jobs.filter((job) => job.status === 'running').length;
+    const recentFailures = jobs.filter((job) => job.status === 'failed').length;
+
+    const issues: string[] = [];
+    if (!doctor.helperIpaExists) issues.push('Helper IPA is missing from the current runtime.');
+    if (doctor.appleAuthReady === false) issues.push(doctor.appleAuthError ?? 'Apple auth runtime is not healthy.');
+    if (!pairing.paired) issues.push('The iPhone helper is not paired.');
+    if (activeAccounts === 0) issues.push('No active Apple ID is ready for signing.');
+    if (devices.length === 0) issues.push('No iOS devices are currently connected.');
+    if (waitingFor2FA > 0) issues.push(`${waitingFor2FA} install job${waitingFor2FA === 1 ? ' is' : 's are'} waiting for 2FA.`);
+
+    res.json({
+      ok: true,
+      data: {
+        runtime,
+        helper: {
+          doctor,
+          pairing,
+        },
+        accounts: {
+          total: accounts.length,
+          active: activeAccounts,
+          needsAttention: accountsNeedingAttention,
+        },
+        devices: {
+          total: devices.length,
+          online: devices.filter((device) => device.connection === 'online').length,
+          paired: devices.filter((device) => device.paired).length,
+        },
+        installs: {
+          running: runningJobs,
+          waitingFor2FA,
+          recentFailures,
+        },
+        scheduler,
+        readiness: {
+          overall: issues.length === 0,
+          issues,
+        },
+      },
+    });
+  });
+
   return router;
-}
-
-function resolveHelperBackendURL(req: Request): string {
-  const envOverride = process.env.SIDELINK_HELPER_BACKEND_URL?.trim();
-  if (envOverride) {
-    return envOverride;
-  }
-
-  const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim();
-  const protocol = forwardedProto || req.protocol || 'http';
-  const forwardedHost = (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim();
-  const hostHeader = forwardedHost || req.get('host') || `localhost:${process.env.SIDELINK_PORT ?? '4010'}`;
-
-  const [rawHost, rawPort] = splitHostPort(hostHeader);
-  const port = rawPort || process.env.SIDELINK_PORT || '4010';
-  const host = normalizeQrHost(rawHost);
-
-  return `${protocol}://${host}:${port}`;
-}
-
-function splitHostPort(hostHeader: string): [string, string | null] {
-  const trimmed = hostHeader.trim();
-  if (trimmed.startsWith('[')) {
-    const closing = trimmed.indexOf(']');
-    if (closing >= 0) {
-      const host = trimmed.slice(1, closing);
-      const port = trimmed.slice(closing + 1).replace(/^:/, '') || null;
-      return [host, port];
-    }
-  }
-
-  const parts = trimmed.split(':');
-  if (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1] ?? '')) {
-    return [parts.slice(0, -1).join(':'), parts[parts.length - 1] ?? null];
-  }
-
-  return [trimmed, null];
-}
-
-function normalizeQrHost(host: string): string {
-  const trimmed = host.trim().toLowerCase();
-  if (trimmed && trimmed !== 'localhost' && !trimmed.startsWith('127.') && trimmed !== '::1') {
-    return host;
-  }
-
-  const candidates = Object.values(os.networkInterfaces())
-    .flatMap(entries => entries ?? [])
-    .filter(entry => !entry.internal)
-    .map(entry => entry.address);
-
-  const preferred = candidates.find(address => address.includes('.'))
-    ?? candidates[0]
-    ?? 'localhost';
-
-  return preferred.includes(':') ? `[${preferred}]` : preferred;
 }
 
 async function importHelperIpaIntoLibrary(ctx: AppContext, helperIpaPath: string) {
@@ -520,6 +520,42 @@ function buildCommandEnv(overrides?: Record<string, string>): Record<string, str
   return base;
 }
 
+async function buildHelperDoctorSnapshot(ctx: AppContext) {
+  const helperIpaPath = getHelperIpaPath();
+  const helperProjectDir = process.env.SIDELINK_HELPER_PROJECT_DIR
+    ? path.resolve(process.env.SIDELINK_HELPER_PROJECT_DIR)
+    : path.join(process.cwd(), 'ios-helper', 'SidelinkHelper');
+  const xcodeProjectPath = path.join(helperProjectDir, 'SidelinkHelper.xcodeproj');
+  const projectYmlPath = path.join(helperProjectDir, 'project.yml');
+
+  const hasXcodebuild = process.platform === 'darwin' ? await commandExists('xcodebuild') : false;
+  const hasXcodegen = process.platform === 'darwin' ? await commandExists('xcodegen') : false;
+  const resolvedTeam = await resolveHelperTeamId(ctx);
+  const appleRuntime = await diagnoseAppleRuntime();
+  const pairing = getHelperPairingState(ctx);
+
+  return {
+    platform: process.platform,
+    helperIpaPath,
+    helperIpaExists: fs.existsSync(helperIpaPath),
+    helperProjectDir,
+    xcodeProjectExists: fs.existsSync(xcodeProjectPath),
+    projectYmlExists: fs.existsSync(projectYmlPath),
+    hasXcodebuild,
+    hasXcodegen,
+    appleAuthReady: appleRuntime.ready,
+    appleAuthError: appleRuntime.error ?? null,
+    appleRuntime,
+    helperPaired: pairing.paired,
+    helperTokenSource: pairing.tokenSource,
+    helperPairedAt: pairing.pairedAt,
+    pairingCodeExpiresAt: pairing.pairingCodeExpiresAt,
+    pairingCodeActive: pairing.pairingCodeActive,
+    detectedTeamId: resolvedTeam.teamId,
+    detectedTeamIdSource: resolvedTeam.source,
+  };
+}
+
 // ─── SSE Event Stream ────────────────────────────────────────────────
 
 const activeSSEResponses = new Set<import('express').Response>();
@@ -577,7 +613,12 @@ export function sseRoutes(ctx: AppContext): Router {
       send('app-update', apps);
     });
 
+    const unsubAccounts = ctx.appleAccounts.onChange(() => {
+      send('account-update', listSafeAppleAccounts(ctx));
+    });
+
     send('app-update', ctx.db.listInstalledApps());
+    send('account-update', listSafeAppleAccounts(ctx));
     send('scheduler-update', ctx.scheduler.getSnapshot());
 
     // Log updates (real-time streaming)
@@ -597,6 +638,7 @@ export function sseRoutes(ctx: AppContext): Router {
       unsubDevices();
       unsubScheduler();
       unsubInstalledApps();
+      unsubAccounts();
       unsubLogs();
       clearInterval(keepalive);
       activeSSEResponses.delete(res);

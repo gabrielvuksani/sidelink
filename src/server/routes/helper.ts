@@ -10,23 +10,20 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import multer from 'multer';
 import type { AppContext } from '../context';
-import { getHelperToken } from '../services/helper-pairing-service';
-import { getJobLogs, onPipelineJobLog, onPipelineUpdate, startInstallPipeline, submitJobTwoFA } from '../pipeline';
+import { getHelperPairingState, getHelperToken } from '../services/helper-pairing-service';
+import { onPipelineJobLog, onPipelineUpdate, startInstallPipeline, submitJobTwoFA } from '../pipeline';
 import { FREE_ACCOUNT_LIMITS, UI_LIMITS } from '../../shared/constants';
 import { Apple2FARequiredError } from '../utils/errors';
 import { validators } from '../utils/validators';
 import {
   deactivateInstalledApp,
   deleteAppleAppId,
+  listSafeAppleAccounts,
   listAppleAppIdUsage,
   listAppleCertificates,
   listDeviceAppInventory,
-  listSafeAppleAccounts,
   listTrustedSources,
   reactivateInstalledApp,
   syncAndListAppleAppIds,
@@ -34,7 +31,10 @@ import {
   toSafeAppleAccount,
   triggerRefreshAllActiveApps,
 } from '../services/shared-backend';
-import { onInstalledAppsChanged } from '../services/installed-app-events';
+import { notifyInstalledAppsChanged, onInstalledAppsChanged } from '../services/installed-app-events';
+import { getHelperIpaPath } from '../utils/paths';
+import { downloadToFileWithLimit } from '../utils/fetch';
+import { isLocalNetworkHost } from '../utils/network';
 
 export function helperRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -73,8 +73,11 @@ export function helperRoutes(ctx: AppContext): Router {
   });
 
   // ── GET /status ─────────────────────────────────────────────────
-  router.get('/status', (req, res) => {
+  router.get('/status', async (req, res) => {
     const deviceId = req.query.deviceId as string | undefined;
+    const schedulerState = ctx.scheduler.getSnapshot();
+    const autoRefreshStates = ctx.scheduler.getAutoRefreshStates();
+    const autoRefreshByInstallId = new Map(autoRefreshStates.map((state) => [state.installedAppId, state]));
 
     // Installed apps — optionally filtered by device
     const allInstalls = deviceId
@@ -93,14 +96,19 @@ export function helperRoutes(ctx: AppContext): Router {
       autoRefresh: {
         nextAttemptAt: '',
         retryCount: 0,
-        lastFailureReason: null,
-        lastSuccessAt: app.lastRefreshAt ?? null,
+        lastFailureReason: autoRefreshByInstallId.get(app.id)?.lastError ?? null,
+        lastSuccessAt: autoRefreshByInstallId.get(app.id)?.lastRefreshAt ?? app.lastRefreshAt ?? null,
       },
     }));
 
     const devices = ctx.devices.list().map(serializeHelperDevice);
-
-    const schedulerState = ctx.scheduler.getSnapshot();
+    let helperIpaAvailable = false;
+    try {
+      await fs.access(getHelperIpaPath());
+      helperIpaAvailable = true;
+    } catch {
+      helperIpaAvailable = false;
+    }
 
     res.json({
       ok: true,
@@ -109,13 +117,13 @@ export function helperRoutes(ctx: AppContext): Router {
       scheduler: {
         running: schedulerState.running,
         simulatedNow: new Date().toISOString(),
-        autoRefreshThresholdHours: 24,
+        autoRefreshThresholdHours: Math.max(1, Math.round(schedulerState.refreshThresholdMs / (60 * 60 * 1000))),
       },
       installs,
       devices,
       helperArtifact: {
-        available: true,
-        message: null,
+        available: helperIpaAvailable,
+        message: helperIpaAvailable ? null : 'Helper IPA is missing from the current desktop runtime.',
       },
     });
   });
@@ -221,6 +229,7 @@ export function helperRoutes(ctx: AppContext): Router {
           data: {
             requires2FA: true,
             authType: err.authType,
+            trustedPhoneNumbers: err.trustedPhoneNumbers,
           },
         });
       }
@@ -230,14 +239,25 @@ export function helperRoutes(ctx: AppContext): Router {
 
   router.post('/apple/2fa', validators.apple2FA, async (req, res, next) => {
     try {
-      const { appleId, password, code, method } = req.body;
+      const { appleId, password, code, method, phoneId } = req.body;
       const account = await ctx.appleAccounts.submit2FA({
         appleId,
         password,
         code,
         method: method ?? 'totp',
+        phoneId: typeof phoneId === 'number' ? phoneId : undefined,
       });
       res.json({ ok: true, data: toSafeAppleAccount(account) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/apple/2fa/sms', validators.appleSMS, async (req, res, next) => {
+    try {
+      const { appleId, phoneId } = req.body;
+      await ctx.appleAccounts.requestSMS(appleId, phoneId);
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }
@@ -254,6 +274,7 @@ export function helperRoutes(ctx: AppContext): Router {
           data: {
             requires2FA: true,
             authType: err.authType,
+            trustedPhoneNumbers: err.trustedPhoneNumbers,
           },
         });
       }
@@ -300,7 +321,7 @@ export function helperRoutes(ctx: AppContext): Router {
     if (!job) {
       return res.status(404).json({ ok: false, error: 'Install job not found' });
     }
-    res.json({ ok: true, data: getJobLogs(job.id) });
+    res.json({ ok: true, data: ctx.db.listJobLogs(job.id) });
   });
 
   router.get('/apps', (req, res) => {
@@ -344,6 +365,7 @@ export function helperRoutes(ctx: AppContext): Router {
       return res.status(404).json({ ok: false, error: 'Installed app not found' });
     }
     ctx.db.deleteInstalledApp(req.params.id);
+    notifyInstalledAppsChanged(ctx.db.listInstalledApps());
     res.json({ ok: true });
   });
 
@@ -384,19 +406,23 @@ export function helperRoutes(ctx: AppContext): Router {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       return res.status(400).json({ ok: false, error: 'Only http/https URLs are supported' });
     }
+    if (parsed.protocol === 'http:' && !isLocalNetworkHost(parsed.hostname)) {
+      return res.status(400).json({ ok: false, error: 'HTTP IPA imports are only allowed for local-network hosts' });
+    }
 
     const filePath = path.join(ctx.uploadDir, `helper-import-${Date.now()}.ipa`);
 
     try {
-      const upstream = await fetch(parsed.href);
-      if (!upstream.ok || !upstream.body) {
-        return res.status(400).json({ ok: false, error: `Failed to download IPA (${upstream.status})` });
-      }
-
-      await pipeline(Readable.fromWeb(upstream.body as any), createWriteStream(filePath));
+      await downloadToFileWithLimit(parsed.href, filePath, {
+        contextLabel: 'IPA download',
+        timeoutMs: 120_000,
+        maxBytes: UI_LIMITS.maxIpaFileSizeBytes,
+        errorStatusCode: 400,
+      });
       const imported = await ctx.ipas.processUpload(filePath, path.basename(parsed.pathname || 'Imported.ipa'));
       res.json({ ok: true, data: imported });
     } catch (err) {
+      await fs.unlink(filePath).catch(() => {});
       next(err);
     }
   });
@@ -419,16 +445,15 @@ export function helperRoutes(ctx: AppContext): Router {
 
   router.post('/install', validators.startInstall, async (req, res, next) => {
     try {
-      const ipaId = String(req.body?.ipaId ?? '');
-      const accountId = String(req.body?.accountId ?? '');
-      const deviceUdid = String(req.body?.deviceUdid ?? '');
-      const includeExtensions = !!req.body?.includeExtensions;
-
       const result = await startValidatedInstall(ctx, {
-        ipaId,
-        accountId,
-        deviceUdid,
-        includeExtensions,
+        ipaId: String(req.body?.ipaId ?? ''),
+        accountId: String(req.body?.accountId ?? ''),
+        deviceUdid: String(req.body?.deviceUdid ?? ''),
+        includeExtensions: !!req.body?.includeExtensions,
+        bundleIdStrategy: req.body?.bundleIdStrategy === 'deterministic' ? 'deterministic' : 'randomized',
+        customDisplayName: typeof req.body?.customDisplayName === 'string' && req.body.customDisplayName.trim()
+          ? req.body.customDisplayName.trim()
+          : undefined,
       });
 
       if (result.kind === 'missing-ipa') {
@@ -562,12 +587,15 @@ export function helperRoutes(ctx: AppContext): Router {
 
   // ── GET /doctor ─────────────────────────────────────────────────
   router.get('/doctor', (_req, res) => {
+    const pairing = getHelperPairingState(ctx);
     const checks = {
       serverRunning: true,
       schedulerEnabled: ctx.scheduler.getSnapshot().running,
       deviceCount: ctx.devices.list().length,
       installedAppCount: ctx.db.listInstalledApps().length,
-      helperTokenConfigured: !!getHelperToken(ctx),
+      helperTokenConfigured: pairing.paired,
+      helperTokenSource: pairing.tokenSource,
+      helperPairedAt: pairing.pairedAt,
     };
 
     res.json({ ok: true, data: checks });
@@ -610,7 +638,12 @@ export function helperRoutes(ctx: AppContext): Router {
       send('app-update', apps);
     });
 
+    const unsubAccounts = ctx.appleAccounts.onChange(() => {
+      send('account-update', listSafeAppleAccounts(ctx));
+    });
+
     send('app-update', ctx.db.listInstalledApps());
+    send('account-update', listSafeAppleAccounts(ctx));
     send('scheduler-update', ctx.scheduler.getSnapshot());
 
     const keepalive = setInterval(() => {
@@ -623,6 +656,7 @@ export function helperRoutes(ctx: AppContext): Router {
       unsubDevices();
       unsubScheduler();
       unsubInstalledApps();
+      unsubAccounts();
       clearInterval(keepalive);
     });
   });

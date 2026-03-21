@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.4.0] - 2026-03-21
+
+### Changed
+
+- Redesigned the sidebar layout with a compact brand header and status indicator, removing verbose workspace and runtime info cards.
+- Simplified the main header to show page title, short description, and a single primary action instead of redundant navigation buttons.
+- Overhauled the Dashboard page: replaced the generic time-based greeting with contextual status summaries, removed the widget layout editor UI, and simplified the widget grid to a fixed responsive layout.
+- Shortened all page descriptions across the app from verbose multi-sentence copy to concise one-liners.
+- Upgraded the Install page with horizontal pipeline steppers, prominent 2FA input with amber styling and auto-focus, date-grouped job history, and dismissible verify-app hints.
+- Restructured the Settings page with tabbed sections (Automation, Security, System), scheduler "Run Now" and "Reset to defaults" buttons, and next-check countdown display.
+- Upgraded the Logs page with color-coded log levels, per-entry copy buttons, export-to-file, improved tab bar filtering, and auto-scroll toggle.
+- Improved the Installed page with search/filter, sort options, ExpiryBadge components, bulk "Refresh Expiring" action, and collapsible App ID management.
+- Replaced raw search inputs on Sources and IPAs pages with the new SearchInput component.
+- Added ExpiryBadge to Apple Account certificate display for visual consistency.
+
+### Added
+
+- Added a comprehensive CSS design system extension with 10 new component classes: skeleton loading, progress bars, search inputs, tooltips, badges, small/icon buttons, dividers, expiry urgency states, drag-and-drop zones, and pipeline steppers.
+- Added a consolidated `Icons.tsx` component library with 30 reusable SVG icon components organized by category.
+- Added 7 new shared UI components: `SearchInput` (debounced with clear button), `PipelineStepper` (horizontal pipeline visualization), `ExpiryBadge` (color-coded countdown), `DropZone` (drag-and-drop file zone), `Collapsible` (expandable sections), `TabBar` (accessible tab switching), and improved `ProgressBar`.
+- Added error handling to Devices page reload that was previously silent on failure.
+- Added iOS helper `Haptics` utility with impact, notification, and selection feedback.
+- Added iOS helper `PulsingLoadingView` custom animated loading indicator.
+- Added iOS helper `EmptyStateView` reusable component with icon, title, description, and action button.
+- Added iOS helper semantic status color extensions (success, warning, error, info).
+- Added iOS helper improved card styling with gradient backgrounds and dual-shadow depth.
+
+### Fixed
+
+- Fixed pre-existing `trustedPhoneNumbers` missing parameter bug in iOS helper HelperViewModel that was blocking builds.
+- Fixed iOS helper SidelinkHelperApp.swift truncation that caused build failures.
+- Fixed LogsPage tab bar using non-existent CSS classes (`sl-tab`, `sl-tab-active`) instead of proper `data-active` attributes.
+- Fixed DashboardPage passing unused `emphasis` and `editing` props to OverviewStatCard.
+- Rebuilt and exported latest iOS helper IPA with all DesignSystem improvements.
+
 ## [0.3.1] - 2026-03-09
 
 ### Changed

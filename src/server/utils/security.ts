@@ -89,6 +89,13 @@ export const appleAuthRateLimit = rateLimit({
   message: 'Too many Apple sign-in attempts. Please wait a minute.',
 });
 
+/** Helper pairing: short-code redemption is intentionally tighter */
+export const helperPairRateLimit = rateLimit({
+  maxTokens: 8,
+  refillRate: 8 / 300,
+  message: 'Too many helper pairing attempts. Please wait a few minutes.',
+});
+
 /** File upload: 10 per 5 minutes */
 export const uploadRateLimit = rateLimit({
   maxTokens: 10,

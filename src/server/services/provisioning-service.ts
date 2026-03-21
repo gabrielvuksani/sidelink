@@ -72,6 +72,7 @@ export class ProvisioningService {
     deviceName: string,
     originalBundleId: string,
     appName: string,
+    effectiveMainBundleId?: string,
     extensionOriginalBundleIds?: string[],
   ): Promise<ProvisioningResult> {
     const teamId = account.teamId;
@@ -100,6 +101,7 @@ export class ProvisioningService {
       appName,
       limits.maxActiveAppIds,
       Number.isFinite(limits.maxNewAppIdsPerWeek) ? limits.maxNewAppIdsPerWeek : undefined,
+      effectiveMainBundleId,
     );
 
     // ── Step 3: Get or create certificate ─────────────────────────

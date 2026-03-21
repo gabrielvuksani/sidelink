@@ -4,8 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
 import { useElectron } from '../hooks/useElectron';
 import { HelperPairingPanel } from './HelperPairingPanel';
-import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
-import type { HelperDoctorSnapshot } from '../../../shared/types';
+import { useDesktopHealth } from '../hooks/useDesktopHealth';
 
 export function HelperControlPanel({
   variant = 'settings',
@@ -16,52 +15,39 @@ export function HelperControlPanel({
 }) {
   const { toast } = useToast();
   const { info } = useElectron();
-  const snapshotKey = `panel:helper-control:${variant}`;
-  const warmSnapshot = getUiSnapshot<HelperDoctorSnapshot | null>(snapshotKey);
   const [teamId, setTeamId] = useState('');
   const [overrideTeamId, setOverrideTeamId] = useState(false);
-  const [loading, setLoading] = useState(!warmSnapshot);
   const [running, setRunning] = useState(false);
-  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(warmSnapshot?.data ?? null);
   const [pairingOpenSignal, setPairingOpenSignal] = useState(0);
+  const { data, loading, error, refresh } = useDesktopHealth({
+    autoRefreshMs: 15_000,
+    snapshotKey: 'desktop-health',
+    warmTtlMs: 15_000,
+  });
 
-  const refreshDoctor = async (options?: { silent?: boolean }) => {
-    if (!options?.silent || !doctor) {
-      setLoading(true);
-    }
-    try {
-      const res = await api.helperDoctor();
-      const nextDoctor = res.data ?? null;
-      setDoctor(nextDoctor);
-      setUiSnapshot(snapshotKey, nextDoctor);
-      const detected = res.data?.detectedTeamId;
-      if (detected && !teamId) setTeamId(detected);
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Failed to fetch helper diagnostics'));
-    } finally {
-      if (!options?.silent || !doctor) {
-        setLoading(false);
-      }
-    }
-  };
+  const doctor = data?.helper.doctor ?? null;
+  const pairing = data?.helper.pairing ?? null;
+  const readinessIssues = data?.readiness.issues ?? [];
 
   useEffect(() => {
-    void refreshDoctor({ silent: !!warmSnapshot?.data });
-  }, [snapshotKey]);
+    if (doctor?.detectedTeamId && !teamId) {
+      setTeamId(doctor.detectedTeamId);
+    }
+  }, [doctor?.detectedTeamId, teamId]);
 
   const ensureHelper = async () => {
     setRunning(true);
     try {
-      const res = await api.ensureHelperIpa(overrideTeamId ? teamId.trim() || undefined : undefined);
-      const data = res.data;
-      if (data?.built) {
-        toast('success', `Helper built and imported as ${data.importedIpa.bundleName}`);
+      const response = await api.ensureHelperIpa(overrideTeamId ? teamId.trim() || undefined : undefined);
+      const helper = response.data;
+      if (helper?.built) {
+        toast('success', `Helper built and imported as ${helper.importedIpa.bundleName}`);
       } else {
-        toast('success', `Helper imported as ${data?.importedIpa.bundleName ?? 'SidelinkHelper'}`);
+        toast('success', `Helper imported as ${helper?.importedIpa.bundleName ?? 'SidelinkHelper'}`);
       }
-      await refreshDoctor();
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Failed to ensure helper IPA'));
+      await refresh({ bypassCache: true });
+    } catch (nextError: unknown) {
+      toast('error', getErrorMessage(nextError, 'Failed to ensure helper IPA'));
     } finally {
       setRunning(false);
     }
@@ -81,18 +67,22 @@ export function HelperControlPanel({
   const copy = variant === 'overview'
     ? {
         title: 'iPhone helper',
-        subtitle: 'Keep helper readiness, code-first pairing, and import actions in one tighter control surface instead of splitting them across separate cards.',
+        subtitle: 'Build health, pairing, and helper import now sit on the same truth source as the rest of the desktop diagnostics.',
       }
     : {
         title: 'iOS Helper',
-        subtitle: 'One click helper IPA import, and macOS build/export when required.',
+        subtitle: 'Pairing state, packaged helper readiness, and macOS build controls now stay aligned with the desktop runtime.',
       };
 
   const overviewStatuses = [
     { label: 'Helper asset', ok: !!doctor?.helperIpaExists, detail: doctor?.helperIpaExists ? 'Ready' : 'Missing' },
     { label: 'Apple runtime', ok: doctor?.appleAuthReady !== false, detail: doctor?.appleAuthReady === false ? 'Needs repair' : 'Ready' },
-    { label: 'Pairing', ok: !!doctor?.helperPaired, detail: doctor?.helperPaired ? 'Connected' : 'Waiting' },
+    { label: 'Pairing', ok: !!pairing?.paired, detail: pairing?.paired ? 'Connected' : 'Waiting' },
   ];
+
+  const pairingSubtitle = pairing?.paired
+    ? `Current token source: ${pairing.tokenSource === 'env' ? 'environment override' : 'desktop pairing'}${pairing.pairedAt ? ` · paired ${new Date(pairing.pairedAt).toLocaleString()}` : ''}`
+    : 'Generate a fresh desktop code, keep the backend address visible, and use QR only when camera handoff is genuinely faster.';
 
   const overviewControlSurface = (
     <>
@@ -114,7 +104,7 @@ export function HelperControlPanel({
               <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Source: {teamSourceLabel[doctor?.detectedTeamIdSource ?? 'none']}</p>
             </div>
             <div className="rounded-2xl border border-white/8 bg-black/10 px-3 py-2.5 text-[11px] leading-5 text-[var(--sl-muted)]">
-              Build, import, and pairing stay grouped here so the overview behaves more like a medium widget than a long settings form.
+              Build, import, and pairing now read from the same live readiness state instead of diverging across separate widgets.
             </div>
           </div>
 
@@ -122,7 +112,7 @@ export function HelperControlPanel({
             <input
               type="checkbox"
               checked={overrideTeamId}
-              onChange={e => setOverrideTeamId(e.target.checked)}
+              onChange={(event) => setOverrideTeamId(event.target.checked)}
               className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
             />
             Use manual Team ID override
@@ -134,7 +124,7 @@ export function HelperControlPanel({
               <input
                 placeholder="XXXXXXXXXX"
                 value={teamId}
-                onChange={e => setTeamId(e.target.value.toUpperCase())}
+                onChange={(event) => setTeamId(event.target.value.toUpperCase())}
                 className="sl-input max-w-full sm:max-w-xs font-mono uppercase"
               />
             </div>
@@ -142,7 +132,7 @@ export function HelperControlPanel({
         </div>
       ) : (
         <p className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 text-xs leading-5 text-[var(--sl-muted)]">
-          Helper build and export stay macOS + Xcode only. This overview surface still keeps import and pairing available, but hides build-specific setup complexity.
+          Helper build and export stay macOS + Xcode only. This overview keeps import and pairing controls visible without dragging build-only setup into other workflows.
         </p>
       )}
 
@@ -161,7 +151,7 @@ export function HelperControlPanel({
           disabled={loading}
           className="sl-btn-ghost justify-center"
         >
-          Pair iPhone
+          {pairing?.paired ? 'Repair pairing' : 'Pair iPhone'}
         </button>
       </div>
     </>
@@ -169,7 +159,7 @@ export function HelperControlPanel({
 
   const body = (
     <div className={`space-y-4 ${embedded ? 'p-0' : 'p-4 sm:p-5'}`}>
-      {loading ? (
+      {loading && !doctor ? (
         <p className="text-xs text-[var(--sl-muted)]">Loading helper diagnostics...</p>
       ) : variant === 'overview' ? (
         <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.88fr),minmax(340px,1.12fr)] 2xl:grid-cols-[minmax(300px,0.82fr),minmax(380px,1.18fr)] xl:items-start">
@@ -177,7 +167,7 @@ export function HelperControlPanel({
             {overviewControlSurface}
           </div>
           <HelperPairingPanel
-            paired={!!doctor?.helperPaired}
+            paired={!!pairing?.paired}
             compact
             layout="feature"
             autoRefresh={false}
@@ -186,7 +176,9 @@ export function HelperControlPanel({
             openSignal={pairingOpenSignal}
             showOpenButton={false}
             title="Pair or repair your helper connection"
-            subtitle="Open the short code or QR from dedicated modals without stretching the overview widget into a long onboarding stack."
+            subtitle={pairing?.paired
+              ? `Paired${pairing.pairedAt ? ` on ${new Date(pairing.pairedAt).toLocaleString()}` : ''}. Open a fresh code only when you want to repair or move the helper connection.`
+              : 'Open the short code or QR from dedicated modals without stretching the overview widget into a long onboarding stack.'}
           />
         </div>
       ) : (
@@ -207,6 +199,14 @@ export function HelperControlPanel({
             </p>
           </div>
 
+          {readinessIssues.length > 0 && (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-6 text-amber-100">
+              {readinessIssues.map((issue) => (
+                <p key={issue}>{issue}</p>
+              ))}
+            </div>
+          )}
+
           {canBuild && (
             <div className="space-y-3 rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.02))] p-4 sm:p-5">
               <div>
@@ -219,7 +219,7 @@ export function HelperControlPanel({
                 <input
                   type="checkbox"
                   checked={overrideTeamId}
-                  onChange={e => setOverrideTeamId(e.target.checked)}
+                  onChange={(event) => setOverrideTeamId(event.target.checked)}
                   className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
                 />
                 Use manual Team ID override
@@ -231,7 +231,7 @@ export function HelperControlPanel({
                   <input
                     placeholder="XXXXXXXXXX"
                     value={teamId}
-                    onChange={e => setTeamId(e.target.value.toUpperCase())}
+                    onChange={(event) => setTeamId(event.target.value.toUpperCase())}
                     className="sl-input max-w-full sm:max-w-xs font-mono uppercase"
                   />
                 </div>
@@ -255,7 +255,7 @@ export function HelperControlPanel({
               {running ? 'Provisioning…' : 'Provision helper'}
             </button>
             <button
-              onClick={() => { void refreshDoctor(); }}
+              onClick={() => { void refresh({ bypassCache: true }); }}
               disabled={loading}
               className="sl-btn-ghost justify-center xl:justify-start"
             >
@@ -263,7 +263,12 @@ export function HelperControlPanel({
             </button>
           </div>
 
-          <HelperPairingPanel paired={!!doctor?.helperPaired} compact={false} />
+          <HelperPairingPanel
+            paired={!!pairing?.paired}
+            compact={false}
+            title={pairing?.paired ? 'Repair or move helper pairing' : 'Pair your iPhone helper'}
+            subtitle={pairingSubtitle}
+          />
 
           {doctor?.helperIpaPath && (
             <p className="text-[11px] text-[var(--sl-muted)]">
@@ -287,11 +292,17 @@ export function HelperControlPanel({
             <h3 className="text-[14px] font-semibold tracking-tight text-[var(--sl-text)]">{copy.title}</h3>
             <p className="mt-1 max-w-lg text-[12px] leading-5 text-[var(--sl-muted)]">{copy.subtitle}</p>
           </div>
-          <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] sm:text-[11px] ${doctor?.helperPaired ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border-sky-400/20 bg-sky-400/10 text-sky-200'}`}>
-            {doctor?.helperPaired ? 'Paired' : 'Pairing required'}
+          <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] sm:text-[11px] ${pairing?.paired ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border-sky-400/20 bg-sky-400/10 text-sky-200'}`}>
+            {pairing?.paired ? 'Paired' : 'Pairing required'}
           </span>
         </div>
       </div>
+
+      {error && (
+        <div className="px-4 py-3 text-[12px] text-red-300 sm:px-5">
+          {error}
+        </div>
+      )}
 
       {body}
     </section>

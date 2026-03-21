@@ -3,7 +3,9 @@
 
 import type {
   AppleAccount,
+  DesktopHealthSnapshot,
   DeviceInfo,
+  HelperDoctorSnapshot,
   IpaArtifact,
   InstallJob,
   InstalledApp,
@@ -97,11 +99,16 @@ export interface TrustedSourceRecord {
   description?: string;
 }
 
-// ── Global 401 listener ──────────────────────────────────────────────
-let onSessionExpired: (() => void) | null = null;
+export type AuthStateResetReason = 'session-expired' | 'password-changed';
 
-export function setSessionExpiredHandler(handler: () => void) {
+let onSessionExpired: ((reason: AuthStateResetReason) => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (reason: AuthStateResetReason) => void) {
   onSessionExpired = handler;
+}
+
+export function notifyAuthStateReset(reason: AuthStateResetReason = 'password-changed') {
+  onSessionExpired?.(reason);
 }
 
 // ── CSRF helper —————————————————————————————————
@@ -217,7 +224,7 @@ async function request<T = unknown>(
     ) {
       const errText = payload.error ?? fallbackError;
       if (isLikelySessionExpiryError(errText)) {
-        onSessionExpired?.();
+        onSessionExpired?.('session-expired');
         throw createApiError(401, 'Session expired', payload);
       }
     }
@@ -299,7 +306,7 @@ async function requestRawJson<T = unknown>(
     && !opts?.suppressSessionExpiryHandling
     && isLikelySessionExpiryError(errorText)
   ) {
-    onSessionExpired?.();
+    onSessionExpired?.('session-expired');
     throw createApiError(401, 'Session expired', data);
   }
 
@@ -393,6 +400,7 @@ export const api = {
   getIpa: (id: string) => request<IpaArtifact>('GET', `/ipas/${encodeURIComponent(id)}`),
   deleteIpa: (id: string) => request('DELETE', `/ipas/${encodeURIComponent(id)}`),
   importIpaFromUrl: (url: string) => request<IpaArtifact>('POST', '/ipas/import-url', { url }),
+  importLocalIpaPath: (filepath: string) => request<IpaArtifact>('POST', '/ipas/import-path', { path: filepath }),
 
   // ── Sources ────────────────────────────────────────────────────────
   listSources: (opts?: ReadRequestOptions) => request<UserSource[]>('GET', '/sources', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources', ...opts }),
@@ -431,17 +439,8 @@ export const api = {
   triggerRefreshAll: () =>
     request<{ triggered: number; skipped: number; errors: string[] }>('POST', '/system/scheduler/refresh-all'),
   getAutoRefreshStates: (opts?: ReadRequestOptions) => request<AutoRefreshState[]>('GET', '/system/scheduler/states', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/scheduler/states', ...opts }),
-  helperDoctor: (opts?: ReadRequestOptions) => request<{
-    platform: string;
-    helperIpaPath: string;
-    helperIpaExists: boolean;
-    helperProjectDir: string;
-    xcodeProjectExists: boolean;
-    projectYmlExists: boolean;
-    hasXcodebuild: boolean;
-    hasXcodegen: boolean;
-    appleAuthReady?: boolean;
-    appleAuthError?: string | null;
+  desktopHealth: (opts?: ReadRequestOptions) => request<DesktopHealthSnapshot>('GET', '/system/desktop-health', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/desktop-health', ...opts }),
+  helperDoctor: (opts?: ReadRequestOptions) => request<HelperDoctorSnapshot & {
     appleRuntime?: {
       isPackaged: boolean;
       hasBundledPython: boolean;
@@ -456,9 +455,6 @@ export const api = {
       };
       error?: string;
     };
-    helperPaired?: boolean;
-    detectedTeamId?: string | null;
-    detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
   }>('GET', '/system/helper/doctor', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/system/helper/doctor', ...opts }),
   ensureHelperIpa: (teamId?: string) =>
     request<{
@@ -469,7 +465,7 @@ export const api = {
       teamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
     }>('POST', '/system/helper/ensure', teamId ? { teamId } : {}),
   createHelperPairingCode: () =>
-    request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string }>('POST', '/system/helper/pairing-code'),
+    request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string; backendUrl?: string; apiBasePath?: string | null; candidateAddresses?: string[]; serverName?: string; serverVersion?: string }>('POST', '/system/helper/pairing-code'),
 
   listAppleAppIds: (sync = false, opts?: ReadRequestOptions) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`, undefined, { cacheTtlMs: sync ? 0 : 2_500, cacheKey: sync ? undefined : 'GET:/apple/app-ids', ...opts }),
   listAppleAppIdUsage: (opts?: ReadRequestOptions) => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/apple/app-ids/usage', ...opts }),

@@ -43,6 +43,19 @@ export function useElectron() {
         setInfo({ isElectron: true, platform, version, isPackaged });
       })
       .catch(() => { /* non-critical */ });
+
+    api.getUpdaterState()
+      .then((event) => {
+        setUpdater({
+          status: event.type === 'not-available' ? 'not-available'
+            : event.type === 'available' ? 'available'
+            : event.type,
+          version: event.info?.version,
+          percent: event.info?.percent,
+          error: event.error,
+        });
+      })
+      .catch(() => { /* non-critical */ });
   }, []);
 
   // Subscribe to updater events

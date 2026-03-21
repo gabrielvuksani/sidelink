@@ -8,13 +8,12 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
 import crypto from 'node:crypto';
 import type { AppContext } from '../context';
 import { UI_LIMITS } from '../../shared/constants';
 import { uploadRateLimit } from '../utils/security';
+import { downloadToFileWithLimit } from '../utils/fetch';
+import { isLocalNetworkHost } from '../utils/network';
 
 export function ipaRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -87,21 +86,54 @@ export function ipaRoutes(ctx: AppContext): Router {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       return res.status(400).json({ ok: false, error: 'Only http/https URLs are supported' });
     }
+    if (parsed.protocol === 'http:' && !isLocalNetworkHost(parsed.hostname)) {
+      return res.status(400).json({ ok: false, error: 'HTTP IPA imports are only allowed for local-network hosts' });
+    }
 
     const tempPath = path.join(ctx.uploadDir, `import-${crypto.randomUUID()}.ipa`);
 
     try {
-      const upstream = await fetch(parsed.href);
-      if (!upstream.ok || !upstream.body) {
-        return res.status(400).json({ ok: false, error: `Failed to download IPA (${upstream.status})` });
-      }
-
-      await pipeline(Readable.fromWeb(upstream.body as any), createWriteStream(tempPath));
+      await downloadToFileWithLimit(parsed.href, tempPath, {
+        contextLabel: 'IPA download',
+        timeoutMs: 120_000,
+        maxBytes: UI_LIMITS.maxIpaFileSizeBytes,
+        errorStatusCode: 400,
+      });
 
       const originalName = path.basename(parsed.pathname || '').toLowerCase().endsWith('.ipa')
         ? path.basename(parsed.pathname)
         : 'Imported.ipa';
       const ipa = await ctx.ipas.processUpload(tempPath, originalName);
+      res.json({ ok: true, data: ipa });
+    } catch (err) {
+      await fs.unlink(tempPath).catch(() => {});
+      next(err);
+    }
+  });
+
+  router.post('/import-path', uploadRateLimit, async (req, res, next) => {
+    const rawPath = String(req.body?.path ?? '').trim();
+    if (!rawPath) {
+      return res.status(400).json({ ok: false, error: 'path is required' });
+    }
+
+    const resolvedPath = path.resolve(rawPath);
+    const tempPath = path.join(ctx.uploadDir, `import-local-${crypto.randomUUID()}.ipa`);
+
+    try {
+      const stat = await fs.stat(resolvedPath);
+      if (!stat.isFile()) {
+        return res.status(400).json({ ok: false, error: 'Selected path is not a file' });
+      }
+      if (path.extname(resolvedPath).toLowerCase() !== '.ipa') {
+        return res.status(400).json({ ok: false, error: 'Only .ipa files are supported' });
+      }
+      if (stat.size > UI_LIMITS.maxIpaFileSizeBytes) {
+        return res.status(413).json({ ok: false, error: 'Selected IPA exceeds the 4 GB limit' });
+      }
+
+      await fs.copyFile(resolvedPath, tempPath);
+      const ipa = await ctx.ipas.processUpload(tempPath, path.basename(resolvedPath));
       res.json({ ok: true, data: ipa });
     } catch (err) {
       await fs.unlink(tempPath).catch(() => {});

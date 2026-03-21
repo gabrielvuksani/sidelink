@@ -7,10 +7,12 @@ import { SSEIndicator, useSSE } from '../hooks/useSSE';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { useInstallModal } from '../components/InstallModal';
-import { PageHeader, PageLoader, EmptyState, SectionHeading, relativeTime } from '../components/Shared';
+import { PageHeader, PageLoader, EmptyState, SectionHeading, SearchInput, ExpiryBadge, Collapsible } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { InstalledApp, AutoRefreshState, AppleAccount } from '../../../shared/types';
 import type { AppleAppIdRecord, AppleAppIdUsageRecord } from '../lib/api';
+
+const FALLBACK_REFRESH_MS = 5000;
 
 type InstalledSnapshot = {
   apps: InstalledApp[];
@@ -37,7 +39,6 @@ export default function InstalledPage() {
   const [staleSections, setStaleSections] = useState<string[]>(warmSnapshot?.data.staleSections ?? []);
   const [lastSnapshotAt, setLastSnapshotAt] = useState<number | null>(warmSnapshot?.updatedAt ?? null);
   const [loading, setLoading] = useState(!warmSnapshot);
-  const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const confirmDialog = useConfirm();
   const { openInstall } = useInstallModal();
@@ -53,23 +54,40 @@ export default function InstalledPage() {
     staleSections: warmSnapshot?.data.staleSections ?? [],
   });
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'expiry' | 'installed'>('name');
+
   useEffect(() => { document.title = 'Installed — SideLink'; }, []);
 
-  const allActiveApps = apps.filter(app => app.status !== 'deactivated');
+  const activeApps = apps.filter(app => app.status !== 'deactivated');
   const deactivatedApps = apps.filter(app => app.status === 'deactivated');
-  const activeApps = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return allActiveApps;
-    return allActiveApps.filter((app) =>
-      (app.appName || '').toLowerCase().includes(q)
-      || app.originalBundleId.toLowerCase().includes(q)
-      || (app.appVersion ?? '').toLowerCase().includes(q),
-    );
-  }, [allActiveApps, searchQuery]);
-  const expiringSoon = allActiveApps.filter((app) => {
+  const expiringSoon = activeApps.filter((app) => {
     if (!app.expiresAt) return false;
     return new Date(app.expiresAt).getTime() - Date.now() <= 1000 * 60 * 60 * 24 * 2;
   }).length;
+
+  const filterApp = useCallback((app: InstalledApp) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (app.appName?.toLowerCase().includes(q) ?? false) || app.originalBundleId.toLowerCase().includes(q);
+  }, [searchQuery]);
+
+  const sortApps = useCallback((a: InstalledApp, b: InstalledApp) => {
+    if (sortBy === 'expiry') {
+      const aExp = a.expiresAt ? new Date(a.expiresAt).getTime() : Infinity;
+      const bExp = b.expiresAt ? new Date(b.expiresAt).getTime() : Infinity;
+      return aExp - bExp;
+    }
+    if (sortBy === 'installed') {
+      const aDate = a.installedAt ? new Date(a.installedAt).getTime() : 0;
+      const bDate = b.installedAt ? new Date(b.installedAt).getTime() : 0;
+      return bDate - aDate;
+    }
+    return (a.appName || a.originalBundleId).localeCompare(b.appName || b.originalBundleId);
+  }, [sortBy]);
+
+  const filteredActiveApps = useMemo(() => activeApps.filter(filterApp).sort(sortApps), [activeApps, filterApp, sortApps]);
+  const filteredDeactivatedApps = useMemo(() => deactivatedApps.filter(filterApp).sort(sortApps), [deactivatedApps, filterApp, sortApps]);
 
   const loadSnapshot = useCallback(async (force = false): Promise<InstalledSnapshot> => {
     const currentApps = stateRef.current.apps;
@@ -150,7 +168,19 @@ export default function InstalledPage() {
     }, 200);
   }, []);
 
-  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 8_000 });
+  usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 8_000, revalidateOnFocus: false });
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void reload(true);
+      }
+    }, FALLBACK_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => () => {
     if (refreshTimerRef.current !== null) {
@@ -336,6 +366,23 @@ export default function InstalledPage() {
         description="The installed view now shows both tracked installs and the App IDs that actually consume free-account capacity, including extensions and leftover identifiers that were previously invisible."
         actions={(
           <>
+            {expiringSoon > 0 && (
+              <button
+                onClick={async () => {
+                  const expiring = activeApps.filter((app) => {
+                    if (!app.expiresAt) return false;
+                    return new Date(app.expiresAt).getTime() - Date.now() <= 1000 * 60 * 60 * 24 * 2;
+                  });
+                  toast('info', `Refreshing ${expiring.length} expiring app${expiring.length === 1 ? '' : 's'}...`);
+                  await Promise.allSettled(expiring.map((app) => api.triggerRefresh(app.id)));
+                  void reload(true);
+                }}
+                className="sl-btn-ghost flex items-center gap-2 !border-amber-400/20 !text-amber-300"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg>
+                Refresh {expiringSoon} Expiring
+              </button>
+            )}
             {activeApps.length > 0 && (
               <button onClick={triggerRefreshAll} className="sl-btn-ghost flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v6h6M19.5 19.5v-6h-6" /><path strokeLinecap="round" strokeLinejoin="round" d="M20 10a8 8 0 00-13.66-5.66L4.5 6m15 12l-1.84-1.84A8 8 0 014 14" /></svg>
@@ -382,91 +429,9 @@ export default function InstalledPage() {
         </div>
       </div>
 
-      {activeApps.length > 0 && (
-        <details className="sl-card overflow-hidden group">
-          <summary className="flex cursor-pointer items-center justify-between gap-3 px-5 py-4 border-b border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)] select-none">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10">
-                <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
-              </div>
-              <div>
-                <p className="text-[14px] font-semibold text-[var(--sl-text)]">App Verification &amp; PPQ Troubleshooting</p>
-                <p className="text-[12px] text-[var(--sl-muted)]">Fix &ldquo;Unable to Verify App&rdquo; errors on installed apps</p>
-              </div>
-            </div>
-            <svg className="h-4 w-4 text-[var(--sl-muted)] transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-          </summary>
-          <div className="space-y-4 p-5">
-            <div className="rounded-2xl border border-amber-500/15 bg-amber-500/[0.04] p-4">
-              <p className="text-[13px] font-semibold text-amber-300">What is the &ldquo;Unable to Verify App&rdquo; error?</p>
-              <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">
-                Apple&rsquo;s PPQ (Provisioning Profile Query) system checks sideloaded apps against Apple&rsquo;s servers when you first launch them. If the bundle ID matches a known App Store app, or if Apple flags your certificate, the app will show &ldquo;Unable to Verify App&rdquo; and refuse to open.
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <div className="flex items-center gap-2 text-emerald-400">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-[13px] font-semibold">Randomize Bundle IDs</p>
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
-                  Use the &ldquo;Randomize Bundle ID&rdquo; toggle in the Install modal (enabled by default). This generates a random bundle ID so Apple cannot correlate it with known apps.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <div className="flex items-center gap-2 text-sky-400">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
-                  <p className="text-[13px] font-semibold">Rotate Certificate</p>
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
-                  If apps stop opening, go to Apple ID settings and use &ldquo;Rotate Certificate&rdquo; to revoke the flagged cert and create a fresh one. Then re-sign all apps.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <div className="flex items-center gap-2 text-violet-400">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
-                  <p className="text-[13px] font-semibold">Toggle Developer Mode</p>
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
-                  On the device: Settings → Privacy &amp; Security → Developer Mode. Toggle it off, restart, try to open the app, re-enable Developer Mode when prompted.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-                <div className="flex items-center gap-2 text-amber-400">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" /></svg>
-                  <p className="text-[13px] font-semibold">Block PPQ Servers (DNS)</p>
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
-                  Use NextDNS or AdGuard to block <code className="text-[10px] font-mono">ppq.apple.com</code>. This prevents Apple from verifying the developer certificate, allowing sideloaded apps to launch.
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4">
-              <p className="text-[12px] font-semibold text-[var(--sl-text)]">Trust Developer Profile</p>
-              <p className="mt-1.5 text-[11px] leading-5 text-[var(--sl-muted)]">
-                After a first install, you must trust the developer certificate on the device. Go to <strong>Settings → General → VPN &amp; Device Management</strong> and tap the developer profile to trust it.
-                {trustProfiles.length > 0 && (
-                  <> Active profiles for: {trustProfiles.map((a) => a.appleId).join(', ')}.</>
-                )}
-              </p>
-            </div>
-          </div>
-        </details>
-      )}
-
       {appIdUsage.length > 0 && (
-        <section className="space-y-2">
-          <SectionHeading
-            eyebrow="Quota"
-            title="App ID consumers"
-            description="Free-account limits are driven by App IDs, not just the installs listed below. Extensions and leftover identifiers appear here so quota pressure is explainable."
-            action={<Link to="/apple" className="sl-btn-ghost !px-3 !py-2 !text-[12px]">Manage in Apple IDs</Link>}
-          />
+        <Collapsible title={<SectionHeading eyebrow="Quota" title="App ID consumers" description="Free-account limits are driven by App IDs, not just the installs listed below." action={<Link to="/apple" className="sl-btn-ghost !px-3 !py-2 !text-[12px]">Manage in Apple IDs</Link>} />}>
+        <section className="space-y-2 mt-2">
 
           <div className="grid gap-3 xl:grid-cols-2">
             {appIdUsage.map((usage) => {
@@ -531,6 +496,7 @@ export default function InstalledPage() {
             })}
           </div>
         </section>
+        </Collapsible>
       )}
 
       {apps.length === 0 ? (
@@ -566,45 +532,51 @@ export default function InstalledPage() {
               </div>
             </div>
           </div>
+          {/* Search & Sort Controls */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Filter by name or bundle ID..." />
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-0.5">
+              {([['name', 'Name'], ['expiry', 'Expiry'], ['installed', 'Newest']] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setSortBy(key)}
+                  className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                    sortBy === key
+                      ? 'bg-[var(--sl-accent)] text-white shadow-sm'
+                      : 'text-[var(--sl-muted)] hover:text-[var(--sl-text)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <section className="space-y-2">
-            <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${allActiveApps.length} install${allActiveApps.length === 1 ? '' : 's'} currently tracked across your devices.`} />
-            {allActiveApps.length > 3 && (
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search installed apps by name, bundle ID, or version..."
-                className="sl-input !py-2.5 !text-[13px]"
-                aria-label="Search installed apps"
-              />
-            )}
-            {activeApps.length === 0 && searchQuery ? (
-              <div className="sl-card px-4 py-8 text-center">
-                <p className="text-[13px] text-[var(--sl-muted)]">No installed apps matching &ldquo;{searchQuery}&rdquo;</p>
-              </div>
-            ) : activeApps.map(app => {
+            <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${filteredActiveApps.length} of ${activeApps.length} install${activeApps.length === 1 ? '' : 's'} shown.`} />
+            {filteredActiveApps.map(app => {
             const refreshState = getRefreshState(app.id);
-            const expiresAt = app.expiresAt ? new Date(app.expiresAt) : null;
-            const daysLeft = expiresAt
-              ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-              : null;
-            const isExpiring = daysLeft !== null && daysLeft <= 2;
-            const isExpired = daysLeft !== null && daysLeft <= 0;
 
               return (
               <div key={app.id} className="sl-card sl-card-interactive p-4 animate-fadeInUp group">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[180px]">{app.originalBundleId}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[14px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
+                      {app.expiresAt && <ExpiryBadge expiresAt={app.expiresAt} />}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[220px]">{app.originalBundleId}</span>
                       {app.appVersion && <span className="text-[11px] text-[var(--sl-muted)]">v{app.appVersion}</span>}
                       <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
-                      <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid?.slice(0, 8)}...</span>
+                      {app.deviceUdid && <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid.slice(0, 8)}...</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
+                    <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5" title="Refresh signing">
+                      <svg className="w-3.5 h-3.5 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
                       Refresh
                     </button>
                     <button onClick={() => deactivateApp(app)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
@@ -617,28 +589,30 @@ export default function InstalledPage() {
                 </div>
 
                 {/* Expiry bar */}
-                {expiresAt && (
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between text-[11px] mb-1.5">
-                      <span className={isExpired ? 'font-semibold text-red-400' : isExpiring ? 'font-semibold text-amber-400' : 'text-[var(--sl-muted)]'}>
-                        {isExpired ? 'Expired' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
-                      </span>
-                      <span className="text-[var(--sl-muted)] opacity-60">Expires {expiresAt.toLocaleDateString()}</span>
+                {app.expiresAt && (() => {
+                  const expiresAt = new Date(app.expiresAt);
+                  const daysLeft = Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+                  const isExpiring = daysLeft <= 2;
+                  const isExpired = daysLeft <= 0;
+                  return (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-[11px] mb-1.5">
+                        <span className="text-[var(--sl-muted)] opacity-60">Expires {expiresAt.toLocaleDateString()}</span>
+                      </div>
+                      <div className="h-1 bg-[var(--sl-surface-soft)] rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${isExpired ? 'bg-red-500' : isExpiring ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                          style={{ width: `${Math.min(100, (daysLeft / 7) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1 bg-[var(--sl-surface-soft)] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${isExpired ? 'bg-red-500' : isExpiring ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                        style={{ width: `${Math.min(100, ((daysLeft ?? 0) / 7) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Auto-refresh indicator */}
                 {refreshState && (
                   <div className="mt-2 flex items-center gap-3 text-[11px] text-[var(--sl-muted)]">
-                    {refreshState.lastRefreshAt && <span title={new Date(refreshState.lastRefreshAt).toLocaleString()}>Last refreshed: {relativeTime(refreshState.lastRefreshAt)}</span>}
-                    {refreshState.refreshInProgress && <span className="text-sky-400 flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" /> Refreshing...</span>}
+                    {refreshState.lastRefreshAt && <span>Last refreshed: {new Date(refreshState.lastRefreshAt).toLocaleString()}</span>}
                     {refreshState.lastError && <span className="text-red-400">Error: {refreshState.lastError}</span>}
                   </div>
                 )}
@@ -647,10 +621,10 @@ export default function InstalledPage() {
             })}
           </section>
 
-          {deactivatedApps.length > 0 && (
+          {filteredDeactivatedApps.length > 0 && (
             <section className="space-y-2">
               <SectionHeading eyebrow="Standby" title="Deactivated installs" description="These stay available for one-click reactivation without losing the app record." />
-              {deactivatedApps.map(app => (
+              {filteredDeactivatedApps.map(app => (
                 <div key={app.id} className="sl-card p-4 animate-fadeInUp border border-amber-500/15 bg-amber-500/[0.03]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">

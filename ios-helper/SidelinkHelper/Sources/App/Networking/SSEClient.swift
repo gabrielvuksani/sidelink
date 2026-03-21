@@ -56,8 +56,32 @@ final class SSEClient: NSObject, URLSessionDataDelegate {
         buffer = events.last ?? ""
     }
 
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let http = response as? HTTPURLResponse else {
+            completionHandler(.allow)
+            return
+        }
+
+        if http.statusCode == 401 {
+            completionHandler(.cancel)
+            onFailure?(HelperAPIError.unauthorized)
+            return
+        }
+
+        if !(200 ... 299).contains(http.statusCode) {
+            completionHandler(.cancel)
+            onFailure?(HelperAPIError.server("Install event stream failed (\(http.statusCode))"))
+            return
+        }
+
+        completionHandler(.allow)
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                return
+            }
             onFailure?(error)
         }
     }

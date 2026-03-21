@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
-import { EmptyState, PageHeader, PageLoader } from '../components/Shared';
+import { EmptyState, PageHeader, PageLoader, SearchInput } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { SourceApp, SourceManifest, UserSource } from '../../../shared/types';
 
@@ -288,8 +288,8 @@ export default function SourcesPage() {
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Sources"
-        title="Feed management that feels like part of the product"
-        description="Curated feeds, combined source apps, and self-hosted manifests now live inside the same desktop system language as installs and settings."
+        title="App Sources"
+        description="AltStore-compatible feeds, trusted sources, and self-hosted manifests."
         stats={[
           { label: 'Enabled Sources', value: enabledSources.length, tone: 'teal' },
           { label: 'Visible Apps', value: totalApps, tone: 'sky' },
@@ -375,12 +375,10 @@ export default function SourcesPage() {
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Browse Source Apps</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Combined apps from all enabled sources. Import adds the IPA to your local library.</p>
         <div className="mt-3">
-          <input
-            aria-label="Search source apps"
+          <SearchInput
             value={appSearch}
-            onChange={(e) => setAppSearch(e.target.value)}
-            placeholder="Search by app name, bundle ID, or developer"
-            className="sl-input"
+            onChange={setAppSearch}
+            placeholder="Search by app name, bundle ID, or developer..."
           />
         </div>
 

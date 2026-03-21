@@ -1,84 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { api } from '../lib/api';
-import { getErrorMessage } from '../lib/errors';
-import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
-import type { HelperDoctorSnapshot, HealthSnapshot } from '../../../shared/types';
-
-type DesktopReadinessSnapshot = {
-  health: HealthSnapshot | null;
-  doctor: HelperDoctorSnapshot | null;
-  activeAccountCount: number;
-  deviceCount: number;
-  issues: string[];
-};
-
-const SNAPSHOT_KEY = 'gate:desktop-readiness';
+import type { ReactNode } from 'react';
+import { useDesktopHealth } from '../hooks/useDesktopHealth';
 
 export function DesktopReadinessGate({ children }: { children: ReactNode }) {
-  const warmSnapshot = getUiSnapshot<DesktopReadinessSnapshot>(SNAPSHOT_KEY, 15_000);
-  const [loading, setLoading] = useState(!warmSnapshot);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async (showOverlay: boolean) => {
-      if (showOverlay) {
-        setLoading(true);
-      }
-
-      const [healthRes, doctorRes, accountsRes, devicesRes] = await Promise.allSettled([
-        api.health({ bypassCache: true }),
-        api.helperDoctor({ bypassCache: true }),
-        api.listAppleAccounts({ bypassCache: true }),
-        api.listDevices({ bypassCache: true }),
-      ]);
-
-      if (cancelled) {
-        return;
-      }
-
-      const issues: string[] = [];
-      const nextHealth = healthRes.status === 'fulfilled' ? (healthRes.value.data ?? null) : null;
-      const nextDoctor = doctorRes.status === 'fulfilled' ? (doctorRes.value.data ?? null) : null;
-      const nextAccounts = accountsRes.status === 'fulfilled' ? (accountsRes.value.data ?? []) : [];
-      const nextDevices = devicesRes.status === 'fulfilled' ? (devicesRes.value.data ?? []) : [];
-
-      if (healthRes.status === 'rejected') {
-        issues.push(getErrorMessage(healthRes.reason, 'Runtime health check failed'));
-      }
-      if (doctorRes.status === 'rejected') {
-        issues.push(getErrorMessage(doctorRes.reason, 'Helper readiness check failed'));
-      }
-      if (accountsRes.status === 'rejected') {
-        issues.push(getErrorMessage(accountsRes.reason, 'Apple account roster failed to load'));
-      }
-      if (devicesRes.status === 'rejected') {
-        issues.push(getErrorMessage(devicesRes.reason, 'Device inventory failed to load'));
-      }
-
-      const snapshot: DesktopReadinessSnapshot = {
-        health: nextHealth,
-        doctor: nextDoctor,
-        activeAccountCount: nextAccounts.filter((account) => account.status === 'active').length,
-        deviceCount: nextDevices.length,
-        issues,
-      };
-
-      setUiSnapshot(SNAPSHOT_KEY, snapshot);
-      setUiSnapshot('panel:desktop-readiness', {
-        health: nextHealth,
-        doctor: nextDoctor,
-      });
-
-      setLoading(false);
-    };
-
-    void load(!warmSnapshot);
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { loading } = useDesktopHealth({
+    snapshotKey: 'desktop-health',
+    warmTtlMs: 15_000,
+  });
 
   if (!loading) {
     return <>{children}</>;

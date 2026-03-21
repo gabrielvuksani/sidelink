@@ -49,7 +49,7 @@ export function appleRoutes(ctx: AppContext): Router {
   // Submit 2FA code
   router.post('/2fa', appleAuthRateLimit, validators.apple2FA, async (req, res, next) => {
     try {
-      const { appleId, password, code, method } = req.body;
+      const { appleId, password, code, method, phoneId } = req.body;
       if (!appleId || !code) {
         return res.status(400).json({ ok: false, error: 'Apple ID and code required' });
       }
@@ -58,6 +58,7 @@ export function appleRoutes(ctx: AppContext): Router {
         password,
         code,
         method: method ?? 'totp',
+        phoneId: typeof phoneId === 'number' ? phoneId : undefined,
       });
       res.json({ ok: true, data: toSafeAppleAccount(account) });
     } catch (err) {
@@ -68,11 +69,11 @@ export function appleRoutes(ctx: AppContext): Router {
   // Request SMS 2FA
   router.post('/2fa/sms', appleAuthRateLimit, validators.appleSMS, async (req, res, next) => {
     try {
-      const { appleId, phoneNumberId } = req.body;
-      if (!appleId || phoneNumberId === undefined) {
+      const { appleId, phoneId } = req.body;
+      if (!appleId || phoneId === undefined) {
         return res.status(400).json({ ok: false, error: 'Apple ID and phone number ID required' });
       }
-      await ctx.appleAccounts.requestSMS(appleId, phoneNumberId);
+      await ctx.appleAccounts.requestSMS(appleId, phoneId);
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -174,7 +175,7 @@ export function appleRoutes(ctx: AppContext): Router {
       for (const cert of existingCerts) {
         if (!cert.revokedAt) {
           try {
-            await client.revokeCertificate(account.teamId, cert.portalCertificateId);
+            await client.revokeCertificate(account.teamId, cert.serialNumber);
           } catch {
             // Best-effort revocation on portal
           }

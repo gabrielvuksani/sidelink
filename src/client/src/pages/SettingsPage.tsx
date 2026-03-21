@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../lib/api';
+import { api, notifyAuthStateReset } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { getElectronAPI } from '../lib/electron';
 import { useToast } from '../components/Toast';
@@ -7,40 +7,51 @@ import { isElectron } from '../lib/electron';
 import { useElectron } from '../hooks/useElectron';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { useConfirm } from '../components/ConfirmModal';
-import { PageHeader, PasswordInput } from '../components/Shared';
+import { PageHeader, PasswordInput, TabBar } from '../components/Shared';
 import type { SchedulerSnapshot } from '../../../shared/types';
 
-
+const TABS = [
+  { id: 'automation', label: 'Automation' },
+  { id: 'security', label: 'Security' },
+  { id: 'system', label: 'System' },
+] as const;
 
 export default function SettingsPage() {
+  const [tab, setTab] = useState('automation');
   useEffect(() => { document.title = 'Settings - SideLink'; }, []);
 
   return (
     <div className="sl-page animate-fadeIn">
       <PageHeader
         eyebrow="Control Center"
-        title="Settings that are structured like operations, not forms"
-        description="Auto-refresh, helper automation, desktop updates, and runtime diagnostics are grouped by intent so the page reads like a real control surface instead of a dump of toggles."
-        stats={[
-          { label: 'Refresh', value: 'Automation', tone: 'sky' },
-          { label: 'Security', value: 'Credentials', tone: 'amber' },
-          { label: 'Helper', value: 'Build + Pair', tone: 'teal' },
-        ]}
+        title="Settings"
+        description="Configure automation, security, and system preferences."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr),minmax(420px,0.98fr)] 2xl:grid-cols-[minmax(0,1fr),minmax(520px,0.95fr)]">
-        <SchedulerSettings />
-        <HelperControlPanel />
-      </div>
+      <TabBar tabs={[...TABS]} active={tab} onChange={setTab} />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <PasswordChange />
-        {isElectron ? <AppUpdateSection /> : <SystemInfo />}
-      </div>
+      {tab === 'automation' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr),minmax(420px,0.98fr)] 2xl:grid-cols-[minmax(0,1fr),minmax(520px,0.95fr)]">
+          <SchedulerSettings />
+          <HelperControlPanel />
+        </div>
+      )}
 
-      {isElectron && <DesktopResetSection />}
+      {tab === 'security' && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <PasswordChange />
+        </div>
+      )}
 
-      {isElectron && <SystemInfo />}
+      {tab === 'system' && (
+        <>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {isElectron && <AppUpdateSection />}
+            <SystemInfo />
+          </div>
+          {isElectron && <DesktopResetSection />}
+        </>
+      )}
     </div>
   );
 }
@@ -77,15 +88,21 @@ function MetricChip({ label, value, tone }: { label: string; value: string; tone
 function SchedulerSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [interval, setInterval_] = useState(30);
+  const [lastCheckAt, setLastCheckAt] = useState<string | null>(null);
+  const [checkIntervalMs, setCheckIntervalMs] = useState(1_800_000);
   const { toast } = useToast();
 
   useEffect(() => {
     api.getScheduler().then(r => {
       const c: SchedulerSnapshot | undefined = r.data;
       setEnabled(c?.enabled ?? false);
-      setInterval_(Math.round((c?.checkIntervalMs ?? 1_800_000) / 60_000));
+      const ms = c?.checkIntervalMs ?? 1_800_000;
+      setInterval_(Math.round(ms / 60_000));
+      setCheckIntervalMs(ms);
+      setLastCheckAt(c?.lastCheckAt ?? null);
       setLoading(false);
     });
   }, []);
@@ -93,7 +110,9 @@ function SchedulerSettings() {
   const save = async () => {
     setSaving(true);
     try {
-      await api.updateScheduler({ enabled, checkIntervalMs: interval * 60_000 });
+      const res = await api.updateScheduler({ enabled, checkIntervalMs: interval * 60_000 });
+      setCheckIntervalMs(interval * 60_000);
+      if (res.data?.lastCheckAt) setLastCheckAt(res.data.lastCheckAt);
       toast('success', 'Scheduler settings saved');
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to update scheduler'));
@@ -102,7 +121,43 @@ function SchedulerSettings() {
     }
   };
 
+  const resetDefaults = () => {
+    setEnabled(false);
+    setInterval_(30);
+  };
+
+  const runNow = async () => {
+    setRunningNow(true);
+    try {
+      const res = await api.triggerRefreshAll();
+      const triggered = res.data?.triggered ?? 0;
+      toast('success', `Refresh triggered for ${triggered} app${triggered !== 1 ? 's' : ''}`);
+      // Re-fetch scheduler state so "next check" updates
+      const snap = await api.getScheduler({ bypassCache: true });
+      if (snap.data?.lastCheckAt) setLastCheckAt(snap.data.lastCheckAt);
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to trigger refresh'));
+    } finally {
+      setRunningNow(false);
+    }
+  };
+
+  const nextCheckLabel = (): string | null => {
+    if (!enabled || !lastCheckAt) return null;
+    const next = new Date(new Date(lastCheckAt).getTime() + checkIntervalMs);
+    const now = Date.now();
+    const diffMs = next.getTime() - now;
+    if (diffMs <= 0) return 'Due now';
+    const mins = Math.ceil(diffMs / 60_000);
+    if (mins < 60) return `in ${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return `in ${hrs}h ${rem}m`;
+  };
+
   if (loading) return null;
+
+  const nextCheck = nextCheckLabel();
 
   return (
     <Panel title="Auto-Refresh" subtitle="Keep free-account installs renewed before expiry.">
@@ -130,14 +185,38 @@ function SchedulerSettings() {
           />
         </div>
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="sl-btn-primary flex items-center gap-2"
-        >
-          {saving && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
-          {saving ? 'Saving...' : 'Save'}
-        </button>
+        {nextCheck && (
+          <p className="text-xs text-[var(--sl-muted)]">
+            Next check: <span className="text-[var(--sl-text)]">{nextCheck}</span>
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="sl-btn-primary flex items-center gap-2"
+          >
+            {saving && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+
+          <button
+            onClick={runNow}
+            disabled={runningNow}
+            className="sl-btn-ghost flex items-center gap-2"
+          >
+            {runningNow && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/40 border-t-[var(--sl-muted)]" />}
+            {runningNow ? 'Running...' : 'Run Now'}
+          </button>
+
+          <button
+            onClick={resetDefaults}
+            className="sl-btn-ghost text-[var(--sl-muted)]"
+          >
+            Reset to defaults
+          </button>
+        </div>
       </div>
     </Panel>
   );
@@ -162,8 +241,8 @@ function PasswordChange() {
     setLoading(true);
     try {
       await api.changePassword(current, newPwd);
-      toast('success', 'Password changed. Redirecting to login...');
-      setTimeout(() => { window.location.reload(); }, 1200);
+      toast('success', 'Password changed. Please sign in again.');
+      notifyAuthStateReset('password-changed');
     } catch (e: unknown) {
       toast('error', getErrorMessage(e, 'Failed to change password'));
       setLoading(false);
@@ -231,19 +310,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 function AppUpdateSection() {
   const { updater, checkForUpdates, downloadUpdate, installUpdate, info } = useElectron();
-  const [checking, setChecking] = useState(false);
-
-  const handleCheck = () => {
-    setChecking(true);
-    checkForUpdates();
-    setTimeout(() => setChecking(false), 10_000);
-  };
-
-  useEffect(() => {
-    if (updater.status !== 'idle' && updater.status !== 'checking') {
-      setChecking(false);
-    }
-  }, [updater.status]);
+  const checking = updater.status === 'checking';
 
   const statusMessages: Record<string, { text: string; color: string }> = {
     idle: { text: 'Click to check for updates', color: 'text-[var(--sl-muted)]' },
@@ -270,7 +337,7 @@ function AppUpdateSection() {
             <button onClick={installUpdate} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">Restart and Update</button>
           )}
           {(updater.status === 'idle' || updater.status === 'not-available' || updater.status === 'error') && (
-            <button onClick={handleCheck} disabled={checking} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-1.5 text-xs font-medium text-[var(--sl-text)] disabled:opacity-50">
+            <button onClick={checkForUpdates} disabled={checking} className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-3 py-1.5 text-xs font-medium text-[var(--sl-text)] disabled:opacity-50">
               {checking && <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--sl-muted)]/30 border-t-[var(--sl-muted)]" />}
               Check for Updates
             </button>

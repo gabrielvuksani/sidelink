@@ -1179,7 +1179,8 @@ final class HelperViewModel: ObservableObject {
                     appleId: normalizedAppleId,
                     password: password,
                     accountId: nil,
-                    authType: response.authType
+                    authType: response.authType,
+                    trustedPhoneNumbers: response.trustedPhoneNumbers ?? []
                 )
                 toastMessage = "Enter the 6-digit verification code to finish adding this Apple ID"
                 return
@@ -1231,7 +1232,8 @@ final class HelperViewModel: ObservableObject {
                     appleId: account.appleId,
                     password: "",
                     accountId: accountId,
-                    authType: response.authType
+                    authType: response.authType,
+                    trustedPhoneNumbers: response.trustedPhoneNumbers ?? []
                 )
                 toastMessage = "Enter the 6-digit verification code to re-authenticate \(account.appleId)"
                 return

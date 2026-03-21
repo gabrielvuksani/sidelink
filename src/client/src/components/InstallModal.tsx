@@ -4,7 +4,7 @@ import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord } from '../lib/a
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
 import { useSSE } from '../hooks/useSSE';
-import { StatusBadge, StepIcon, ToggleSwitch } from './Shared';
+import { StatusBadge } from './Shared';
 import type { AppleAccount, IpaArtifact, DeviceInfo, InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
 
@@ -157,8 +157,6 @@ function InstallModal({
   const [selectedIpa, setSelectedIpa] = useState(warmSelection?.ipaId ?? preselect.ipaId ?? '');
   const [selectedDevice, setSelectedDevice] = useState(warmSelection?.deviceUdid ?? preselect.deviceUdid ?? '');
   const [includeExtensions, setIncludeExtensions] = useState(false);
-  const [bundleIdStrategy, setBundleIdStrategy] = useState<'randomized' | 'deterministic'>('randomized');
-  const [customDisplayName, setCustomDisplayName] = useState('');
   const [installing, setInstalling] = useState(false);
   const [activeJob, setActiveJob] = useState<InstallJob | null>(null);
   const [error, setError] = useState('');
@@ -392,8 +390,6 @@ function InstallModal({
         ipaId: selectedIpa,
         deviceUdid: selectedDevice,
         includeExtensions,
-        bundleIdStrategy,
-        customDisplayName: customDisplayName.trim() || undefined,
       });
       setActiveJob(res.data ?? null);
     } catch (e: unknown) {
@@ -803,7 +799,21 @@ function InstallModal({
                           )}
                         </p>
                       </div>
-                      <ToggleSwitch checked={includeExtensions} onChange={setIncludeExtensions} label="Include extensions" />
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={includeExtensions}
+                        onClick={() => setIncludeExtensions(!includeExtensions)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--sl-accent)]/40 ${
+                          includeExtensions ? 'bg-[var(--sl-accent)]' : 'bg-[var(--sl-surface-raised)]'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            includeExtensions ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
                     </div>
                     {includeExtensions && (
                       <p className="text-[11px] text-amber-400/80 mt-2">
@@ -812,43 +822,6 @@ function InstallModal({
                     )}
                   </div>
                 )}
-
-                {/* Bundle ID Strategy — PPQ avoidance */}
-                <div className="sl-card p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
-                      <p className="text-[13px] text-[var(--sl-text)] font-medium">Randomize Bundle ID</p>
-                      <p className="text-[11px] text-[var(--sl-muted)] mt-0.5">
-                        Prevents Apple&rsquo;s PPQ check from flagging sideloaded apps as unverified
-                      </p>
-                    </div>
-                    <ToggleSwitch checked={bundleIdStrategy === 'randomized'} onChange={(v) => setBundleIdStrategy(v ? 'randomized' : 'deterministic')} label="Randomize bundle ID" />
-                  </div>
-                  {bundleIdStrategy === 'randomized' && (
-                    <p className="text-[11px] text-emerald-400/80 mt-2">
-                      The bundle ID will be randomized so Apple cannot correlate it with known App Store apps. This is the recommended setting.
-                    </p>
-                  )}
-                  {bundleIdStrategy === 'deterministic' && (
-                    <p className="text-[11px] text-amber-400/80 mt-2">
-                      The bundle ID will use a deterministic hash. Apps may trigger Apple&rsquo;s &ldquo;Unable to Verify App&rdquo; check.
-                    </p>
-                  )}
-                </div>
-
-                {/* Custom Display Name */}
-                <div className="sl-card p-3">
-                  <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Custom Display Name</label>
-                  <input
-                    type="text"
-                    value={customDisplayName}
-                    onChange={(e) => setCustomDisplayName(e.target.value)}
-                    placeholder={selectedIpaObj?.bundleName ?? 'Leave empty to use default'}
-                    maxLength={50}
-                    className="sl-input !text-[13px]"
-                  />
-                  <p className="text-[10px] text-[var(--sl-muted)] mt-1.5">Optional. Overrides the app name shown on the home screen.</p>
-                </div>
 
                 {error && (
                   <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3">
@@ -925,4 +898,10 @@ function InstallModal({
   );
 }
 
-// StepIcon is now imported from './Shared'
+function StepIcon({ status }: { status: string }) {
+  if (status === 'completed') return <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+  if (status === 'running') return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 bg-[var(--sl-accent)] rounded-full animate-pulse" /></span>;
+  if (status === 'waiting_2fa') return <svg className="w-4 h-4 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
+  if (status === 'failed') return <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+  return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 border border-[var(--sl-muted)] rounded-full" /></span>;
+}

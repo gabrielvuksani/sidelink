@@ -22,6 +22,7 @@ const electronAPI = {
   getPlatform: (): Promise<string> => ipcRenderer.invoke(IPC.APP_PLATFORM),
   isPackaged: (): Promise<boolean> => ipcRenderer.invoke(IPC.APP_IS_PACKAGED),
   getDataDir: (): Promise<string> => ipcRenderer.invoke(IPC.APP_DATA_DIR),
+  markRendererReady: (): void => ipcRenderer.send(IPC.APP_RENDERER_READY),
   quit: (): void => ipcRenderer.send(IPC.APP_QUIT),
   relaunch: (): void => ipcRenderer.send(IPC.APP_RELAUNCH),
   resetFresh: (): Promise<void> => ipcRenderer.invoke(IPC.APP_RESET_FRESH),
@@ -38,6 +39,7 @@ const electronAPI = {
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATER_CHECK),
   downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC.UPDATER_DOWNLOAD),
   installUpdate: (): void => ipcRenderer.send(IPC.UPDATER_INSTALL),
+  getUpdaterState: (): Promise<UpdaterEvent> => ipcRenderer.invoke(IPC.UPDATER_STATE),
   onUpdaterEvent: (callback: (event: UpdaterEvent) => void): (() => void) => {
     const handler = (_: unknown, data: UpdaterEvent) => callback(data);
     ipcRenderer.on(IPC.UPDATER_EVENT, handler);

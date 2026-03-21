@@ -94,17 +94,34 @@ export class CertificateManager {
       c.name?.includes('Development'),
     );
 
-    // 3. If we have valid portal certs not in our DB, we can't use them
-    //    (we don't have the private key). We need to create a new one.
-    //    Revoke ALL existing dev certs so Apple lets us submit a fresh CSR.
-    //    (Free accounts often allow only 1 active dev cert.)
-    for (const cert of devCerts) {
+    // 3. Revoke only SideLink-managed certs when we need to make room.
+    // Never revoke unrelated portal certs automatically because that can
+    // break Xcode, AltStore, or other tools using the same Apple team.
+    const knownCerts = this.db.listCertificates(accountId);
+    const knownByPortalId = new Set(knownCerts.map((cert) => cert.portalCertificateId));
+    const knownBySerial = new Set(knownCerts.map((cert) => cert.serialNumber));
+    const sidelinkManagedPortalCerts = devCerts.filter((cert) =>
+      knownByPortalId.has(cert.certificateId) || knownBySerial.has(cert.serialNumber),
+    );
+    const unmanagedPortalCerts = devCerts.filter((cert) =>
+      !knownByPortalId.has(cert.certificateId) && !knownBySerial.has(cert.serialNumber),
+    );
+
+    for (const cert of sidelinkManagedPortalCerts) {
       try {
-        // Revoke orphan portal cert to make room for fresh CSR
+        // Revoke only our own portal certs to make room for a new CSR.
         await this.client.revokeCertificate(teamId, cert.serialNumber);
       } catch (e) {
-        // Revocation may fail (cert already gone, etc.) — continue
-        // Revocation may fail (cert already gone) — not blocking
+        // Revocation may fail (cert already gone, etc.) — continue.
+      }
+      const local = knownCerts.find((entry) =>
+        entry.portalCertificateId === cert.certificateId || entry.serialNumber === cert.serialNumber,
+      );
+      if (local && !local.revokedAt) {
+        this.db.saveCertificate({
+          ...local,
+          revokedAt: new Date().toISOString(),
+        });
       }
     }
 
@@ -112,7 +129,18 @@ export class CertificateManager {
     const { privateKeyPem, csrBase64 } = generateCSR(`SideLink (${accountId.slice(0, 8)})`);
 
     // 5. Submit CSR to Apple (this also fetches the full cert via listCertificates)
-    const appleCert = await this.client.submitCSR(teamId, csrBase64, 'SideLink');
+    let appleCert: AppleCertificate;
+    try {
+      appleCert = await this.client.submitCSR(teamId, csrBase64, 'SideLink');
+    } catch (error) {
+      if (unmanagedPortalCerts.length > 0) {
+        throw new ProvisioningError(
+          'EXTERNAL_DEV_CERT_PRESENT',
+          'Apple already has development certificates for this team that were not created by SideLink. SideLink will not revoke unrelated certificates automatically. Remove an unused development certificate in Apple or Xcode, or sign in with a different team before trying again.',
+        );
+      }
+      throw error;
+    }
 
     if (!appleCert.certContent) {
       throw new ProvisioningError(

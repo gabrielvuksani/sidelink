@@ -50,6 +50,8 @@ const sessionCache = new Map<string, CachedSession>();
 /** Sessions are considered fresh for the configured auth session TTL. */
 const SESSION_FRESHNESS_MS = DEFAULTS.authSessionTtlHours * 60 * 60 * 1000;
 
+type AccountChangeListener = () => void;
+
 function parseMyacinfoToken(cookiesJson?: string): string | null {
   if (!cookiesJson) return null;
 
@@ -102,6 +104,8 @@ function buildPersistedSession(account: AppleAccount): AuthSession | null {
 }
 
 export class AppleAccountService {
+  private listeners: AccountChangeListener[] = [];
+
   constructor(
     private db: Database,
     private logs: LogService,
@@ -124,6 +128,13 @@ export class AppleAccountService {
     return this.db.getAppleAccount(accountId) ?? null;
   }
 
+  onChange(listener: AccountChangeListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((entry) => entry !== listener);
+    };
+  }
+
   /**
    * Remove an Apple account and all associated data.
    */
@@ -131,6 +142,7 @@ export class AppleAccountService {
     sessionCache.delete(accountId);
     this.db.deleteAppleAccount(accountId);
     this.logs.info(LOG_CODES.APPLE_AUTH_SUCCESS, 'Apple account removed', { accountId });
+    this.notifyChange();
   }
 
   // ─── Authentication Flow ────────────────────────────────────────
@@ -284,6 +296,7 @@ export class AppleAccountService {
         sessionId: result.session.sessionId,
         status: 'active',
       });
+      this.notifyChange();
 
       // Cache the fresh session
       sessionCache.set(accountId, { session: result.session, cachedAt: Date.now() });
@@ -298,6 +311,7 @@ export class AppleAccountService {
         this.db.updateAppleAccountStatus(accountId, 'requires_2fa');
         // Store pending session so pipeline 2FA flow can complete
         storePendingSession(account.appleId, error.partialSession as AuthSession);
+        this.notifyChange();
       }
       throw error;
     }
@@ -335,6 +349,7 @@ export class AppleAccountService {
       if (error instanceof Apple2FARequiredError) {
         this.db.updateAppleAccountStatus(accountId, 'requires_2fa');
         storePendingSession(account.appleId, error.partialSession as AuthSession);
+        this.notifyChange();
       }
       throw error;
     }
@@ -403,6 +418,18 @@ export class AppleAccountService {
       appleId, teamId: team.teamId, accountType,
     });
 
-    return this.db.getAppleAccount(accountId)!;
+    const account = this.db.getAppleAccount(accountId)!;
+    this.notifyChange();
+    return account;
+  }
+
+  private notifyChange(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.warn('[apple-account-service] Listener error:', error);
+      }
+    }
   }
 }

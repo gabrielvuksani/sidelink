@@ -123,6 +123,8 @@ export function setupAutoUpdater(): void {
     autoUpdater.quitAndInstall();
   });
 
+  ipcMain.handle(IPC.UPDATER_STATE, async () => lastStatus);
+
   // ── Auto-updater event → IPC bridge ────────────────────────────────
 
   if (!ensureAutoUpdater()) return;

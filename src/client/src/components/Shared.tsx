@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 
 // ─── Shared UI Components ────────────────────────────────────────────
@@ -277,6 +277,198 @@ export function relativeTime(dateInput: string | number | Date): string {
   if (days < 7) return `${days}d ago`;
 
   return date.toLocaleDateString();
+}
+
+/** Debounced search input with icon */
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = 'Search...',
+  className = '',
+  debounceMs = 200,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  debounceMs?: number;
+}) {
+  const [local, setLocal] = useState(value);
+  const timerRef = useRef<number>();
+
+  useEffect(() => { setLocal(value); }, [value]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.value;
+    setLocal(next);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => onChange(next), debounceMs);
+  }, [onChange, debounceMs]);
+
+  useEffect(() => () => { if (timerRef.current) window.clearTimeout(timerRef.current); }, []);
+
+  return (
+    <div className={`relative ${className}`}>
+      <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--sl-muted)] pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <input
+        type="text"
+        value={local}
+        onChange={handleChange}
+        placeholder={placeholder}
+        className="sl-search-input"
+      />
+      {local && (
+        <button
+          onClick={() => { setLocal(''); onChange(''); }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--sl-muted)] hover:text-[var(--sl-text)] transition-colors"
+          aria-label="Clear search"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Horizontal pipeline stepper */
+export function PipelineStepper({
+  steps,
+}: {
+  steps: Array<{ name: string; status: string; error?: string }>;
+}) {
+  return (
+    <div className="flex items-center gap-0 overflow-x-auto pb-1">
+      {steps.map((step, i) => {
+        const isLast = i === steps.length - 1;
+        const statusColor = step.status === 'completed' ? 'text-emerald-400' :
+          step.status === 'running' ? 'text-indigo-400' :
+          step.status === 'waiting_2fa' ? 'text-amber-400' :
+          step.status === 'failed' ? 'text-red-400' : 'text-[var(--sl-muted)]';
+        const connectorColor = step.status === 'completed' ? 'bg-emerald-400/40' : 'bg-[var(--sl-border)]';
+
+        return (
+          <div key={i} className="flex items-center shrink-0">
+            <div className="flex items-center gap-1.5 px-2">
+              <StepIcon status={step.status} />
+              <span className={`text-[11px] font-medium whitespace-nowrap ${statusColor}`}>{step.name}</span>
+            </div>
+            {!isLast && <div className={`w-6 h-[2px] shrink-0 ${connectorColor}`} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Expiry countdown badge */
+export function ExpiryBadge({ expiresAt }: { expiresAt: string }) {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+
+  if (ms <= 0) return <span className="sl-badge sl-badge-danger">Expired</span>;
+  if (days <= 1) return <span className="sl-badge sl-badge-danger">{hours}h left</span>;
+  if (days <= 3) return <span className="sl-badge sl-badge-warning">{days}d left</span>;
+  if (days <= 7) return <span className="sl-badge sl-badge-info">{days}d left</span>;
+  return <span className="sl-badge sl-badge-success">{days}d left</span>;
+}
+
+/** Drag-and-drop file zone */
+export function DropZone({
+  onDrop,
+  accept = '.ipa',
+  children,
+  className = '',
+}: {
+  onDrop: (files: FileList) => void;
+  accept?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [active, setActive] = useState(false);
+  const counter = useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); counter.current++; setActive(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); counter.current--; if (counter.current <= 0) { setActive(false); counter.current = 0; } };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setActive(false);
+    counter.current = 0;
+    if (e.dataTransfer.files.length > 0) onDrop(e.dataTransfer.files);
+  };
+
+  return (
+    <div
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className={`sl-dropzone ${active ? 'sl-dropzone-active' : ''} ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Collapsible section */
+export function Collapsible({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between py-2 text-left"
+      >
+        <span className="text-[13px] font-semibold text-[var(--sl-text)]">{title}</span>
+        <svg className={`h-4 w-4 text-[var(--sl-muted)] transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      {open && <div className="animate-fadeIn">{children}</div>}
+    </div>
+  );
+}
+
+/** Tab bar component */
+export function TabBar({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: Array<{ id: string; label: string; count?: number }>;
+  active: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="sl-tab-bar">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          data-active={active === tab.id}
+          onClick={() => onChange(tab.id)}
+          className="flex items-center justify-center gap-1.5"
+        >
+          {tab.label}
+          {tab.count !== undefined && (
+            <span className="text-[10px] opacity-60">{tab.count}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** Password input with show/hide toggle */

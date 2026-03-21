@@ -18,6 +18,7 @@ struct APIEnvelope<T: Decodable>: Decodable {
 
 struct PairResponse: Decodable {
     let token: String
+    let backendUrl: String?
     let apiBasePath: String?
     let serverName: String?
     let serverVersion: String?
@@ -87,6 +88,7 @@ struct AccountDTO: Decodable, Identifiable {
 struct HelperAppleAuthPayloadDTO: Decodable {
     let requires2FA: Bool?
     let authType: String?
+    let trustedPhoneNumbers: [AppleTrustedPhoneNumberDTO]?
     let id: String?
     let appleId: String?
     let teamId: String?
@@ -118,6 +120,11 @@ struct HelperAppleAuthPayloadDTO: Decodable {
             createdAt: createdAt
         )
     }
+}
+
+struct AppleTrustedPhoneNumberDTO: Decodable, Identifiable {
+    let id: Int
+    let numberWithDialCode: String
 }
 
 struct IpaArtifactDTO: Decodable, Identifiable {
@@ -382,6 +389,7 @@ struct DiscoveryBroadcastDTO: Decodable {
     let name: String
     let port: Int
     let addresses: [String]
+    let apiBasePath: String?
     let timestamp: String
 }
 

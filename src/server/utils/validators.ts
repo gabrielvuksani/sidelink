@@ -80,6 +80,19 @@ function optionalBoolean(obj: Record<string, unknown>, field: string): boolean |
   return undefined;
 }
 
+function optionalEnum<T extends string>(
+  obj: Record<string, unknown>,
+  field: string,
+  allowed: readonly T[],
+): T | undefined {
+  const value = optionalString(obj, field, { maxLength: 64 });
+  if (value === undefined) return undefined;
+  if ((allowed as readonly string[]).includes(value)) {
+    return value as T;
+  }
+  throw new ValidationError(`${field} must be one of: ${allowed.join(', ')}`);
+}
+
 // ── Route-specific validators ────────────────────────────────────────
 
 export const validators = {
@@ -122,10 +135,16 @@ export const validators = {
   apple2FA: validateBody((body) => {
     const code = requireString(body, 'code', { maxLength: 6, label: '2FA code' });
     if (!/^\d{6}$/.test(code)) throw new ValidationError('2FA code must be exactly 6 digits');
+    const method = optionalEnum(body, 'method', ['totp', 'sms'] as const);
+    const phoneId = body.phoneId === undefined && body.phoneNumberId === undefined
+      ? undefined
+      : requireNumber(body, body.phoneId !== undefined ? 'phoneId' : 'phoneNumberId', { min: 0, max: 100, label: 'Phone ID' });
     return {
       appleId: requireString(body, 'appleId', { maxLength: 254 }),
       password: requireString(body, 'password', { maxLength: 256 }),
       code,
+      method,
+      phoneId,
     };
   }),
 
@@ -136,19 +155,31 @@ export const validators = {
     return { code };
   }),
 
-  /** POST /api/apple/2fa/sms — { appleId, phoneNumberId } */
-  appleSMS: validateBody((body) => ({
-    appleId: requireString(body, 'appleId', { maxLength: 254 }),
-    phoneNumberId: requireNumber(body, 'phoneNumberId', { min: 0, max: 100 }),
-  })),
+  /** POST /api/apple/2fa/sms — { appleId, phoneNumberId|phoneId } */
+  appleSMS: validateBody((body) => {
+    const phoneIdField = body.phoneId !== undefined ? 'phoneId' : 'phoneNumberId';
+    return {
+      appleId: requireString(body, 'appleId', { maxLength: 254 }),
+      phoneId: requireNumber(body, phoneIdField, { min: 0, max: 100, label: 'Phone ID' }),
+    };
+  }),
 
   /** POST /api/install — { accountId, ipaId, deviceUdid, includeExtensions? } */
-  startInstall: validateBody((body) => ({
-    accountId: requireString(body, 'accountId', { maxLength: 64, label: 'Account ID' }),
-    ipaId: requireString(body, 'ipaId', { maxLength: 64, label: 'IPA ID' }),
-    deviceUdid: requireString(body, 'deviceUdid', { maxLength: 64, label: 'Device UDID' }),
-    includeExtensions: optionalBoolean(body, 'includeExtensions') ?? false,
-  })),
+  startInstall: validateBody((body) => {
+    const bundleIdStrategy = optionalString(body, 'bundleIdStrategy', { maxLength: 32 });
+    if (bundleIdStrategy && bundleIdStrategy !== 'deterministic' && bundleIdStrategy !== 'randomized') {
+      throw new ValidationError('Bundle ID strategy must be deterministic or randomized');
+    }
+
+    return {
+      accountId: requireString(body, 'accountId', { maxLength: 64, label: 'Account ID' }),
+      ipaId: requireString(body, 'ipaId', { maxLength: 64, label: 'IPA ID' }),
+      deviceUdid: requireString(body, 'deviceUdid', { maxLength: 64, label: 'Device UDID' }),
+      includeExtensions: optionalBoolean(body, 'includeExtensions') ?? false,
+      bundleIdStrategy: bundleIdStrategy ?? 'randomized',
+      customDisplayName: optionalString(body, 'customDisplayName', { maxLength: 50 }),
+    };
+  }),
 
   /** POST /api/install/jobs/:id/2fa — { code } */
   jobTwoFA: validateBody((body) => {

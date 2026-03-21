@@ -22,7 +22,6 @@ import type { DeviceService } from '../services/device-service';
 import type { IpaService } from '../services/ipa-service';
 import type { EncryptionProvider } from '../types';
 import { signIpa } from '../signing';
-import { AppIdManager } from '../services/app-id-manager';
 import type {
   InstallJob,
   PipelineStep,
@@ -248,8 +247,6 @@ export async function startInstallPipeline(
     ipaId: string;
     deviceUdid: string;
     includeExtensions?: boolean;
-    bundleIdStrategy?: 'deterministic' | 'randomized';
-    customDisplayName?: string;
   },
 ): Promise<InstallJob> {
   const { db, logs, accounts, provisioning, devices, ipas, encryption } = deps;
@@ -263,8 +260,6 @@ export async function startInstallPipeline(
     ipaId: params.ipaId,
     deviceUdid: params.deviceUdid,
     includeExtensions: params.includeExtensions ?? false,
-    bundleIdStrategy: params.bundleIdStrategy ?? 'randomized',
-    customDisplayName: params.customDisplayName ?? null,
     status: 'queued',
     currentStep: null,
     steps: PIPELINE_STEPS.map(step => ({
@@ -406,43 +401,13 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
           ? (currentIpa.extensions ?? []).map(e => e.bundleId)
           : [];
 
-        // Resolve bundle ID based on strategy — check for existing mapping first
-        const existingMapping = db.getBundleIdMapping(
-          job.accountId, currentAccount.teamId, job.deviceUdid, currentIpa.bundleId,
-        );
-
-        const appIdMgr = new AppIdManager(db, logs);
-        const resolvedBundleId = appIdMgr.resolveBundleId(
-          currentIpa.bundleId,
-          currentAccount.teamId,
-          job.bundleIdStrategy,
-          existingMapping,
-        );
-
-        // Save the bundle ID mapping for future refreshes
-        if (!existingMapping) {
-          db.saveBundleIdMapping({
-            id: randomUUID(),
-            accountId: job.accountId,
-            teamId: currentAccount.teamId,
-            deviceUdid: job.deviceUdid,
-            originalBundleId: currentIpa.bundleId,
-            effectiveBundleId: resolvedBundleId,
-            strategy: job.bundleIdStrategy,
-            displayName: job.customDisplayName,
-            createdAt: new Date().toISOString(),
-          });
-        }
-
-        logJobLine(job, 'info', `Bundle ID strategy: ${job.bundleIdStrategy} → ${resolvedBundleId}`, 'provision');
-
         return provisioning.provision(
           devClient,
           currentAccount,
           job.deviceUdid,
           devices.get(job.deviceUdid)?.name ?? 'Unknown Device',
           currentIpa.bundleId,
-          job.customDisplayName || currentIpa.bundleName,
+          currentIpa.bundleName,
           extensionBundleIds,
         );
       };
@@ -500,7 +465,6 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
               profileData: Buffer.from(ep.profile.profileData, 'base64'),
             }))
           : [],
-        customDisplayName: job.customDisplayName ?? undefined,
       });
 
       signedIpaPath = signingResult.signedIpaPath;

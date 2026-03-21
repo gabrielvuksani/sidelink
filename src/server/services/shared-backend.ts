@@ -1,10 +1,9 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
-import { readFileSync } from 'node:fs';
 import type { AppContext } from '../context';
 import { startInstallPipeline } from '../pipeline';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
 import { notifyInstalledAppsChanged } from './installed-app-events';
+import trustedSourcesData from '../data/trusted-sources.json';
 
 type SafeAppleAccountInput = {
   id: string;
@@ -78,7 +77,7 @@ export function listAppleAppIdUsage(ctx: AppContext) {
     teamId: account.teamId,
     active: ctx.db.countActiveAppIds(account.id, account.teamId),
     weeklyCreated: ctx.db.countAppIdsCreatedSince(account.id, account.teamId, sevenDaysAgoIso),
-    maxActive: FREE_ACCOUNT_LIMITS.maxAppIds,
+    maxActive: FREE_ACCOUNT_LIMITS.maxActiveAppIds,
     maxWeekly: FREE_ACCOUNT_LIMITS.maxNewAppIdsPerWeek,
   }));
 }
@@ -115,8 +114,7 @@ export function listAppleCertificates(ctx: AppContext) {
 }
 
 export function listTrustedSources() {
-  const filePath = path.join(process.cwd(), 'src', 'server', 'data', 'trusted-sources.json');
-  return JSON.parse(readFileSync(filePath, 'utf8'));
+  return trustedSourcesData;
 }
 
 export async function deactivateInstalledApp(ctx: AppContext, id: string) {

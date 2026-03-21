@@ -308,6 +308,7 @@ export interface InstallRequest {
   ipaId: string;
   deviceUdid: string;
   accountId: string;
+  includeExtensions?: boolean;
   mode?: 'full' | 'resign-only';
   bundleIdStrategy?: BundleIdStrategy;
   customDisplayName?: string;
@@ -441,6 +442,10 @@ export interface HelperDoctorSnapshot {
   appleAuthReady?: boolean;
   appleAuthError?: string | null;
   helperPaired?: boolean;
+  helperTokenSource?: 'db' | 'env' | 'none';
+  helperPairedAt?: string | null;
+  pairingCodeExpiresAt?: string | null;
+  pairingCodeActive?: boolean;
   detectedTeamId?: string | null;
   detectedTeamIdSource?: 'request' | 'env' | 'apple-account-authenticated' | 'apple-account-any' | 'xcode-signing-identity' | 'none';
 }
@@ -448,6 +453,47 @@ export interface HelperDoctorSnapshot {
 export interface HealthSnapshot {
   status: string;
   uptime: number;
+}
+
+export interface HelperPairingStateSnapshot {
+  paired: boolean;
+  tokenSource: 'db' | 'env' | 'none';
+  pairedAt: string | null;
+  pairingCodeExpiresAt: string | null;
+  pairingCodeActive: boolean;
+}
+
+export interface DesktopHealthSnapshot {
+  runtime: {
+    status: string;
+    uptime: number;
+    version: string;
+    setupComplete: boolean;
+  };
+  helper: {
+    doctor: HelperDoctorSnapshot;
+    pairing: HelperPairingStateSnapshot;
+  };
+  accounts: {
+    total: number;
+    active: number;
+    needsAttention: number;
+  };
+  devices: {
+    total: number;
+    online: number;
+    paired: number;
+  };
+  installs: {
+    running: number;
+    waitingFor2FA: number;
+    recentFailures: number;
+  };
+  scheduler: SchedulerSnapshot;
+  readiness: {
+    overall: boolean;
+    issues: string[];
+  };
 }
 
 // ─── SSE Events ─────────────────────────────────────────────────────

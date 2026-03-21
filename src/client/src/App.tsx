@@ -47,9 +47,9 @@ export default function App() {
 
   // Register global 401 handler
   useEffect(() => {
-    setSessionExpiredHandler(() => {
+    setSessionExpiredHandler((reason) => {
       setAuthState(s => ({ ...s, authenticated: false }));
-      setSessionExpiredMsg(true);
+      setSessionExpiredMsg(reason === 'session-expired');
     });
   }, []);
 
@@ -158,6 +158,7 @@ function DeepLinkHandler() {
         navigate(qs ? `${route}?${qs}` : route);
       }
     });
+    api.markRendererReady?.();
 
     return unsub;
   }, [navigate]);

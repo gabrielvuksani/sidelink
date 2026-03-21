@@ -13,7 +13,8 @@ import { consumePairingCode } from './services/helper-pairing-service';
 import { AppError } from './utils/errors';
 import './types'; // Express Request augmentation
 import { redact } from './utils/redaction';
-import { authRateLimit, generalRateLimit, csrfProtection } from './utils/security';
+import { authRateLimit, generalRateLimit, csrfProtection, helperPairRateLimit } from './utils/security';
+import { resolveHelperBackendContext } from './utils/network';
 
 export function createApp(ctx: AppContext): express.Express {
   const app = express();
@@ -99,7 +100,7 @@ export function createApp(ctx: AppContext): express.Express {
   app.use('/api/helper', helperRoutes(ctx));
 
   // Public pairing endpoint for iOS onboarding (plan compatibility)
-  app.post('/api/system/pair', (req, res) => {
+  app.post('/api/system/pair', helperPairRateLimit, (req, res) => {
     const code = String(req.body?.code ?? '').trim();
     if (!/^\d{6}$/.test(code)) {
       return res.status(400).json({ ok: false, error: 'Pairing code must be 6 digits' });
@@ -110,11 +111,29 @@ export function createApp(ctx: AppContext): express.Express {
       return res.status(401).json({ ok: false, error: 'Invalid or expired pairing code' });
     }
 
+    const envOverride = process.env.SIDELINK_HELPER_BACKEND_URL?.trim();
+    const backend = envOverride
+      ? {
+          backendUrl: envOverride,
+          apiBasePath: (() => {
+            try {
+              const url = new URL(envOverride);
+              const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '');
+              return pathname || '';
+            } catch {
+              return '';
+            }
+          })(),
+        }
+      : resolveHelperBackendContext(req, '/api/system/pair');
+
     res.json({
       ok: true,
       data: {
         token: paired.token,
-        serverName: 'SideLink',
+        backendUrl: backend.backendUrl,
+        apiBasePath: backend.apiBasePath || null,
+        serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
         serverVersion: process.env.npm_package_version ?? '1.0.0',
       },
     });

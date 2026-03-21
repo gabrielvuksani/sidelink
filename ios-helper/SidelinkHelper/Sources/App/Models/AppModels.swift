@@ -18,12 +18,15 @@ struct PendingAppleAuthContext {
 	let password: String
 	let accountId: String?
 	let authType: String?
+	let trustedPhoneNumbers: [AppleTrustedPhoneNumberDTO]
 }
 
 struct HelperPairingPayload: Decodable {
 	let code: String
 	let backendUrl: String
+	let apiBasePath: String?
 	let serverName: String?
+	let serverVersion: String?
 }
 
 struct SourceCatalog: Identifiable {
