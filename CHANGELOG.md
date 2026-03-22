@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-03-21
+
+### Fixed
+
+- Confirmed first-launch onboarding wizard flow works correctly with account creation, Apple ID setup, device detection, and IPA upload steps.
+
 ## [0.4.0] - 2026-03-21
 
 ### Changed
