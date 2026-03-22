@@ -4,11 +4,12 @@ import { getErrorMessage } from '../lib/errors';
 import { BrandIcon } from '../components/BrandIcon';
 import { PasswordInput } from '../components/Shared';
 
-export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => void; sessionExpired?: boolean }) {
+export default function LoginPage({ onLogin, onReset, sessionExpired }: { onLogin: () => void; onReset?: () => void; sessionExpired?: boolean }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => { document.title = 'Sign In — SideLink'; }, []);
 
@@ -79,7 +80,30 @@ export default function LoginPage({ onLogin, sessionExpired }: { onLogin: () => 
           </div>
         </div>
 
-        <div className="mt-6 text-center">
+        {onReset && (
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              disabled={resetting}
+              onClick={async () => {
+                setResetting(true);
+                try {
+                  await api.resetAuth();
+                  onReset();
+                } catch (err: unknown) {
+                  setError(getErrorMessage(err, 'Reset failed'));
+                } finally {
+                  setResetting(false);
+                }
+              }}
+              className="text-[12px] text-[var(--sl-muted)] hover:text-[var(--sl-accent)] transition-colors"
+            >
+              {resetting ? 'Resetting...' : 'Forgot credentials? Reset & start fresh'}
+            </button>
+          </div>
+        )}
+
+        <div className="mt-4 text-center">
           <p className="text-[11px] text-[var(--sl-muted)]/50">SideLink</p>
           <p className="mt-0.5 text-[10px] text-[var(--sl-muted)]/30">iOS Sideloading Manager</p>
         </div>

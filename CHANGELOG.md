@@ -2,6 +2,10 @@
 
 ## [0.4.1] - 2026-03-21
 
+### Added
+
+- Added "Forgot credentials? Reset & start fresh" option on the login page that clears the admin account and re-triggers the setup wizard, solving the issue where persisted data from a previous install shows a login screen instead of onboarding on a fresh DMG launch.
+
 ### Fixed
 
 - Confirmed first-launch onboarding wizard flow works correctly with account creation, Apple ID setup, device detection, and IPA upload steps.

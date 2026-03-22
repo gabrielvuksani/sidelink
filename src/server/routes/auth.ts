@@ -91,5 +91,17 @@ export function authRoutes(ctx: AppContext): Router {
     }
   });
 
+  // Factory reset — wipe admin user to re-trigger setup wizard
+  // Only allowed when no valid session exists (unauthenticated)
+  router.post('/reset', async (_req, res, next) => {
+    try {
+      ctx.auth.resetAllUsers();
+      res.clearCookie('sidelink_session');
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }

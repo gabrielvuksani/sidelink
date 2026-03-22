@@ -324,6 +324,7 @@ export const api = {
   login: (username: string, password: string) =>
     request<UserSession>('POST', '/auth/login', { username, password }),
   logout: () => request('POST', '/auth/logout'),
+  resetAuth: () => request('POST', '/auth/reset'),
   changePassword: (currentPassword: string, newPassword: string) =>
     request('POST', '/auth/password', { currentPassword, newPassword }),
 

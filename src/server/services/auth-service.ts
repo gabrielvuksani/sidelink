@@ -108,6 +108,16 @@ export class AuthService {
     this.db.prepare('DELETE FROM sessions WHERE token = ?').run(tokenHash);
   }
 
+  /**
+   * Wipe all users and sessions to re-trigger the setup wizard.
+   */
+  resetAllUsers(): void {
+    this.db.prepare('DELETE FROM sessions').run();
+    this.db.prepare('DELETE FROM auth_attempts').run();
+    this.db.prepare('DELETE FROM users').run();
+    this.logs.info(LOG_CODES.ADMIN_LOGIN, 'All users cleared — setup wizard will re-appear');
+  }
+
   // ─── Session Validation ─────────────────────────────────────────
 
   /**

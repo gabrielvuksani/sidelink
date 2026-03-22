@@ -94,6 +94,7 @@ export default function App() {
       <ToastProvider>
         <LoginPage
           onLogin={() => { setAuthState(s => ({ ...s, authenticated: true })); setSessionExpiredMsg(false); }}
+          onReset={() => setAuthState(s => ({ ...s, setupComplete: false, authenticated: false }))}
           sessionExpired={sessionExpiredMsg}
         />
       </ToastProvider>
