@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-03-22
+
+### Fixed
+
+- **Version reporting in packaged builds**: All endpoints that report server version now use `SIDELINK_APP_VERSION` with fallback chain, fixing `1.0.0` version strings in pairing codes, helper handshake, desktop health, and system info responses.
+- **CSP enforcement**: Fixed logic inversion that disabled Content-Security-Policy in packaged builds when devtools were disabled (the exact opposite of intended behavior). CSP now always applies in packaged mode.
+- **SPA fallback error handling**: `sendFile` for index.html now properly forwards errors to Express error handler instead of silently calling `next()` without context.
+- **ExpiryBadge accuracy**: Fixed hours calculation that showed total hours instead of remaining hours within the day, and added `<1h` display for sub-hour expiry.
+- **Accessibility**: Added `aria-expanded` to Collapsible component for screen readers.
+
 ## [0.4.4] - 2026-03-21
 
 ### Fixed

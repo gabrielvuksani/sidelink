@@ -173,7 +173,7 @@ export function systemRoutes(ctx: AppContext): Router {
   router.post('/helper/pairing-code', (req, res) => {
     const pair = createPairingCode(ctx);
     const serverName = process.env.SIDELINK_SERVER_NAME ?? 'SideLink';
-    const serverVersion = process.env.npm_package_version ?? '1.0.0';
+    const serverVersion = process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0';
     const envOverride = process.env.SIDELINK_HELPER_BACKEND_URL?.trim();
     const backend = envOverride
       ? {
@@ -217,7 +217,7 @@ export function systemRoutes(ctx: AppContext): Router {
     const runtime = {
       status: 'ok',
       uptime: process.uptime(),
-      version: process.env.npm_package_version ?? '1.0.0',
+      version: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
       setupComplete: ctx.auth.isSetupComplete(),
     };
     const doctor = await buildHelperDoctorSnapshot(ctx);

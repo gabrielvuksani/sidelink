@@ -150,7 +150,7 @@ export function helperRoutes(ctx: AppContext): Router {
       ok: true,
       data: {
         serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
-        serverVersion: process.env.npm_package_version ?? '1.0.0',
+        serverVersion: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
         schedulerEnabled: scheduler.enabled,
         schedulerCheckIntervalMs: scheduler.checkIntervalMs,
         capabilities: {

@@ -82,7 +82,7 @@ export function createApp(ctx: AppContext): express.Express {
       data: {
         status: 'ok',
         uptime: process.uptime(),
-        version: process.env.npm_package_version ?? '1.0.0',
+        version: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
         node: process.version,
         platform: process.platform,
         arch: process.arch,
@@ -134,7 +134,7 @@ export function createApp(ctx: AppContext): express.Express {
         backendUrl: backend.backendUrl,
         apiBasePath: backend.apiBasePath || null,
         serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
-        serverVersion: process.env.npm_package_version ?? '1.0.0',
+        serverVersion: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
       },
     });
   });
@@ -188,7 +188,7 @@ export function createApp(ctx: AppContext): express.Express {
     // Only serve index.html for non-API routes
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(resolvedClientDir, 'index.html'), err => {
-      if (err) next(); // Fall through if file doesn't exist
+      if (err) next(err);
     });
   });
 

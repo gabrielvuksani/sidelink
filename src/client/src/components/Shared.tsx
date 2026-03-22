@@ -368,11 +368,12 @@ export function PipelineStepper({
 export function ExpiryBadge({ expiresAt }: { expiresAt: string }) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   const days = Math.floor(ms / (1000 * 60 * 60 * 24));
-  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const totalHours = Math.floor(ms / (1000 * 60 * 60));
 
   if (ms <= 0) return <span className="sl-badge sl-badge-danger">Expired</span>;
-  if (days <= 1) return <span className="sl-badge sl-badge-danger">{hours}h left</span>;
-  if (days <= 3) return <span className="sl-badge sl-badge-warning">{days}d left</span>;
+  if (days < 1) return <span className="sl-badge sl-badge-danger">{totalHours < 1 ? '<1h' : `${totalHours}h`} left</span>;
+  if (days <= 3) return <span className="sl-badge sl-badge-warning">{days}d {hours}h left</span>;
   if (days <= 7) return <span className="sl-badge sl-badge-info">{days}d left</span>;
   return <span className="sl-badge sl-badge-success">{days}d left</span>;
 }
@@ -430,6 +431,7 @@ export function Collapsible({
     <div>
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between py-2 text-left"
       >
         <span className="text-[13px] font-semibold text-[var(--sl-text)]">{title}</span>

@@ -404,8 +404,8 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // Enforce CSP in production Electron renderer
-  if (!app.isPackaged || readEnv('SIDELINK_DEVTOOLS') !== '1') {
+  // Enforce CSP in Electron renderer (always in packaged, optionally skip in dev)
+  if (app.isPackaged || readEnv('SIDELINK_DEVTOOLS') !== '1') {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
