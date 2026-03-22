@@ -28,34 +28,74 @@ export class AuthService {
    * On startup, compare the stored setup version against the running app version.
    * If the major.minor changed (upgrade or stale dev DB), wipe auth so the
    * onboarding wizard re-appears instead of a login wall.
+   *
+   * If version detection fails entirely, fall back to checking whether any
+   * valid sessions exist — if an admin exists but nobody has ever logged in
+   * successfully, treat it as stale state and wipe.
    */
   private migrateAuthOnVersionChange(): void {
     const currentVersion = this.getAppMajorMinor();
-    if (!currentVersion) return; // can't detect version — skip
 
-    const storedVersion = this.db.getSetting('auth_setup_version');
+    if (currentVersion) {
+      const storedVersion = this.db.getSetting('auth_setup_version');
 
-    if (storedVersion === currentVersion) return; // same version — nothing to do
+      if (storedVersion === currentVersion) return; // same version — nothing to do
 
-    if (this.isSetupComplete()) {
-      // Version changed while an admin exists — clear auth for fresh onboarding
-      this.logs.info(LOG_CODES.ADMIN_LOGIN,
-        `App version changed (${storedVersion ?? 'none'} → ${currentVersion}), clearing credentials for fresh setup`);
-      this.resetAllUsers();
+      if (this.isSetupComplete()) {
+        this.logs.info(LOG_CODES.ADMIN_LOGIN,
+          `App version changed (${storedVersion ?? 'none'} → ${currentVersion}), clearing credentials for fresh setup`);
+        this.resetAllUsers();
+      }
+
+      this.db.setSetting('auth_setup_version', currentVersion);
+      return;
     }
 
-    this.db.setSetting('auth_setup_version', currentVersion);
+    // Version detection failed — fallback: if admin exists but has no valid
+    // sessions, treat as stale (e.g. leftover dev database or corrupted state)
+    if (this.isSetupComplete() && !this.hasAnyValidSession()) {
+      this.logs.info(LOG_CODES.ADMIN_LOGIN,
+        'Version detection failed and no valid sessions exist — clearing stale credentials for fresh setup');
+      this.resetAllUsers();
+    }
+  }
+
+  private hasAnyValidSession(): boolean {
+    const now = new Date().toISOString();
+    const row = this.db.prepare<[string], { count: number }>(
+      'SELECT COUNT(*) as count FROM sessions WHERE expires_at > ?',
+    ).get(now);
+    return (row?.count ?? 0) > 0;
   }
 
   private getAppMajorMinor(): string | null {
+    // Try multiple sources in priority order
+
+    // 1. SIDELINK_APP_VERSION env var (set by Electron main process)
+    const envVersion = process.env.SIDELINK_APP_VERSION;
+    if (envVersion) {
+      const parts = envVersion.split('.');
+      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
+    }
+
+    // 2. npm_package_version (available when run via npm scripts)
+    const npmVersion = process.env.npm_package_version;
+    if (npmVersion) {
+      const parts = npmVersion.split('.');
+      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
+    }
+
+    // 3. require package.json (works in dev, may fail in packaged app)
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pkg = require('../../../package.json') as { version?: string };
       const parts = (pkg.version ?? '').split('.');
-      return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : null;
+      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
     } catch {
-      return null;
+      // Expected to fail in packaged/asar builds
     }
+
+    return null;
   }
 
   // ─── Password Management ────────────────────────────────────────

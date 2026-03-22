@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.4] - 2026-03-21
+
+### Fixed
+
+- Fixed version detection in packaged DMG builds: `require('../../../package.json')` fails inside asar bundles, causing the auth migration to silently skip and stale credentials to persist. Now uses `SIDELINK_APP_VERSION` env var set by Electron main process as primary source, with npm and require as fallbacks.
+- Added session-based fallback: if version detection fails entirely, checks whether any valid sessions exist. If admin credentials exist but no sessions, treats it as stale state and clears for fresh onboarding.
+- Fixed CSRF protection blocking the setup wizard: `POST /api/auth/setup` and `/api/auth/reset` were not in the CSRF skip list, causing the initial account creation to fail with a 403 on the first request before the CSRF cookie was set.
+- Set `SIDELINK_APP_VERSION` env var from Electron's `app.getVersion()` so the server always knows the running version regardless of file path resolution.
+
 ## [0.4.3] - 2026-03-21
 
 ### Fixed

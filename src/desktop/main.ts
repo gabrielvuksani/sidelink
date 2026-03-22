@@ -163,6 +163,7 @@ async function startBackend(): Promise<string> {
   // Set env variables the server will read
   process.env.SIDELINK_DATA_DIR = readEnv('SIDELINK_DATA_DIR') ?? defaultDataDir;
   process.env.SIDELINK_PORT = String(safePort);
+  process.env.SIDELINK_APP_VERSION = app.getVersion();
 
   // Point static file serving at the built React client
   process.env.SIDELINK_CLIENT_DIR = app.isPackaged
