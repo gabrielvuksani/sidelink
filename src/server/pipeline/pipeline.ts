@@ -31,6 +31,7 @@ import type {
   JobStatus,
   JobLogEntry,
   LogLevel,
+  BundleIdStrategy,
 } from '../../shared/types';
 import { PIPELINE_STEPS, LOG_CODES } from '../../shared/constants';
 import { PipelineError, DeviceError, SigningError, Apple2FARequiredError, ProvisioningError } from '../utils/errors';
@@ -247,6 +248,8 @@ export async function startInstallPipeline(
     ipaId: string;
     deviceUdid: string;
     includeExtensions?: boolean;
+    bundleIdStrategy?: BundleIdStrategy;
+    customDisplayName?: string;
   },
 ): Promise<InstallJob> {
   const { db, logs, accounts, provisioning, devices, ipas, encryption } = deps;
@@ -260,6 +263,8 @@ export async function startInstallPipeline(
     ipaId: params.ipaId,
     deviceUdid: params.deviceUdid,
     includeExtensions: params.includeExtensions ?? false,
+    bundleIdStrategy: params.bundleIdStrategy ?? 'randomized',
+    customDisplayName: params.customDisplayName ?? null,
     status: 'queued',
     currentStep: null,
     steps: PIPELINE_STEPS.map(step => ({
@@ -408,6 +413,7 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
           devices.get(job.deviceUdid)?.name ?? 'Unknown Device',
           currentIpa.bundleId,
           currentIpa.bundleName,
+          undefined,
           extensionBundleIds,
         );
       };
