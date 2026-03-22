@@ -242,7 +242,6 @@ export default function DashboardPage() {
             label={stat.label}
             tone={stat.tone}
             icon={stat.icon}
-            editing={editing}
           />
         ),
       })),
@@ -365,8 +364,8 @@ export default function DashboardPage() {
     if (setupAlerts.length > 0) return `${setupAlerts.length} setup step${setupAlerts.length > 1 ? 's' : ''} remaining`;
     if (activeJobs.length > 0) return `${activeJobs.length} install${activeJobs.length > 1 ? 's' : ''} in progress`;
     const expiringCount = data?.installedApps?.filter((app) => {
-      if (!app.expirationDate) return false;
-      const daysLeft = (new Date(app.expirationDate).getTime() - Date.now()) / 86_400_000;
+      if (!app.expiresAt) return false;
+      const daysLeft = (new Date(app.expiresAt).getTime() - Date.now()) / 86_400_000;
       return daysLeft <= 3 && daysLeft > 0;
     })?.length ?? 0;
     if (expiringCount > 0) return `${expiringCount} app${expiringCount > 1 ? 's' : ''} expiring soon`;

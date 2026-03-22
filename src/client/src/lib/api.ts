@@ -371,7 +371,7 @@ export const api = {
         try {
           const json = JSON.parse(xhr.responseText) as ApiRes<IpaArtifact>;
           if (xhr.status === 401 && isLikelySessionExpiryError(json.error ?? '')) {
-            onSessionExpired?.();
+            onSessionExpired?.('session-expired');
             return reject(createApiError(401, 'Session expired', json));
           }
           if (xhr.status >= 400 || !json.ok) {
@@ -380,7 +380,7 @@ export const api = {
           resolve(json);
         } catch {
           if (xhr.status === 401) {
-            onSessionExpired?.();
+            onSessionExpired?.('session-expired');
             reject(createApiError(401, 'Session expired'));
             return;
           }

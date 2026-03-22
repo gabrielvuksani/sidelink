@@ -294,7 +294,7 @@ export function SearchInput({
   debounceMs?: number;
 }) {
   const [local, setLocal] = useState(value);
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => { setLocal(value); }, [value]);
 
