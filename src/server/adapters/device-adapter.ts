@@ -143,10 +143,17 @@ export async function browseWifiDevices(): Promise<DeviceInfo[]> {
  * Get all connected devices (USB + Wi-Fi combined).
  */
 export async function listAllDevices(): Promise<DeviceInfo[]> {
-  const [usbDevices, wifiDevices] = await Promise.all([
-    listUsbDevices().catch(() => []),
-    browseWifiDevices().catch(() => []),
+  const results = await Promise.allSettled([
+    listUsbDevices(),
+    browseWifiDevices(),
   ]);
+
+  const usbDevices = results[0].status === 'fulfilled'
+    ? results[0].value
+    : (deviceLog.warn(`USB device discovery failed: ${String((results[0] as PromiseRejectedResult).reason).slice(0, 200)}`), []);
+  const wifiDevices = results[1].status === 'fulfilled'
+    ? results[1].value
+    : (deviceLog.warn(`Wi-Fi device discovery failed: ${String((results[1] as PromiseRejectedResult).reason).slice(0, 200)}`), []);
 
   // Deduplicate by UDID (USB takes precedence)
   const seen = new Set<string>();
@@ -436,7 +443,10 @@ async function parseDeviceList(stdout: string, transport: DeviceTransport): Prom
         const wifiAddress = transport === 'wifi' ? extractWifiAddress(entry) : null;
 
         // Quick pairing check
-        const paired = await validatePairing(udid).catch(() => false);
+        const paired = await validatePairing(udid).catch((err) => {
+          deviceLog.warn(`Pairing validation failed for ${udid}: ${String(err).slice(0, 200)}`);
+          return false;
+        });
 
         const device: DeviceInfo = {
           udid,

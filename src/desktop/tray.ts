@@ -2,6 +2,7 @@
 // Creates a tray icon with context menu for quick access.
 // On macOS uses a template image (dark/light mode compatible).
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { app, Tray, Menu, nativeImage, BrowserWindow } from 'electron';
 import { IPC } from './ipc-channels';
@@ -76,6 +77,9 @@ export function createTray(actions?: TrayActions): Tray {
   if (tray) return tray;
 
   const iconPath = getTrayIconPath();
+  if (!fs.existsSync(iconPath)) {
+    console.warn(`[tray] Icon not found at ${iconPath}, using fallback`);
+  }
   let icon: Electron.NativeImage;
 
   try {

@@ -170,10 +170,14 @@ async function startBackend(): Promise<string> {
     ? path.join(process.resourcesPath, 'client')
     : path.resolve(__dirname, '../client');
 
-  if (app.isPackaged) {
-    const clientIndexPath = path.join(process.env.SIDELINK_CLIENT_DIR, 'index.html');
-    if (!fs.existsSync(clientIndexPath)) {
-      throw new Error(`Packaged client bundle missing: ${clientIndexPath}`);
+  const clientIndexPath = path.join(process.env.SIDELINK_CLIENT_DIR!, 'index.html');
+  if (!fs.existsSync(clientIndexPath)) {
+    // In dev, try the dist subdirectory
+    const distPath = path.join(process.env.SIDELINK_CLIENT_DIR!, 'dist', 'index.html');
+    if (fs.existsSync(distPath)) {
+      process.env.SIDELINK_CLIENT_DIR = path.join(process.env.SIDELINK_CLIENT_DIR!, 'dist');
+    } else if (!app.isPackaged) {
+      console.warn('[main] Client bundle not found - run npm run build:client first');
     }
   }
 

@@ -10,6 +10,11 @@ export default function LoginPage({ onLogin, onReset, sessionExpired }: { onLogi
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [touched, setTouched] = useState<{ username?: boolean; password?: boolean }>({});
+
+  const usernameError = touched.username && username.length > 0 && username.length < 3 ? 'Username must be at least 3 characters' : '';
+  const passwordError = touched.password && password.length > 0 && password.length < 4 ? 'Password must be at least 4 characters' : '';
+  const submitDisabled = loading || !username || !password;
 
   useEffect(() => { document.title = 'Sign In — SideLink'; }, []);
 
@@ -54,11 +59,33 @@ export default function LoginPage({ onLogin, onReset, sessionExpired }: { onLogi
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="login-user" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-[var(--sl-muted)]">Username</label>
-                <input id="login-user" type="text" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} className="sl-input" autoFocus required />
+                <input
+                  id="login-user"
+                  type="text"
+                  autoComplete="username"
+                  aria-label="Username"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  onBlur={() => setTouched(t => ({ ...t, username: true }))}
+                  minLength={3}
+                  className="sl-input"
+                  autoFocus
+                  required
+                />
+                {usernameError && <p className="mt-1.5 text-[12px] text-red-400">{usernameError}</p>}
               </div>
               <div>
                 <label htmlFor="login-pwd" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-[var(--sl-muted)]">Password</label>
-                <PasswordInput id="login-pwd" autoComplete="current-password" value={password} onChange={setPassword} required />
+                <PasswordInput
+                  id="login-pwd"
+                  autoComplete="current-password"
+                  aria-label="Password"
+                  value={password}
+                  onChange={(v: string) => { setPassword(v); setTouched(t => ({ ...t, password: true })); }}
+                  minLength={4}
+                  required
+                />
+                {passwordError && <p className="mt-1.5 text-[12px] text-red-400">{passwordError}</p>}
               </div>
 
               {error && (
@@ -68,7 +95,7 @@ export default function LoginPage({ onLogin, onReset, sessionExpired }: { onLogi
                 </div>
               )}
 
-              <button type="submit" disabled={loading} className="sl-btn-primary w-full !py-3 !text-[13px]">
+              <button type="submit" disabled={submitDisabled} className="sl-btn-primary w-full !py-3 !text-[13px]">
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

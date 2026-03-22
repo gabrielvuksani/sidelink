@@ -60,6 +60,18 @@ struct BrowseTab: View {
                                 }
                                 .padding(.horizontal, 20)
                             }
+
+                            if newsCards.count > 8 {
+                                NavigationLink {
+                                    allNewsView
+                                } label: {
+                                    Text("View All \(newsCards.count) Updates")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.slAccent)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                                .padding(.horizontal, 20)
+                            }
                         }
 
                         if !featuredSourceApps.isEmpty {
@@ -75,6 +87,18 @@ struct BrowseTab: View {
                                         }
                                         .buttonStyle(.plain)
                                     }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+
+                            if featuredSourceApps.count > 12 {
+                                NavigationLink {
+                                    allFeaturedAppsView
+                                } label: {
+                                    Text("View All \(featuredSourceApps.count) Featured Apps")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.slAccent)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
                                 }
                                 .padding(.horizontal, 20)
                             }
@@ -384,6 +408,41 @@ struct BrowseTab: View {
         }
     }
 
+    // MARK: - View All destinations
+    private var allNewsView: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                ForEach(newsCards) { item in
+                    newsCard(item)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(20)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("All Updates")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var allFeaturedAppsView: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                ForEach(featuredSourceApps) { app in
+                    NavigationLink {
+                        SourceAppShowcaseView(model: model, app: app)
+                    } label: {
+                        featuredAppCard(app)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("All Featured Apps")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }
 
 struct SearchTab: View {
@@ -397,6 +456,8 @@ struct SearchTab: View {
 
     @ObservedObject var model: HelperViewModel
     @State private var query = ""
+    @State private var debouncedQuery = ""
+    @State private var debounceTask: Task<Void, Never>?
     @State private var scope: Scope = .all
     @Environment(\.colorScheme) private var colorScheme
 
@@ -422,7 +483,7 @@ struct SearchTab: View {
     }
 
     private var queryTrimmed: String {
-        query.trimmingCharacters(in: .whitespacesAndNewlines)
+        debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var shouldShowLibrarySection: Bool {
@@ -539,6 +600,17 @@ struct SearchTab: View {
                 }
             }
             .searchable(text: $query, prompt: "Search apps and sources")
+            .onChange(of: query) { newValue in
+                debounceTask?.cancel()
+                debounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                    guard !Task.isCancelled else { return }
+                    debouncedQuery = newValue
+                }
+            }
+            .onDisappear {
+                debounceTask?.cancel()
+            }
         }
     }
 

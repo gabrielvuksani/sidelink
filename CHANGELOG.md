@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.6.0] - 2026-03-22
+
+### Security
+- Auth reset endpoint now requires valid session when setup is complete (prevents unauthenticated credential wipe)
+- Health endpoint no longer exposes full version string (shows major.minor only)
+- CSRF skip list expanded to include `/auth/setup` and `/auth/reset` preventing 403 on first-time setup
+
+### Fixed
+- Device adapter: replaced silent `.catch(() => [])` with proper error logging — users now see WHY devices aren't showing up
+- Device discovery: changed `Promise.all` to `Promise.allSettled` — if WiFi hangs, USB devices still appear
+- Job log query efficiency: removed redundant `.reverse()` by changing SQL to `ORDER BY at ASC`
+- API session expiry detection: made pattern matching more precise to avoid false positives
+- Electron dev mode: client directory now auto-detects `dist/` subdirectory if index.html not at root
+- Tray icon path: added existence check with logged warning when icon file missing
+
+### Added — UI/UX Overhaul
+- **Shared components**: EmptyState, ErrorCard, SkeletonLoader, ConnectionStatus, Breadcrumb — reusable across all pages
+- **PageHeader**: loading spinner prop, proper aria-label
+- **TabBar**: full keyboard navigation (arrow keys), ARIA tablist/tab roles, focus-visible styling
+- **StatusBadge**: accessible labels and hover tooltips
+- **DashboardPage**: animated stat count-up, "last updated" indicator, improved setup alerts with numbered steps and icons
+- **AppsPage**: drag-and-drop upload zone with file preview, upload progress bar with ARIA attributes, empty state CTA
+- **DevicesPage**: device type icons (iPhone/iPad), connection type badges with icons, "last seen" timestamps, troubleshooting tips, step-by-step empty state guide
+- **SourcesPage**: source icons, app count per source, search/filter, "Popular Sources" suggestions when empty
+- **Form validation**: Login page min-length + disabled state, Setup wizard password confirmation + strength, Apple ID email format validation
+- **Accessibility**: aria-labels on all buttons, role attributes on interactive regions, reduced-motion media query support
+
+### Added — iOS Helper
+- Per-operation loading states instead of single boolean (granular UI feedback)
+- Error queue (last 5 errors) instead of single error message (prevents overwrites)
+- SSE max retry limit (10 attempts) with "Connection lost" message
+- Swipe-to-delete on installed app cards
+- "Expired" badge for apps past expiry date
+- "Refreshing..." overlay during surface refresh
+- Search debouncing (300ms) in browse tab
+- "View All" buttons for truncated sections
+- Onboarding step progress indicator with numbers
+- Pairing troubleshooting tips when pairing fails
+
 ## [0.5.0] - 2026-03-22
 
 ### Fixed

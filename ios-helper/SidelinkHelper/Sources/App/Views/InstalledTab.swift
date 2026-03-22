@@ -42,6 +42,20 @@ struct InstalledTab: View {
                     installedContent
                         .padding(.vertical, 20)
                 }
+                .overlay {
+                    if isRefreshingSurface || isRefreshingAllInstalls {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text(isRefreshingAllInstalls ? "Refreshing all apps..." : "Refreshing...")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.ultraThinMaterial)
+                        .allowsHitTesting(false)
+                    }
+                }
             }
             .refreshable {
                 await refreshInstalledSurface()
@@ -252,6 +266,19 @@ struct InstalledTab: View {
                     ForEach(activeApps) { install in
                         installedAppCard(install)
                             .padding(.horizontal, 20)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteConfirmation = DestructiveConfirmation(
+                                        title: "Remove App",
+                                        message: "Remove \(install.appName ?? install.originalBundleId) from your installed apps? This cannot be undone.",
+                                        buttonLabel: "Remove"
+                                    ) {
+                                        Task { await model.deleteInstalledApp(install.id) }
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                            }
                     }
                 }
             }
@@ -266,6 +293,19 @@ struct InstalledTab: View {
                     ForEach(deactivatedApps) { install in
                         installedAppCard(install)
                             .padding(.horizontal, 20)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteConfirmation = DestructiveConfirmation(
+                                        title: "Remove App",
+                                        message: "Remove \(install.appName ?? install.originalBundleId) from your installed apps? This cannot be undone.",
+                                        buttonLabel: "Remove"
+                                    ) {
+                                        Task { await model.deleteInstalledApp(install.id) }
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                            }
                     }
                 }
             }
@@ -584,6 +624,9 @@ struct InstalledTab: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {
                     healthBadge(for: install.expiresAt)
+                    if isExpired(install.expiresAt) {
+                        PillBadge(text: "Expired", color: .slDanger, small: true)
+                    }
                     if (install.status ?? "active") == "deactivated" {
                         PillBadge(text: "Deactivated", color: .slWarning, small: true)
                     }
@@ -700,6 +743,11 @@ struct InstalledTab: View {
     }
 
     // MARK: - Helpers
+    private func isExpired(_ iso: String) -> Bool {
+        guard let expires = SidelinkDateFormatting.parse(iso) else { return false }
+        return expires.timeIntervalSinceNow <= 0
+    }
+
     private func expiryFraction(for iso: String) -> Double {
         guard let expires = SidelinkDateFormatting.parse(iso) else { return 0 }
         let totalDays: Double = 7

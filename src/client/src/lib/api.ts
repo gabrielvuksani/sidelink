@@ -122,10 +122,21 @@ function isMutationMethod(method: string): boolean {
 
 function isLikelySessionExpiryError(errorText: string): boolean {
   const normalized = errorText.toLowerCase();
-  return normalized.includes('session')
-    || normalized.includes('authentication required')
-    || normalized.includes('invalid or expired session')
-    || normalized.includes('not authenticated');
+
+  // Exact phrases that definitively indicate session expiry
+  if (normalized.includes('invalid or expired session')) return true;
+  if (normalized.includes('session expired')) return true;
+  if (normalized.includes('session has expired')) return true;
+
+  // Require BOTH a session/auth keyword AND an expiry keyword.
+  // "authentication required" alone is a missing session, not an expired one.
+  const sessionKeywords = ['session', 'token', 'credential'];
+  const expiryKeywords = ['expired', 'expir', 'invalid', 'revoked', 'timed out', 'timeout'];
+
+  const hasSession = sessionKeywords.some(k => normalized.includes(k));
+  const hasExpiry = expiryKeywords.some(k => normalized.includes(k));
+
+  return hasSession && hasExpiry;
 }
 
 function createApiError(status: number, error: string, data?: unknown): Error & { status: number; data?: unknown } {

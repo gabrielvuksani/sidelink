@@ -22,3 +22,5 @@ helper/export/
 helper/SidelinkHelper.xcarchive/
 sidelink-clean-impl/
 test-results/
+ios-helper/SidelinkHelper/build/
+.cursor/

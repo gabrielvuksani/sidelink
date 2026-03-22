@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import type { ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import type { ReactNode, KeyboardEvent } from 'react';
 
 // ─── Shared UI Components ────────────────────────────────────────────
 
@@ -47,35 +47,72 @@ export function StatusBadge({ status }: { status: string }) {
     locked: 'bg-red-500/10 text-red-400',
     unauthenticated: 'bg-white/[0.04] text-[var(--sl-muted)]',
   };
+
+  const statusDescriptions: Record<string, string> = {
+    queued: 'Task is queued and waiting to start',
+    running: 'Task is currently running',
+    completed: 'Task completed successfully',
+    failed: 'Task failed with an error',
+    waiting_2fa: 'Waiting for two-factor authentication',
+    active: 'Currently active',
+    requires_2fa: 'Requires two-factor authentication',
+    session_expired: 'Session has expired',
+    locked: 'Account is locked',
+    unauthenticated: 'Not authenticated',
+  };
+
+  const displayText = status.replace(/_/g, ' ');
+  const description = statusDescriptions[status] ?? `Status: ${displayText}`;
+
   return (
     <span
-      className={`inline-flex items-center text-[11px] font-semibold px-2.5 py-1 rounded-md ${colors[status] ?? 'bg-white/[0.05] text-[var(--sl-muted)]'}`}
+      className={`group relative inline-flex items-center text-[11px] font-semibold px-2.5 py-1 rounded-md ${colors[status] ?? 'bg-white/[0.05] text-[var(--sl-muted)]'}`}
+      aria-label={description}
+      title={description}
     >
       {status === 'running' && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />}
       {status === 'waiting_2fa' && <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />}
-      {status.replace(/_/g, ' ')}
+      {displayText}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block whitespace-nowrap rounded-md bg-[var(--sl-surface-raised)] border border-[var(--sl-border)] px-2.5 py-1.5 text-[11px] font-normal text-[var(--sl-text)] shadow-lg z-50"
+      >
+        {description}
+      </span>
     </span>
   );
 }
 
-/** Empty state placeholder */
+/** Empty state placeholder — canonical empty state for the app */
 export function EmptyState({
   icon,
   title,
   description,
   action,
 }: {
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   title: string;
-  description?: React.ReactNode;
-  action?: React.ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
 }) {
   return (
-    <div className="sl-card flex flex-col items-center px-8 py-16 text-center animate-fadeIn">
-      {icon && <div className="mb-4 text-[var(--sl-muted)] opacity-40">{icon}</div>}
+    <div
+      role="status"
+      aria-label={title}
+      className="sl-card flex flex-col items-center px-8 py-20 text-center animate-fadeIn bg-gradient-to-b from-white/[0.02] to-transparent"
+    >
+      {icon && (
+        <div className="mb-5 flex items-center justify-center h-14 w-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-[var(--sl-muted)] opacity-50">
+          {icon}
+        </div>
+      )}
       <p className="text-[15px] font-semibold text-[var(--sl-text)]">{title}</p>
-      {description && <p className="mt-1.5 text-[13px] text-[var(--sl-muted)] max-w-sm">{description}</p>}
-      {action && <div className="mt-5">{action}</div>}
+      {description && (
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--sl-muted)] max-w-sm">
+          {description}
+        </p>
+      )}
+      {action && <div className="mt-6">{action}</div>}
     </div>
   );
 }
@@ -86,21 +123,32 @@ export function PageHeader({
   description,
   actions,
   stats,
+  loading = false,
 }: {
   eyebrow: string;
   title: string;
   description: ReactNode;
   actions?: ReactNode;
   stats?: Array<{ label: string; value: ReactNode; tone?: Tone }>;
+  loading?: boolean;
 }) {
   return (
-    <section className="sl-page-hero animate-fadeIn">
+    <section className="sl-page-hero animate-fadeIn" aria-label={`${eyebrow}: ${title}`}>
       <div className="sl-page-hero-inner">
         <div>
           <p className="sl-kicker">{eyebrow}</p>
-          <h1 className="sl-page-title">{title}</h1>
+          <h1 className="sl-page-title flex items-center gap-3">
+            {title}
+            {loading && (
+              <span className="inline-flex" aria-label="Loading">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--sl-accent)]/40 border-t-[var(--sl-accent)]" />
+              </span>
+            )}
+          </h1>
           <div className="sl-page-copy">{description}</div>
-          {actions && <div className="sl-toolbar mt-5">{actions}</div>}
+          {actions && (
+            <div className="sl-toolbar mt-5 flex items-center gap-3 flex-wrap">{actions}</div>
+          )}
         </div>
 
         {stats && stats.length > 0 && (
@@ -444,32 +492,268 @@ export function Collapsible({
   );
 }
 
-/** Tab bar component */
+/** Tab bar component with keyboard navigation and ARIA roles */
 export function TabBar({
   tabs,
   active,
   onChange,
+  label = 'Tabs',
 }: {
   tabs: Array<{ id: string; label: string; count?: number }>;
   active: string;
   onChange: (id: string) => void;
+  label?: string;
+}) {
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const idPrefix = useId();
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = tabs.findIndex((t) => t.id === active);
+    let nextIndex = currentIndex;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = tabs.length - 1;
+    } else {
+      return;
+    }
+
+    onChange(tabs[nextIndex].id);
+    const nextButton = tabListRef.current?.querySelector<HTMLButtonElement>(
+      `[data-tab-id="${tabs[nextIndex].id}"]`
+    );
+    nextButton?.focus();
+  };
+
+  return (
+    <div
+      ref={tabListRef}
+      role="tablist"
+      aria-label={label}
+      className="sl-tab-bar"
+      onKeyDown={handleKeyDown}
+    >
+      {tabs.map((tab) => {
+        const isActive = active === tab.id;
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            id={`${idPrefix}-tab-${tab.id}`}
+            aria-selected={isActive}
+            aria-controls={`${idPrefix}-panel-${tab.id}`}
+            tabIndex={isActive ? 0 : -1}
+            data-active={isActive}
+            data-tab-id={tab.id}
+            onClick={() => onChange(tab.id)}
+            className="flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--sl-accent)] focus-visible:rounded-md"
+          >
+            {tab.label}
+            {tab.count !== undefined && (
+              <span className="text-[10px] opacity-60">{tab.count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── ErrorCard ──────────────────────────────────────────────────────
+
+/** Reusable error card with optional retry action */
+export function ErrorCard({
+  message,
+  onRetry,
+  className = '',
+}: {
+  message: string;
+  onRetry?: () => void;
+  className?: string;
 }) {
   return (
-    <div className="sl-tab-bar">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          data-active={active === tab.id}
-          onClick={() => onChange(tab.id)}
-          className="flex items-center justify-center gap-1.5"
-        >
-          {tab.label}
-          {tab.count !== undefined && (
-            <span className="text-[10px] opacity-60">{tab.count}</span>
-          )}
-        </button>
+    <div
+      role="alert"
+      className={`sl-card flex items-start gap-3 border-red-500/20 bg-red-500/[0.04] p-4 animate-fadeIn ${className}`}
+    >
+      <svg
+        className="h-5 w-5 shrink-0 text-red-400 mt-0.5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+        />
+      </svg>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] text-red-300 leading-relaxed">{message}</p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-red-400 hover:text-red-300 transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 rounded"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+            </svg>
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── SkeletonLoader ─────────────────────────────────────────────────
+
+/** Skeleton loading placeholder with multiple variants */
+export function SkeletonLoader({
+  variant = 'line',
+  width,
+  count = 1,
+}: {
+  variant?: 'line' | 'card' | 'avatar';
+  width?: string;
+  count?: number;
+}) {
+  if (variant === 'avatar') {
+    return (
+      <div className="flex items-center gap-3">
+        {Array.from({ length: count }).map((_, i) => (
+          <div
+            key={i}
+            className="sl-skeleton h-10 w-10 rounded-full shrink-0"
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === 'card') {
+    return (
+      <div className="space-y-4" aria-busy="true" aria-label="Loading content">
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className="sl-card p-5 space-y-3">
+            <div className="sl-skeleton h-4 w-2/5 rounded-md" />
+            <div className="sl-skeleton h-3 w-full rounded-md" />
+            <div className="sl-skeleton h-3 w-4/5 rounded-md" />
+            <div className="sl-skeleton h-3 w-3/5 rounded-md" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // variant === 'line'
+  return (
+    <div className="space-y-2.5" aria-busy="true" aria-label="Loading content">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          className="sl-skeleton h-3.5 rounded-md"
+          style={{ width: width ?? (i === count - 1 && count > 1 ? '60%' : '100%') }}
+          aria-hidden="true"
+        />
       ))}
     </div>
+  );
+}
+
+// ─── ConnectionStatus ───────────────────────────────────────────────
+
+/** Inline connection status indicator for sidebar/header */
+export function ConnectionStatus({
+  connected,
+  label,
+}: {
+  connected: boolean;
+  label?: string;
+}) {
+  const defaultLabel = connected ? 'Connected' : 'Disconnected';
+  const displayLabel = label ?? defaultLabel;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      role="status"
+      aria-label={displayLabel}
+    >
+      <span
+        className={`h-2 w-2 rounded-full shrink-0 ${
+          connected
+            ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]'
+            : 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.4)]'
+        }`}
+        aria-hidden="true"
+      />
+      <span className={`text-[11px] font-medium ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
+        {displayLabel}
+      </span>
+    </span>
+  );
+}
+
+// ─── Breadcrumb ─────────────────────────────────────────────────────
+
+/** Simple breadcrumb for nested page navigation */
+export function Breadcrumb({
+  items,
+}: {
+  items: Array<{ label: string; href?: string }>;
+}) {
+  return (
+    <nav aria-label="Breadcrumb" className="mb-4">
+      <ol className="flex items-center gap-1 text-[12px] text-[var(--sl-muted)]">
+        {items.map((item, i) => {
+          const isLast = i === items.length - 1;
+          return (
+            <li key={i} className="flex items-center gap-1">
+              {i > 0 && (
+                <svg
+                  className="h-3 w-3 text-[var(--sl-muted)] opacity-40 shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              )}
+              {isLast || !item.href ? (
+                <span
+                  className={isLast ? 'font-semibold text-[var(--sl-text)]' : ''}
+                  aria-current={isLast ? 'page' : undefined}
+                >
+                  {item.label}
+                </span>
+              ) : (
+                <a
+                  href={item.href}
+                  className="hover:text-[var(--sl-text)] transition-colors underline-offset-2 hover:underline"
+                >
+                  {item.label}
+                </a>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
@@ -483,6 +767,8 @@ export function PasswordInput({
   autoFocus,
   required,
   className = '',
+  minLength,
+  'aria-label': ariaLabel,
 }: {
   id?: string;
   value: string;
@@ -492,6 +778,8 @@ export function PasswordInput({
   autoFocus?: boolean;
   required?: boolean;
   className?: string;
+  minLength?: number;
+  'aria-label'?: string;
 }) {
   const [visible, setVisible] = useState(false);
   return (
@@ -505,6 +793,8 @@ export function PasswordInput({
         autoComplete={autoComplete}
         autoFocus={autoFocus}
         required={required}
+        minLength={minLength}
+        aria-label={ariaLabel}
         className={`sl-input pr-10 ${className}`}
       />
       <button

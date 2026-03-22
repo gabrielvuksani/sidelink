@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageHeader, PageLoader } from '../components/Shared';
+import { StatusBadge, PageHeader, PageLoader, EmptyState } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
@@ -81,8 +81,18 @@ export default function DashboardPage() {
   const dataRef = useRef<DashboardState | null>(warmSnapshot?.data ?? null);
   const reloadInFlightRef = useRef(false);
   const queuedForceReloadRef = useRef(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
+  const [secondsAgo, setSecondsAgo] = useState(0);
 
   useEffect(() => { document.title = 'Overview — SideLink'; }, []);
+
+  // Tick "last updated X seconds ago" every second
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastUpdatedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [lastUpdatedAt]);
 
   useEffect(() => {
     dataRef.current = data;
@@ -113,6 +123,7 @@ export default function DashboardPage() {
       });
       if (nextData) {
         setUiSnapshot('page:dashboard', nextData);
+        setLastUpdatedAt(Date.now());
       }
     } catch (e: unknown) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load dashboard');
@@ -398,6 +409,10 @@ export default function DashboardPage() {
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
               <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
               <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
+              <span className="sl-chip text-[var(--sl-muted)]">
+                <svg className="inline h-3 w-3 mr-1 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Updated {secondsAgo < 5 ? 'just now' : `${secondsAgo}s ago`}
+              </span>
             </div>
           </>
         )}
@@ -420,19 +435,25 @@ export default function DashboardPage() {
       />
 
       {setupAlerts.length > 0 && (
-        <div className="sl-card rounded-[24px] !border-amber-500/15 !bg-amber-500/[0.04] p-4 sm:p-5">
+        <div className="sl-card rounded-[24px] !border-amber-500/20 !bg-amber-500/[0.06] p-5 sm:p-6 shadow-[0_0_30px_rgba(245,158,11,0.06)]">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            <p className="text-[14px] font-bold text-amber-300 tracking-tight">Setup Required</p>
+            <span className="ml-auto text-[11px] font-semibold text-amber-400/60 uppercase tracking-wider">{setupAlerts.length} step{setupAlerts.length > 1 ? 's' : ''} remaining</span>
+          </div>
           <div className="space-y-3">
-            {setupAlerts.map((alert) => (
-              <div key={alert.title} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-                  <svg className="h-4.5 w-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            {setupAlerts.map((alert, idx) => (
+              <div key={alert.title} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 rounded-2xl bg-amber-500/[0.06] p-3.5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 font-bold text-[14px]">
+                  {idx + 1}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-amber-300">{alert.title}</p>
+                  <p className="text-[13px] font-semibold text-amber-200">{alert.title}</p>
                   <p className="mt-0.5 text-[12px] text-amber-400/60">{alert.detail}</p>
                 </div>
-                <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[12px] sm:w-auto">
+                <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[13px] font-semibold sm:w-auto flex items-center justify-center gap-1.5">
                   {alert.action}
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
                 </Link>
               </div>
             ))}
@@ -440,11 +461,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4" role="region" aria-label="Dashboard statistics">
         {normalizedLayout.filter((w) => ['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
           const definition = widgetDefinitionMap[widget.id];
           return (
-            <section key={widget.id} className="sl-card dashboard-widget flex min-h-[180px] flex-col overflow-hidden">
+            <section key={widget.id} className="sl-card dashboard-widget flex min-h-[180px] flex-col overflow-hidden" aria-label={`${definition.title} widget`}>
               <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
                 {definition.render(widget.size)}
               </div>
@@ -511,6 +532,35 @@ function OverviewWidgetShell({
   );
 }
 
+function useCountUp(target: number, duration = 600): number {
+  const [display, setDisplay] = useState(0);
+  const prevRef = useRef(0);
+
+  useEffect(() => {
+    const from = prevRef.current;
+    const diff = target - from;
+    if (diff === 0) return;
+    const start = performance.now();
+    let raf: number;
+    const tick = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out quad
+      const eased = 1 - (1 - progress) * (1 - progress);
+      setDisplay(Math.round(from + diff * eased));
+      if (progress < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        prevRef.current = target;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+
+  return display;
+}
+
 function OverviewStatCard({
   to,
   count,
@@ -531,8 +581,10 @@ function OverviewStatCard({
     cyan: 'bg-cyan-500/10 text-cyan-300',
   }[tone];
 
+  const animatedCount = useCountUp(count);
+
   return (
-    <Link to={to} className="block h-full">
+    <Link to={to} className="block h-full" aria-label={`${label}: ${count}. Click to view details.`}>
       <div className="flex h-full flex-col justify-between gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
@@ -544,8 +596,8 @@ function OverviewStatCard({
         </div>
 
         <div>
-          <p className="text-3xl font-bold leading-none tracking-[-0.05em] text-[var(--sl-text)]">{count}</p>
-          <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px]">{label}</p>
+          <p className="text-4xl font-extrabold leading-none tracking-[-0.05em] text-[var(--sl-text)] tabular-nums" aria-live="polite">{animatedCount}</p>
+          <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px] font-medium">{label}</p>
         </div>
       </div>
     </Link>
@@ -661,10 +713,11 @@ function QuotaWidget({
 
 function WidgetEmptyState({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-4 py-5">
-      <p className="text-[13px] font-semibold text-[var(--sl-text)]">{title}</p>
-      <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">{detail}</p>
-    </div>
+    <EmptyState
+      title={title}
+      description={detail}
+      icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>}
+    />
   );
 }
 

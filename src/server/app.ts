@@ -82,7 +82,7 @@ export function createApp(ctx: AppContext): express.Express {
       data: {
         status: 'ok',
         uptime: process.uptime(),
-        version: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
+        version: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '0.0.0',
         node: process.version,
         platform: process.platform,
         arch: process.arch,

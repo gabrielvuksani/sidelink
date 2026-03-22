@@ -404,11 +404,20 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
   const [confirmPwd, setConfirmPwd] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState<{ username?: boolean; password?: boolean; confirm?: boolean }>({});
   const { toast } = useToast();
 
+  const usernameValid = username.length >= 3;
+  const passwordValid = password.length >= 8;
+  const confirmValid = confirmPwd.length > 0 && confirmPwd === password;
+  const allValid = usernameValid && passwordValid && confirmValid;
+
+  const usernameError = touched.username && username.length > 0 && !usernameValid ? 'Username must be at least 3 characters' : '';
+  const passwordError = touched.password && password.length > 0 && !passwordValid ? 'Password must be at least 8 characters' : '';
+  const confirmError = touched.confirm && confirmPwd.length > 0 && !confirmValid ? 'Passwords do not match' : '';
+
   const submit = async () => {
-    if (password !== confirmPwd) return setError('Passwords do not match');
-    if (password.length < 8) return setError('Password must be at least 8 characters');
+    if (!allValid) return;
     setLoading(true);
     setError('');
     try {
@@ -434,11 +443,15 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
             id="wiz-user"
             type="text"
             autoComplete="username"
+            aria-label="Username"
             value={username}
             onChange={e => setUsername(e.target.value)}
+            onBlur={() => setTouched(t => ({ ...t, username: true }))}
+            minLength={3}
             placeholder="Choose an admin username"
             className="sl-input w-full"
           />
+          {usernameError && <p className="mt-1.5 text-[12px] text-red-400">{usernameError}</p>}
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field htmlFor="wiz-pwd" label="Password" hint="Minimum 8 chars">
@@ -446,21 +459,28 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
             id="wiz-pwd"
             type="password"
             autoComplete="new-password"
+            aria-label="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}
+            onBlur={() => setTouched(t => ({ ...t, password: true }))}
+            minLength={8}
             placeholder="At least 8 characters"
             className="sl-input w-full"
           />
+          {passwordError && <p className="mt-1.5 text-[12px] text-red-400">{passwordError}</p>}
           </Field>
           <Field htmlFor="wiz-confirm" label="Confirm Password">
           <input
             id="wiz-confirm"
             type="password"
             autoComplete="new-password"
+            aria-label="Confirm password"
             value={confirmPwd}
             onChange={e => setConfirmPwd(e.target.value)}
+            onBlur={() => setTouched(t => ({ ...t, confirm: true }))}
             className="sl-input w-full"
           />
+          {confirmError && <p className="mt-1.5 text-[12px] text-red-400">{confirmError}</p>}
           </Field>
         </div>
       </div>
@@ -471,7 +491,7 @@ function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
         onBack={onBack}
         onNext={submit}
         nextLabel="Create Account"
-        nextDisabled={!username || !password || !confirmPwd}
+        nextDisabled={!allValid}
         loading={loading}
       />
     </div>
@@ -491,7 +511,11 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(true);
   const [addedAccounts, setAddedAccounts] = useState<string[]>([]);
+  const [appleIdTouched, setAppleIdTouched] = useState(false);
   const { toast } = useToast();
+
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const appleIdError = appleIdTouched && appleId.length > 0 && !isValidEmail(appleId) ? 'Enter a valid email address' : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -523,6 +547,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const packagedRuntimeBlocked = doctor?.appleAuthReady === false;
 
   const signIn = async () => {
+    if (!isValidEmail(appleId)) { setError('Please enter a valid email address'); return; }
     setError('');
     setLoading(true);
     try {
@@ -631,13 +656,17 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           <Field htmlFor="wiz-apple-id" label="Apple ID" hint="Signing account">
             <input
               id="wiz-apple-id"
-              type="text"
+              type="email"
               autoComplete="email"
+              aria-label="Apple ID email"
               placeholder="name@example.com"
+              pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
               value={appleId}
               onChange={e => setAppleId(e.target.value)}
+              onBlur={() => setAppleIdTouched(true)}
               className="sl-input w-full"
             />
+            {appleIdError && <p className="mt-1.5 text-[12px] text-red-400">{appleIdError}</p>}
           </Field>
           <Field htmlFor="wiz-apple-pwd" label="Password">
             <input
@@ -704,7 +733,7 @@ function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
         onBack={phase === '2fa' ? () => setPhase('form') : onBack}
         onNext={phase === '2fa' ? submit2FA : signIn}
         nextLabel={phase === '2fa' ? 'Verify' : 'Sign In'}
-        nextDisabled={phase === '2fa' ? code.length !== 6 : !appleId || !password || packagedRuntimeBlocked}
+        nextDisabled={phase === '2fa' ? code.length !== 6 : !appleId || !password || !isValidEmail(appleId) || packagedRuntimeBlocked}
         loading={loading}
         showSkip
         onSkip={onNext}

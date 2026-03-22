@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
-import { EmptyState, PageHeader, PageLoader, SearchInput } from '../components/Shared';
+import { EmptyState, PageHeader, PageLoader, SearchInput, SectionHeading } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { SourceApp, SourceManifest, UserSource } from '../../../shared/types';
 
@@ -32,6 +32,7 @@ export default function SourcesPage() {
   const [trustedSources, setTrustedSources] = useState<TrustedSourceRecord[]>(warmSnapshot?.data.trustedSources ?? []);
 
   const [activeTab, setActiveTab] = useState<'browse' | 'configured' | 'self-hosted'>('browse');
+  const [sourceSearch, setSourceSearch] = useState('');
   const { toast } = useToast();
   const confirm = useConfirm();
 
@@ -93,6 +94,14 @@ export default function SourcesPage() {
 
   const enabledSources = useMemo(() => sources.filter((s) => s.enabled), [sources]);
   const totalApps = useMemo(() => enabledSources.reduce((sum, s) => sum + (s.appCount ?? 0), 0), [enabledSources]);
+  const filteredSources = useMemo(() => {
+    const q = sourceSearch.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter((s) =>
+      s.name.toLowerCase().includes(q)
+      || s.url.toLowerCase().includes(q),
+    );
+  }, [sources, sourceSearch]);
   const filteredApps = useMemo(() => {
     const q = appSearch.trim().toLowerCase();
     if (!q) return combinedApps;
@@ -351,17 +360,27 @@ export default function SourcesPage() {
             const alreadyAdded = sources.some((candidate) => candidate.url === source.url);
             return (
               <div key={source.id} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
-                  {source.description && (
-                    <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">{source.description}</p>
+                <div className="flex items-center gap-3 min-w-0">
+                  {source.iconURL ? (
+                    <img src={source.iconURL} alt="" className="w-9 h-9 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--sl-accent)]/10 shrink-0">
+                      <svg className="w-4 h-4 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+                    </div>
                   )}
-                  <p className="mt-1 truncate text-[11px] text-[var(--sl-muted)]">{source.url}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
+                    {source.description && (
+                      <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">{source.description}</p>
+                    )}
+                    <p className="mt-1 truncate text-[11px] text-[var(--sl-muted)] font-mono">{source.url}</p>
+                  </div>
                 </div>
                 <button
                   onClick={() => void onAddTrustedSource(source)}
                   disabled={alreadyAdded || busy === `trusted:${source.id}`}
                   className="sl-btn-primary !px-3 !py-1.5 !text-[12px] disabled:opacity-40"
+                  aria-label={alreadyAdded ? `${source.name} already added` : `Add ${source.name} source`}
                 >
                   {alreadyAdded ? 'Added' : busy === `trusted:${source.id}` ? 'Adding...' : 'Add Source'}
                 </button>
@@ -394,17 +413,27 @@ export default function SourcesPage() {
                 const version = app.versions?.[0]?.version ?? app.version ?? 'Unknown';
                 return (
                   <div key={app.bundleIdentifier} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{app.name}</p>
-                      <p className="truncate text-[11px] text-[var(--sl-muted)]">{app.bundleIdentifier}</p>
-                      <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">
-                        {(app.developerName ?? 'Unknown developer')} • v{version}
-                      </p>
+                    <div className="flex items-center gap-3 min-w-0">
+                      {app.iconURL ? (
+                        <img src={app.iconURL} alt="" className="w-10 h-10 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--sl-surface-soft)] shrink-0">
+                          <svg className="w-4 h-4 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{app.name}</p>
+                        <p className="truncate text-[11px] text-[var(--sl-muted)]">{app.bundleIdentifier}</p>
+                        <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">
+                          {(app.developerName ?? 'Unknown developer')} -- v{version}
+                        </p>
+                      </div>
                     </div>
                     <button
                       onClick={() => void onImportSourceApp(app)}
                       disabled={!downloadUrl || busy === `import:${app.bundleIdentifier}`}
                       className="sl-btn-primary !px-3 !py-1.5 !text-[12px] disabled:opacity-40"
+                      aria-label={`Import ${app.name}`}
                     >
                       {busy === `import:${app.bundleIdentifier}` ? 'Importing...' : 'Import IPA'}
                     </button>
@@ -423,28 +452,60 @@ export default function SourcesPage() {
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">Configured Sources</h3>
         <p className="mt-1 text-[12px] text-[var(--sl-muted)]">Built-in and custom feeds currently tracked by SideLink.</p>
 
+        {sources.length > 3 && (
+          <div className="mt-3">
+            <SearchInput
+              value={sourceSearch}
+              onChange={setSourceSearch}
+              placeholder="Filter sources by name or URL..."
+            />
+          </div>
+        )}
+
         <div className="mt-3">
           {loading ? (
             <PageLoader message="Loading sources..." />
           ) : sources.length === 0 ? (
-            <EmptyState title="No sources configured" description="Add your first source URL above." />
+            <>
+              <EmptyState title="No sources configured" description="Add your first source URL above or try a popular source below." />
+              <PopularSourcesSuggestion onAddUrl={(url) => { setAddingUrl(url); setActiveTab('configured'); }} />
+            </>
           ) : (
             <div className="space-y-2">
-              {sources.map((source) => (
+              {filteredSources.length === 0 && sourceSearch ? (
+                <div className="sl-card-soft px-4 py-6 text-center">
+                  <p className="text-[13px] text-[var(--sl-muted)]">No sources matching &ldquo;{sourceSearch}&rdquo;</p>
+                </div>
+              ) : filteredSources.map((source) => (
                 <div key={source.id} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
-                      {source.isBuiltIn && <span className="rounded-md border border-[var(--sl-border)] px-1.5 py-0.5 text-[10px] text-[var(--sl-muted)]">Built-in</span>}
+                  <div className="flex items-center gap-3 min-w-0">
+                    {source.iconURL ? (
+                      <img src={source.iconURL} alt="" className="w-9 h-9 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--sl-surface-soft)] shrink-0">
+                        <svg className="w-4 h-4 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" /></svg>
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
+                        {source.isBuiltIn && <span className="rounded-md border border-[var(--sl-border)] px-1.5 py-0.5 text-[10px] text-[var(--sl-muted)]">Built-in</span>}
+                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${source.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-[var(--sl-surface-soft)] text-[var(--sl-muted)]'}`}>
+                          {source.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+                      <p className="truncate text-[11px] text-[var(--sl-muted)]">{source.url}</p>
+                      <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">
+                        <span className="font-semibold text-[var(--sl-text)]">{source.appCount ?? 0}</span> app{(source.appCount ?? 0) === 1 ? '' : 's'} available
+                      </p>
                     </div>
-                    <p className="truncate text-[11px] text-[var(--sl-muted)]">{source.url}</p>
-                    <p className="mt-0.5 text-[11px] text-[var(--sl-muted)]">{source.appCount} app{source.appCount === 1 ? '' : 's'} • {source.enabled ? 'Enabled' : 'Disabled'}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <button
                       onClick={() => void onRefresh(source)}
                       disabled={busy === `refresh:${source.id}`}
                       className="sl-btn-ghost !px-3 !py-1.5 !text-[12px]"
+                      aria-label={`Refresh ${source.name}`}
                     >
                       {busy === `refresh:${source.id}` ? 'Refreshing...' : 'Refresh'}
                     </button>
@@ -452,6 +513,7 @@ export default function SourcesPage() {
                       onClick={() => void onRemove(source)}
                       disabled={source.isBuiltIn || busy === `remove:${source.id}`}
                       className="sl-btn-danger !px-3 !py-1.5 !text-[12px] disabled:opacity-40"
+                      aria-label={`Remove ${source.name}`}
                     >
                       {busy === `remove:${source.id}` ? 'Removing...' : 'Remove'}
                     </button>
@@ -582,6 +644,51 @@ export default function SourcesPage() {
         </div>
       </section>
       )}
+    </div>
+  );
+}
+
+const POPULAR_SOURCES = [
+  {
+    name: 'AltStore',
+    url: 'https://cdn.altstore.io/file/altstore/apps.json',
+    description: 'The official AltStore source with AltStore, Delta, and Clip.',
+  },
+  {
+    name: 'SideStore',
+    url: 'https://raw.githubusercontent.com/SideStore/SideStore/main/SideStore.json',
+    description: 'Community-driven alternative with additional apps and utilities.',
+  },
+];
+
+function PopularSourcesSuggestion({ onAddUrl }: { onAddUrl: (url: string) => void }) {
+  return (
+    <div className="mt-4 sl-card p-4">
+      <SectionHeading eyebrow="Get Started" title="Popular Sources" />
+      <p className="text-[12px] text-[var(--sl-muted)] mb-3">Try adding one of these well-known AltStore-compatible sources to get started.</p>
+      <div className="space-y-2">
+        {POPULAR_SOURCES.map((source) => (
+          <div key={source.url} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--sl-accent)]/10 shrink-0">
+                <svg className="w-4 h-4 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /></svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--sl-text)]">{source.name}</p>
+                <p className="text-[11px] text-[var(--sl-muted)]">{source.description}</p>
+                <p className="truncate text-[10px] text-[var(--sl-muted)] mt-0.5 font-mono">{source.url}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => onAddUrl(source.url)}
+              className="sl-btn-primary !px-3 !py-1.5 !text-[12px] whitespace-nowrap"
+              aria-label={`Add ${source.name} source`}
+            >
+              Add Source
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

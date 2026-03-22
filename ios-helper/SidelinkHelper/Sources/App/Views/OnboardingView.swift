@@ -26,6 +26,7 @@ struct OnboardingView: View {
 
     @State private var step: Step = .welcome
     @State private var pairingFocusTrigger = 0
+    @State private var showPairingTroubleshooting = false
     @AppStorage("backgroundRefreshEnabled") private var backgroundRefreshEnabled = true
     @Environment(\.colorScheme) private var colorScheme
 
@@ -86,12 +87,21 @@ struct OnboardingView: View {
                         Capsule()
                             .fill(item.rawValue <= step.rawValue ? Color.slAccent : Color.secondary.opacity(0.18))
                             .frame(height: 5)
-                        Text(item.title)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(item == step ? .primary : .secondary)
+                        HStack(spacing: 4) {
+                            Text("\(item.rawValue + 1)")
+                                .font(.caption2.weight(.heavy).monospacedDigit())
+                                .foregroundStyle(item == step ? Color.slAccent : .secondary)
+                            Text(item.title)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(item == step ? .primary : .secondary)
+                        }
                     }
                 }
             }
+
+            Text("Step \(step.rawValue + 1) of \(Step.allCases.count)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 24)
         .padding(.top, 14)
@@ -101,11 +111,31 @@ struct OnboardingView: View {
     private var footer: some View {
         VStack(spacing: 12) {
             if let error = model.errorMessage, step == .pairing {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(Color.slDanger)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(Color.slDanger)
+
+                    if showPairingTroubleshooting {
+                        VStack(alignment: .leading, spacing: 6) {
+                            pairingTip(icon: "wifi", text: "Make sure your iPhone and desktop are on the same Wi-Fi network")
+                            pairingTip(icon: "desktopcomputer", text: "Confirm the SideLink desktop app is running and shows the pairing code")
+                            pairingTip(icon: "number", text: "Double-check the 6-digit code matches the one shown on your desktop")
+                            pairingTip(icon: "globe", text: "Try entering the backend URL manually if auto-discovery is not finding your desktop")
+                            pairingTip(icon: "arrow.clockwise", text: "Restart the desktop app and try a fresh pairing code")
+                        }
+                        .padding(12)
+                        .background(Color.slDanger.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        Button("Show troubleshooting tips") {
+                            withAnimation { showPairingTroubleshooting = true }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.slDanger)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
             }
 
             Button {
@@ -492,6 +522,18 @@ struct OnboardingView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background((colorScheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.95)), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func pairingTip(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.slDanger)
+                .frame(width: 18, height: 18)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func permissionSummaryTile(title: String, state: SidelinkPermissionState) -> some View {

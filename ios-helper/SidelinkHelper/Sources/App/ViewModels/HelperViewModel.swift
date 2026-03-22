@@ -71,6 +71,35 @@ final class HelperViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var toastMessage: String?
+
+    // MARK: - Granular loading states
+    @Published private(set) var loadingStates: [String: Bool] = [:]
+
+    func setLoading(_ op: String, _ value: Bool) {
+        loadingStates[op] = value
+    }
+
+    func isLoadingOp(_ op: String) -> Bool {
+        loadingStates[op] ?? false
+    }
+
+    // MARK: - Error queue (last 5)
+    @Published private(set) var errorQueue: [String] = []
+
+    func pushError(_ msg: String) {
+        errorQueue.append(msg)
+        if errorQueue.count > 5 {
+            errorQueue.removeFirst(errorQueue.count - 5)
+        }
+        errorMessage = msg
+    }
+
+    func popError() -> String? {
+        guard !errorQueue.isEmpty else { return nil }
+        let removed = errorQueue.removeFirst()
+        errorMessage = errorQueue.last
+        return removed
+    }
     @Published var discoveredBackends: [DiscoveredBackend] = []
     @Published var activeInstallJob: InstallJobDetailDTO?
     @Published var activeInstallLogs: [InstallJobLogDTO] = []
@@ -95,6 +124,7 @@ final class HelperViewModel: ObservableObject {
     private var activeJobPollingTask: Task<Void, Never>?
     private var sseReconnectTask: Task<Void, Never>?
     private var sseReconnectAttempt = 0
+    private static let sseMaxRetries = 10
     private var lastInstallRequest: LastInstallRequest?
     private var installConsoleAutoPresentationSuppressed = false
     private var installConsoleAllowsNextDismissal = false
@@ -1660,6 +1690,12 @@ final class HelperViewModel: ObservableObject {
     private func scheduleSSEReconnect() {
         guard isPaired else { return }
         sseReconnectTask?.cancel()
+
+        guard sseReconnectAttempt < Self.sseMaxRetries else {
+            pushError("Connection lost — could not reconnect after \(Self.sseMaxRetries) attempts. Pull to refresh manually or re-pair.")
+            return
+        }
+
         let attempt = min(sseReconnectAttempt, 5)
         let delaySeconds = pow(2.0, Double(attempt))
         sseReconnectAttempt += 1

@@ -907,12 +907,11 @@ export class Database {
       SELECT *
       FROM job_logs
       WHERE job_id = ?
-      ORDER BY at DESC
+      ORDER BY at ASC
       LIMIT ?
     `).all(jobId, limit) as any[];
 
     return rows
-      .reverse()
       .map((row) => ({
         id: row.id,
         jobId: row.job_id,
