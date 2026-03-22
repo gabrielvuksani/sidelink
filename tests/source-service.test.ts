@@ -48,12 +48,19 @@ describe('SourceService', () => {
     const { SourceService } = await import('../src/server/services/source-service');
     const service = new SourceService(db as any);
 
+    const manifestBody = JSON.stringify({
+      name: 'Test Source',
+      identifier: 'test.source',
+      apps: [{ name: 'Demo', bundleIdentifier: 'com.demo.app', downloadURL: 'https://example.com/app.ipa' }],
+    });
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
-      json: async () => ({
-        name: 'Test Source',
-        identifier: 'test.source',
-        apps: [{ name: 'Demo', bundleIdentifier: 'com.demo.app', downloadURL: 'https://example.com/app.ipa' }],
+      headers: new Headers({ 'content-length': String(manifestBody.length) }),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(manifestBody));
+          controller.close();
+        },
       }),
     })));
 
@@ -68,9 +75,16 @@ describe('SourceService', () => {
     const { SourceService } = await import('../src/server/services/source-service');
     const service = new SourceService(db as any);
 
+    const brokenBody = JSON.stringify({ name: 'Broken Source' });
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
-      json: async () => ({ name: 'Broken Source' }),
+      headers: new Headers({ 'content-length': String(brokenBody.length) }),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(brokenBody));
+          controller.close();
+        },
+      }),
     })));
 
     await expect(service.add('https://example.com/broken.json')).rejects.toMatchObject({
