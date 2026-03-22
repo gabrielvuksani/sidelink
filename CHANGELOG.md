@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.3] - 2026-03-21
+
+### Fixed
+
+- Removed the Desktop Readiness gate that blocked the entire UI after onboarding. The gate waited for backend diagnostics (Apple runtime checks, xcodebuild probes) that could hang indefinitely. The app now renders immediately and loads health data asynchronously per-widget.
+
 ## [0.4.2] - 2026-03-21
 
 ### Fixed
