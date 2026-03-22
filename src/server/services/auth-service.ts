@@ -20,7 +20,43 @@ export class AuthService {
   constructor(
     private db: Database,
     private logs: LogService,
-  ) {}
+  ) {
+    this.migrateAuthOnVersionChange();
+  }
+
+  /**
+   * On startup, compare the stored setup version against the running app version.
+   * If the major.minor changed (upgrade or stale dev DB), wipe auth so the
+   * onboarding wizard re-appears instead of a login wall.
+   */
+  private migrateAuthOnVersionChange(): void {
+    const currentVersion = this.getAppMajorMinor();
+    if (!currentVersion) return; // can't detect version — skip
+
+    const storedVersion = this.db.getSetting('auth_setup_version');
+
+    if (storedVersion === currentVersion) return; // same version — nothing to do
+
+    if (this.isSetupComplete()) {
+      // Version changed while an admin exists — clear auth for fresh onboarding
+      this.logs.info(LOG_CODES.ADMIN_LOGIN,
+        `App version changed (${storedVersion ?? 'none'} → ${currentVersion}), clearing credentials for fresh setup`);
+      this.resetAllUsers();
+    }
+
+    this.db.setSetting('auth_setup_version', currentVersion);
+  }
+
+  private getAppMajorMinor(): string | null {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pkg = require('../../../package.json') as { version?: string };
+      const parts = (pkg.version ?? '').split('.');
+      return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : null;
+    } catch {
+      return null;
+    }
+  }
 
   // ─── Password Management ────────────────────────────────────────
 

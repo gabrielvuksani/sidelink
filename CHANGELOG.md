@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.2] - 2026-03-21
+
+### Fixed
+
+- Fixed first-launch showing login instead of onboarding wizard when a database from a previous version or dev build persists. The app now tracks the setup version and automatically clears stale credentials on major.minor version changes so the setup wizard re-appears cleanly.
+
 ## [0.4.1] - 2026-03-21
 
 ### Added
