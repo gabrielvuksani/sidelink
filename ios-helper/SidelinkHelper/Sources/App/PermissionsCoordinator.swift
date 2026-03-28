@@ -1,4 +1,3 @@
-import AVFoundation
 import Network
 import SwiftUI
 import UserNotifications
@@ -77,7 +76,6 @@ final class PermissionCoordinator: ObservableObject {
     static let shared = PermissionCoordinator()
 
     @Published private(set) var notifications: SidelinkPermissionState = .unknown
-    @Published private(set) var camera: SidelinkPermissionState = .unknown
     @Published private(set) var localNetwork: SidelinkPermissionState = .unknown
     @Published private(set) var backgroundRefresh: SidelinkPermissionState = .unknown
 
@@ -97,7 +95,6 @@ final class PermissionCoordinator: ObservableObject {
 
     func refreshStatuses() async {
         await refreshNotificationStatus()
-        refreshCameraStatus()
         refreshBackgroundRefreshStatus()
     }
 
@@ -106,7 +103,6 @@ final class PermissionCoordinator: ObservableObject {
         // can appear while the user responds to the subsequent await-ed dialogs.
         requestLocalNetworkIfNeeded(force: true)
         await requestNotificationsIfNeeded()
-        await requestCameraIfNeeded()
         refreshBackgroundRefreshStatus()
     }
 
@@ -120,16 +116,6 @@ final class PermissionCoordinator: ObservableObject {
         notifications = .requesting
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         await refreshNotificationStatus()
-    }
-
-    func requestCameraIfNeeded() async {
-        let current = AVCaptureDevice.authorizationStatus(for: .video)
-        camera = Self.mapCameraStatus(current)
-        guard current == .notDetermined else { return }
-
-        camera = .requesting
-        _ = await AVCaptureDevice.requestAccess(for: .video)
-        refreshCameraStatus()
     }
 
     func requestLocalNetworkIfNeeded(force: Bool = false) {
@@ -214,10 +200,6 @@ final class PermissionCoordinator: ObservableObject {
         notifications = Self.mapNotificationStatus(settings.authorizationStatus)
     }
 
-    private func refreshCameraStatus() {
-        camera = Self.mapCameraStatus(AVCaptureDevice.authorizationStatus(for: .video))
-    }
-
     private func refreshBackgroundRefreshStatus() {
 #if canImport(UIKit)
         let enabled = UserDefaults.standard.object(forKey: "backgroundRefreshEnabled") as? Bool ?? true
@@ -282,19 +264,6 @@ final class PermissionCoordinator: ObservableObject {
         case .authorized, .provisional, .ephemeral:
             return .granted
         case .denied:
-            return .denied
-        case .notDetermined:
-            return .unknown
-        @unknown default:
-            return .unknown
-        }
-    }
-
-    private static func mapCameraStatus(_ status: AVAuthorizationStatus) -> SidelinkPermissionState {
-        switch status {
-        case .authorized:
-            return .granted
-        case .denied, .restricted:
             return .denied
         case .notDetermined:
             return .unknown

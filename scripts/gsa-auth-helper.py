@@ -455,12 +455,6 @@ def fetch_app_tokens(adsid: str, idms_token: str, sk_b64: str, c_b64: str, anise
         xcode_auth = tokens.get("com.apple.gs.xcode.auth", {})
         token = xcode_auth.get("token", "")
         if not token:
-            # Log full structure for debugging
-            import sys
-            print(f"DEBUG: token_plist keys={list(token_plist.keys())}", file=sys.stderr)
-            print(f"DEBUG: tokens keys={list(tokens.keys())}", file=sys.stderr)
-            for k, v in tokens.items():
-                print(f"DEBUG: tokens[{k}] keys={list(v.keys()) if isinstance(v, dict) else type(v)}", file=sys.stderr)
             return {"error": True, "error_code": -4, "error_message": f"No Xcode auth token in decrypted data. Available apps: {list(tokens.keys())}"}
         return {"error": False, "token": token}
     except Exception as e:

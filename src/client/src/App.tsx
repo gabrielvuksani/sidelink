@@ -5,13 +5,12 @@ import { getElectronAPI } from './lib/electron';
 import { ToastProvider, useToast } from './components/Toast';
 import { ConfirmProvider } from './components/ConfirmModal';
 import { InstallModalProvider } from './components/InstallModal';
-import { DesktopReadinessGate } from './components/DesktopReadinessGate';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CommandPalette } from './components/CommandPalette';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
 
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard'));
 const AppleAccountPage = lazy(() => import('./pages/AppleAccountPage'));
 const DevicesPage = lazy(() => import('./pages/DevicesPage'));
@@ -43,13 +42,13 @@ export default function App() {
     setupComplete: boolean;
     authenticated: boolean;
   }>({ loading: true, setupComplete: false, authenticated: false });
-  const [sessionExpiredMsg, setSessionExpiredMsg] = useState(false);
+  const [wasSessionExpired, setWasSessionExpired] = useState(false);
 
   // Register global 401 handler
   useEffect(() => {
     setSessionExpiredHandler((reason) => {
       setAuthState(s => ({ ...s, authenticated: false }));
-      setSessionExpiredMsg(reason === 'session-expired');
+      setWasSessionExpired(reason === 'session-expired');
     });
   }, []);
 
@@ -63,7 +62,7 @@ export default function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-[var(--sl-bg)]">
         <div className="sl-page-hero max-w-md">
-          <div className="sl-page-hero-inner !grid-cols-1">
+          <div className="sl-page-hero-inner sl-hero-single-col">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--sl-accent)]/70 border-t-transparent" />
             <div>
@@ -93,9 +92,9 @@ export default function App() {
     return (
       <ToastProvider>
         <LoginPage
-          onLogin={() => { setAuthState(s => ({ ...s, authenticated: true })); setSessionExpiredMsg(false); }}
+          onLogin={() => { setAuthState(s => ({ ...s, authenticated: true })); setWasSessionExpired(false); }}
           onReset={() => setAuthState(s => ({ ...s, setupComplete: false, authenticated: false }))}
-          sessionExpired={sessionExpiredMsg}
+          sessionExpired={wasSessionExpired}
         />
       </ToastProvider>
     );
@@ -105,14 +104,13 @@ export default function App() {
     <ToastProvider>
       <ConfirmProvider>
         <InstallModalProvider>
-          <DesktopReadinessGate>
             <Layout onLogout={() => setAuthState(s => ({ ...s, authenticated: false }))}>
               <ErrorBoundary>
                 <CommandPalette />
                 <DeepLinkHandler />
                 <NativeNotifications />
                 <Routes>
-                  <Route path="/" element={<DashboardPage />} />
+                  <Route path="/" element={<PageSuspense><DashboardPage /></PageSuspense>} />
                   <Route path="/apple" element={<PageSuspense><AppleAccountPage /></PageSuspense>} />
                   <Route path="/devices" element={<PageSuspense><DevicesPage /></PageSuspense>} />
                   <Route path="/apps" element={<PageSuspense><AppsPage /></PageSuspense>} />
@@ -125,7 +123,6 @@ export default function App() {
                 </Routes>
               </ErrorBoundary>
             </Layout>
-          </DesktopReadinessGate>
         </InstallModalProvider>
       </ConfirmProvider>
     </ToastProvider>

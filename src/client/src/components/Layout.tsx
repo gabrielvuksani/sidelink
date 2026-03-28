@@ -10,18 +10,30 @@ import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useElectron } from '../hooks/useElectron';
 import { useDesktopHealth } from '../hooks/useDesktopHealth';
 import { BrandIcon } from './BrandIcon';
+import {
+  DashboardIcon,
+  KeyIcon,
+  PhoneIcon,
+  ArchiveIcon,
+  DownloadIcon,
+  CheckCircleIcon,
+  DocumentIcon,
+  CogIcon,
+  SourcesIcon,
+  LogoutIcon,
+} from './Icons';
 
 const icons: Record<string, ReactNode> = {
-  dashboard: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>,
-  apple: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>,
-  device: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>,
-  apps: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
-  install: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>,
-  installed: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-  logs: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>,
-  settings: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-  sources: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-6-6h12" /><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5h15v15h-15z" /></svg>,
-  logout: <svg aria-hidden="true" className="h-[17px] w-[17px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>,
+  dashboard: <DashboardIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  apple: <KeyIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  device: <PhoneIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  apps: <ArchiveIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  install: <DownloadIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  installed: <CheckCircleIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  logs: <DocumentIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  settings: <CogIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  sources: <SourcesIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
+  logout: <LogoutIcon className="h-[17px] w-[17px]" aria-hidden="true" />,
 };
 
 interface NavSection {
@@ -69,15 +81,15 @@ const routeTitles: Record<string, string> = {
 };
 
 const routeDescriptions: Record<string, string> = {
-  '/': 'System health, active jobs, and quick actions.',
-  '/apple': 'Signing accounts, certificates, and App ID usage.',
-  '/devices': 'Connected devices and pairing status.',
-  '/apps': 'Your IPA library for signing and installation.',
-  '/install': 'Active and completed install jobs.',
-  '/installed': 'Tracked apps, expiry dates, and auto-refresh.',
-  '/logs': 'System and pipeline operation logs.',
-  '/sources': 'AltStore-compatible app sources.',
-  '/settings': 'Scheduler, credentials, updates, and helper config.',
+  '/': 'Your apps, devices, and signing status at a glance.',
+  '/apple': 'Manage signing accounts, certificates, and App IDs.',
+  '/devices': 'View connected devices and manage pairing.',
+  '/apps': 'Upload and manage your IPA files.',
+  '/install': 'Track active and completed installations.',
+  '/installed': 'Monitor installed apps and auto-refresh status.',
+  '/logs': 'View system logs and debug issues.',
+  '/sources': 'Browse and manage app sources.',
+  '/settings': 'Configure scheduling, security, and updates.',
 };
 
 export default function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: () => void }) {
@@ -100,6 +112,25 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
   const pageTitle = useMemo(() => routeTitles[location.pathname] ?? 'SideLink', [location.pathname]);
   const pageDescription = useMemo(() => routeDescriptions[location.pathname] ?? '', [location.pathname]);
+
+  const badges = useMemo(() => {
+    if (!desktopHealth) return {};
+    const result: Record<string, { count: number; tone: 'danger' | 'warning' | 'accent' }> = {};
+
+    // Accounts needing attention
+    const accountIssues = desktopHealth.accounts?.needsAttention ?? 0;
+    if (accountIssues > 0) result['/apple'] = { count: accountIssues, tone: 'danger' };
+
+    // Expiring apps (pending refresh count from scheduler)
+    const expiring = desktopHealth.scheduler?.pendingRefreshCount ?? 0;
+    if (expiring > 0) result['/installed'] = { count: expiring, tone: 'warning' };
+
+    // Active jobs (running + waiting for 2FA)
+    const activeJobs = (desktopHealth.installs?.running ?? 0) + (desktopHealth.installs?.waitingFor2FA ?? 0);
+    if (activeJobs > 0) result['/install'] = { count: activeJobs, tone: 'accent' };
+
+    return result;
+  }, [desktopHealth]);
 
   const handleLogout = async () => {
     try { await api.logout(); } catch { /* ignore */ }
@@ -138,7 +169,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
             <p className="text-[13px] font-bold tracking-tight text-[var(--sl-text)]">SideLink</p>
             <div className="flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 rounded-full ${workspaceReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-              <p className="text-[10px] font-medium text-[var(--sl-muted)]">{workspaceReady ? 'Ready' : 'Needs setup'}</p>
+              <p className="text-[11px] font-medium text-[var(--sl-muted)]">{workspaceReady ? 'Ready' : 'Needs setup'}</p>
             </div>
           </div>
         </div>
@@ -158,13 +189,22 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
                   onClick={() => setMobileOpen(false)}
                   className={({ isActive }) =>
                     `group flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13px] font-medium transition-all duration-150 ${isActive
-                      ? 'border border-teal-300/15 bg-[linear-gradient(135deg,rgba(45,212,191,0.24),rgba(20,184,166,0.12))] text-[var(--sl-text)] shadow-[0_14px_30px_rgba(20,184,166,0.12)]'
+                      ? 'border border-[var(--sl-accent)]/15 bg-[var(--sl-accent)]/12 text-[var(--sl-text)]'
                       : 'text-[var(--sl-muted)] hover:bg-[rgba(24,39,53,0.8)] hover:text-[var(--sl-text)]'
                     }`
                   }
                 >
                   <span className="shrink-0">{icons[item.icon]}</span>
                   <span>{item.label}</span>
+                  {badges[item.to] && (
+                    <span className={`ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
+                      badges[item.to].tone === 'danger' ? 'bg-red-500/20 text-red-400' :
+                      badges[item.to].tone === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-teal-500/20 text-teal-400'
+                    }`}>
+                      {badges[item.to].count}
+                    </span>
+                  )}
                 </NavLink>
               ))}
             </div>
@@ -174,7 +214,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
 
       {/* Bottom actions */}
       <div className="border-t border-[var(--sl-border)] px-3 py-3">
-        <div className="mb-2 flex flex-wrap gap-2 px-1">
+        <div className="mb-2 flex flex-wrap gap-2">
           <button onClick={handleOpenInstall} className="sl-btn-primary sl-btn-sm flex-1">New Install</button>
           <button onClick={() => { void handleScanDevices(); }} disabled={scanningDevices} className="sl-btn-ghost sl-btn-sm flex-1 disabled:opacity-50">
             {scanningDevices ? 'Scanning...' : 'Scan Devices'}
@@ -188,7 +228,7 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
             Search commands
           </span>
-          <kbd className="rounded border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-1.5 py-0.5 text-[9px] font-semibold">⌘K</kbd>
+          <kbd className="rounded border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] px-1.5 py-0.5 text-[9px] font-semibold">{navigator.platform?.toLowerCase().includes('mac') ? '\u2318K' : 'Ctrl+K'}</kbd>
         </button>
         <button
           onClick={handleLogout}
@@ -204,8 +244,6 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
   return (
     <div className="relative flex h-screen overflow-hidden bg-[var(--sl-bg)] text-[var(--sl-text)]">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-[var(--sl-accent)] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:shadow-lg">Skip to content</a>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.06),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(251,146,60,0.06),transparent_20%)]" />
-
       {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
@@ -218,27 +256,31 @@ export default function Layout({ children, onLogout }: { children: React.ReactNo
       </button>
 
       {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fadeIn" onClick={() => setMobileOpen(false)} aria-hidden="true" />
-      )}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden transition-opacity duration-200 ${
+          mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
+      />
 
-      {mobileOpen && (
-        <button
-          onClick={() => setMobileOpen(false)}
-          className={`fixed z-[52] right-[max(0.75rem,env(safe-area-inset-right))] rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden ${macChromeInset ? 'top-12' : 'top-[max(0.75rem,env(safe-area-inset-top))]'}`}
-          aria-label="Close menu"
-        >
-          <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      )}
+      <button
+        onClick={() => setMobileOpen(false)}
+        className={`fixed z-[52] right-[max(0.75rem,env(safe-area-inset-right))] rounded-xl border border-[var(--sl-border)] bg-[var(--sl-surface)] p-2 text-[var(--sl-muted)] shadow-[var(--sl-shadow)] md:hidden transition-opacity duration-200 ${
+          mobileOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        } ${macChromeInset ? 'top-12' : 'top-[max(0.75rem,env(safe-area-inset-top))]'}`}
+        aria-label="Close menu"
+      >
+        <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
 
       {/* Sidebar */}
       <aside
         className={`
           fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[var(--sl-border)]
-          bg-[linear-gradient(180deg,rgba(10,18,26,0.97),rgba(6,11,17,0.99))] transition-transform duration-200
+          bg-[var(--sl-bg)] transition-transform duration-200
           md:static md:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}

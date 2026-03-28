@@ -3,6 +3,7 @@ export {
   getJob,
   listJobs,
   recoverStalledJobs,
+  cancelJob,
   onPipelineUpdate,
   onPipelineJobLog,
   getJobLogs,

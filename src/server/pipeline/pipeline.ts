@@ -37,6 +37,10 @@ import { PIPELINE_STEPS, LOG_CODES } from '../../shared/constants';
 import { PipelineError, DeviceError, SigningError, Apple2FARequiredError, ProvisioningError } from '../utils/errors';
 import { notifyInstalledAppsChanged } from '../services/installed-app-events';
 
+// ─── Job Cancellation ────────────────────────────────────────────────
+
+const cancelledJobs = new Set<string>();
+
 // ─── Per-device Mutex ────────────────────────────────────────────────
 
 type MutexRelease = () => void;
@@ -66,6 +70,16 @@ type PipelineJobLogListener = (entry: JobLogEntry) => void;
 const logListeners: PipelineJobLogListener[] = [];
 const jobLogs = new Map<string, JobLogEntry[]>();
 const MAX_JOB_LOG_LINES = 300;
+const MAX_JOB_LOG_ENTRIES = 100;
+
+/** Evict oldest job log entries when the map exceeds MAX_JOB_LOG_ENTRIES. */
+function evictStaleJobLogs(): void {
+  if (jobLogs.size <= MAX_JOB_LOG_ENTRIES) return;
+  const keysToDelete = [...jobLogs.keys()].slice(0, jobLogs.size - MAX_JOB_LOG_ENTRIES);
+  for (const key of keysToDelete) {
+    jobLogs.delete(key);
+  }
+}
 
 function isExpiredDeveloperSessionError(error: unknown): boolean {
   if (!(error instanceof ProvisioningError)) {
@@ -113,6 +127,7 @@ function appendJobLog(entry: JobLogEntry): void {
     entries.splice(0, entries.length - MAX_JOB_LOG_LINES);
   }
   jobLogs.set(entry.jobId, entries);
+  evictStaleJobLogs();
   for (const listener of logListeners) {
     try {
       listener(entry);
@@ -347,6 +362,49 @@ export function recoverStalledJobs(db: Database, logs: LogService): number {
   return count;
 }
 
+/**
+ * Cancel a running or queued job.
+ */
+export function cancelJob(db: Database, jobId: string): boolean {
+  const job = db.getJob(jobId);
+  if (!job) return false;
+
+  // Already terminal
+  if (job.status === 'completed' || job.status === 'failed') return false;
+
+  // If waiting for 2FA, reject the waiter
+  if (job.status === 'waiting_2fa') {
+    const waiter = pending2FA.get(jobId);
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      pending2FA.delete(jobId);
+      waiter.reject(new PipelineError('JOB_CANCELLED', 'Job cancelled by user'));
+    }
+  }
+
+  // Mark as cancelled so running steps will stop at next boundary
+  cancelledJobs.add(jobId);
+
+  // Update DB immediately
+  job.status = 'failed';
+  job.error = 'Cancelled by user';
+  job.updatedAt = new Date().toISOString();
+  for (const step of job.steps) {
+    if (step.status === 'running') {
+      step.status = 'failed';
+      step.error = 'Cancelled';
+      step.completedAt = job.updatedAt;
+    }
+  }
+  db.updateJob(job);
+  notifyListeners(job);
+
+  // Auto-cleanup after 60s
+  setTimeout(() => cancelledJobs.delete(jobId), 60_000);
+
+  return true;
+}
+
 // ─── Pipeline Steps ──────────────────────────────────────────────────
 
 async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
@@ -559,6 +617,11 @@ async function runStep(
   stepName: PipelineStepName,
   fn: () => Promise<void>,
 ): Promise<void> {
+  if (cancelledJobs.has(job.id)) {
+    cancelledJobs.delete(job.id);
+    throw new PipelineError('JOB_CANCELLED', 'Job cancelled by user');
+  }
+
   const step = job.steps.find(s => s.name === stepName);
   if (!step) throw new PipelineError('UNKNOWN_STEP', `Unknown step: ${stepName}`);
 

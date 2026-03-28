@@ -134,7 +134,7 @@ struct LogsView: View {
             }
         }
         .task { await model.loadHelperLogs() }
-        .onChange(of: selectedLevel) { newValue in
+        .onChange(of: selectedLevel) { _, newValue in
             Task { await model.loadHelperLogs(level: newValue.isEmpty ? nil : newValue) }
         }
     }

@@ -5,6 +5,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import fs from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
 import type { AppContext } from './context';
 import { authRoutes, appleRoutes, deviceRoutes, ipaRoutes, installRoutes, sourceRoutes, systemRoutes, sseRoutes } from './routes';
 import type { SourceManifest } from '../shared/types';
@@ -31,7 +32,7 @@ export function createApp(ctx: AppContext): express.Express {
     }
 
     const internalToken = process.env.SIDELINK_INTERNAL_TOKEN;
-    if (internalToken && token === internalToken) {
+    if (internalToken && token.length === internalToken.length && timingSafeEqual(Buffer.from(token), Buffer.from(internalToken))) {
       req.userId = '__internal__';
       return next();
     }
@@ -49,7 +50,7 @@ export function createApp(ctx: AppContext): express.Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
-  app.use('/api', csrfProtection({ skipPaths: ['/auth/status', '/auth/login', '/auth/setup', '/auth/reset', '/auth/auto-setup', '/health', '/events', '/helper', '/system/pair'] }));
+  app.use('/api', csrfProtection({ skipPaths: ['/auth/status', '/auth/login', '/auth/setup', '/auth/reset', '/health', '/events', '/helper', '/system/pair'] }));
 
   // Security headers
   app.use((req, res, next) => {

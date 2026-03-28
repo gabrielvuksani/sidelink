@@ -119,6 +119,17 @@ export class IpaService {
     };
 
     this.db.saveIpa(ipa);
+
+    // Attach previous version diff info when re-importing same bundleId
+    const existing = this.db.listIpas().find(e => e.bundleId === ipa.bundleId && e.id !== ipa.id);
+    if (existing) {
+      ipa.previousVersion = {
+        id: existing.id,
+        version: existing.bundleShortVersion,
+        fileSize: existing.fileSize,
+      };
+    }
+
     return ipa;
   }
 

@@ -90,7 +90,7 @@ struct InstalledTab: View {
                     }
                 }
             }
-            .onChange(of: model.selectedDeviceUdid) { _ in
+            .onChange(of: model.selectedDeviceUdid) { _, _ in
                 Task { await refreshInstalledSurface() }
             }
             .alert(

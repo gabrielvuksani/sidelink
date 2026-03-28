@@ -1,7 +1,8 @@
 // ─── Confirm Modal ───────────────────────────────────────────────────
 // Drop-in replacement for window.confirm() that matches the dark theme.
 
-import { useState, useCallback, useEffect, createContext, useContext, useRef } from 'react';
+import { useState, useCallback, useEffect, createContext, useContext, useRef, useId } from 'react';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { ReactNode } from 'react';
 
 interface ConfirmOptions {
@@ -56,8 +57,8 @@ function ConfirmDialog({
   onClose: (result: boolean) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const titleId = 'confirm-dialog-title';
-  const descId = 'confirm-dialog-desc';
+  const titleId = useId();
+  const descId = useId();
 
   // Trap focus inside dialog and close on Escape
   useEffect(() => {
@@ -86,13 +87,7 @@ function ConfirmDialog({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
+  useBodyScrollLock(true);
 
   return (
     <div

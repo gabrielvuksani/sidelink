@@ -270,7 +270,7 @@ struct InstallVerboseLogConsole: View {
             .frame(maxHeight: maxHeight)
             .frame(height: maxHeight)
             .background(Color.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .onChange(of: logs.count) { _ in
+            .onChange(of: logs.count) { _, _ in
                 guard let last = logs.last else { return }
                 withAnimation(.easeOut(duration: 0.18)) {
                     proxy.scrollTo(last.id, anchor: .bottom)

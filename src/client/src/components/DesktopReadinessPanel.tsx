@@ -100,10 +100,10 @@ export function DesktopReadinessPanel({
         </div>
 
         <div className="mt-4 grid gap-2 min-[420px]:grid-cols-2 xl:flex xl:flex-wrap">
-          {!signingReady && <Link to="/apple" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Apple IDs</Link>}
-          {!devicesReady && <Link to="/devices" className="sl-btn-primary !px-3.5 !py-2 !text-[12px]">Open Devices</Link>}
-          {(!helperReady || !helperPaired) && <Link to="/settings" className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Open Helper Settings</Link>}
-          <button onClick={() => { void refresh({ bypassCache: true }); }} className="sl-btn-ghost !px-3.5 !py-2 !text-[12px]">Refresh Health</button>
+          {!signingReady && <Link to="/apple" className="sl-btn-primary sl-btn-sm">Open Apple IDs</Link>}
+          {!devicesReady && <Link to="/devices" className="sl-btn-primary sl-btn-sm">Open Devices</Link>}
+          {(!helperReady || !helperPaired) && <Link to="/settings" className="sl-btn-ghost sl-btn-sm">Open Helper Settings</Link>}
+          <button onClick={() => { void refresh({ bypassCache: true }); }} className="sl-btn-ghost sl-btn-sm">Refresh Health</button>
         </div>
       </div>
 

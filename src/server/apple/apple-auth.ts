@@ -74,7 +74,18 @@ interface PendingGsaContext {
   trustedPhoneNumbers: AppleTrustedPhoneNumber[];
 }
 
-const pending2FAContexts = new Map<string, PendingGsaContext>();
+const pending2FAContexts = new Map<string, PendingGsaContext & { createdAt: number }>();
+
+const PENDING_2FA_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function evictStale2FAContexts() {
+  const now = Date.now();
+  for (const [key, ctx] of pending2FAContexts) {
+    if (now - ctx.createdAt > PENDING_2FA_TTL_MS) {
+      pending2FAContexts.delete(key);
+    }
+  }
+}
 
 function normalizeTrustedPhoneNumbers(value: unknown): AppleTrustedPhoneNumber[] {
   if (!Array.isArray(value)) return [];
@@ -266,7 +277,7 @@ export async function initiateAuth(
     logger.info(`2FA required (${authType})`);
 
     // Store context for 2FA completion
-    pending2FAContexts.set(appleId, { adsid, idmsToken, trustedPhoneNumbers });
+    pending2FAContexts.set(appleId, { adsid, idmsToken, trustedPhoneNumbers, createdAt: Date.now() });
 
     // Trigger 2FA push notification to trusted devices
     await trigger2FAPush(adsid, idmsToken, anisette);
@@ -394,6 +405,8 @@ export async function submit2FACode(
   appleId?: string,
   password?: string,
 ): Promise<AuthSession> {
+  evictStale2FAContexts();
+
   if (!appleId) {
     throw new AppleAuthError(
       'APPLE_2FA_NO_CONTEXT',
@@ -458,6 +471,8 @@ export async function submit2FACode(
  * Request SMS 2FA code to a specific phone number.
  */
 export async function requestSMS2FA(appleId: string, phoneId: number): Promise<void> {
+  evictStale2FAContexts();
+
   const ctx = pending2FAContexts.get(appleId);
   if (!ctx) {
     throw new AppleAuthError(

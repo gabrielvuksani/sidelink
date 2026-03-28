@@ -8,11 +8,11 @@ import crypto from 'node:crypto';
 import { AddressInfo } from 'node:net';
 import { Server } from 'node:http';
 import os from 'node:os';
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, Notification, session } from 'electron';
 import { ipcMain } from 'electron';
 
 import { IPC } from './ipc-channels';
-import type { InstallJob } from '../shared/types';
+import type { InstallJob, InstalledApp } from '../shared/types';
 
 import { registerIpcHandlers } from './ipc-handlers';
 import { setupAutoUpdater } from './auto-updater';
@@ -35,8 +35,11 @@ let mainWindow: BrowserWindow | undefined;
 let backendUrl: string | undefined;
 let trayUpdateTimer: ReturnType<typeof setInterval> | undefined;
 let stopDiscoveryBroadcast: (() => void) | undefined;
+let internalToken: string | undefined;
 let rendererReady = false;
+let isQuitting = false;
 let pendingDeepLinks: Array<{ action: string; params: Record<string, string> }> = [];
+let pendingFilePaths: string[] = [];
 let ensureWindowPromise: Promise<BrowserWindow | undefined> | null = null;
 
 // ── Utility ──────────────────────────────────────────────────────────
@@ -120,6 +123,31 @@ app.on('open-url', (_event, url) => {
   handleDeepLink(url);
 });
 
+// macOS: handle .ipa file drop on dock icon or double-click open
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (path.extname(filePath).toLowerCase() === '.ipa') {
+    if (server && internalToken && backendUrl) {
+      fetch(`${backendUrl}/api/ipas/import-path`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${internalToken}`,
+        },
+        body: JSON.stringify({ path: filePath }),
+      }).then(async (res) => {
+        const json = await res.json();
+        if (json.ok) {
+          new Notification({ title: 'IPA Imported', body: json.data?.bundleName || path.basename(filePath) }).show();
+          mainWindow?.webContents.send('navigate', '/apps');
+        }
+      }).catch(() => {});
+    } else {
+      pendingFilePaths.push(filePath);
+    }
+  }
+});
+
 function handleDeepLink(url: string): void {
   try {
     const parsed = new URL(url);
@@ -188,7 +216,7 @@ async function startBackend(): Promise<string> {
 
   // Generate an internal token for in-process API calls (tray polling, etc.)
   // This is recognized by the auth middleware as a valid session.
-  const internalToken = crypto.randomBytes(32).toString('hex');
+  internalToken = crypto.randomBytes(32).toString('hex');
   process.env.SIDELINK_INTERNAL_TOKEN = internalToken;
 
   const ctx = await createAppContextAsync({ dataDir: process.env.SIDELINK_DATA_DIR });
@@ -238,17 +266,66 @@ function startTrayPolling(baseUrl: string, authToken: string): void {
 
   const headers = { Authorization: `Bearer ${authToken}` };
 
+  // Track previously seen job IDs so we only notify on new events
+  let previousJobIds = new Set<string>();
+  // Track apps we already warned about expiring (avoid repeated notifications)
+  const notifiedExpiringApps = new Set<string>();
+
   const poll = async () => {
     try {
-      const [devRes, jobRes] = await Promise.all([
+      const [devRes, jobRes, appRes] = await Promise.all([
         fetch(`${baseUrl}/api/devices`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
         fetch(`${baseUrl}/api/install/jobs`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
+        fetch(`${baseUrl}/api/install/apps`, { headers }).then(r => r.json()).catch(() => ({ data: [] })),
       ]);
       const deviceCount = Array.isArray(devRes.data) ? devRes.data.length : 0;
       const jobs: InstallJob[] = Array.isArray(jobRes.data) ? jobRes.data : [];
+      const installedApps: InstalledApp[] = Array.isArray(appRes.data) ? appRes.data : [];
       const jobsRunning = jobs.filter((job) => job?.status === 'running').length;
       const jobsWaiting2FA = jobs.filter((job) => job?.status === 'waiting_2fa').length;
       updateTrayMenu({ deviceCount, jobsRunning, jobsWaiting2FA });
+
+      // ── Notifications for new job completions / failures ────────
+      const currentJobIds = new Set(jobs.map((j) => j.id));
+      for (const job of jobs) {
+        if (!previousJobIds.has(job.id) && previousJobIds.size > 0) {
+          if (job.status === 'completed') {
+            new Notification({
+              title: 'Install Complete',
+              body: job.customDisplayName || `Job ${job.id.slice(0, 8)} finished`,
+            }).show();
+          } else if (job.status === 'failed') {
+            new Notification({
+              title: 'Install Failed',
+              body: job.error || `Job ${job.id.slice(0, 8)} failed`,
+            }).show();
+          }
+        }
+
+        // ── Notification for 2FA required ─────────────────────────
+        if (job.status === 'waiting_2fa' && !previousJobIds.has(job.id + ':2fa')) {
+          previousJobIds.add(job.id + ':2fa');
+          new Notification({
+            title: 'Two-Factor Authentication Required',
+            body: 'An install job needs your 2FA code. Open SideLink to continue.',
+          }).show();
+        }
+      }
+      previousJobIds = currentJobIds;
+
+      // ── Notification for apps expiring within 24 hours ──────────
+      for (const app of installedApps) {
+        if (app.expiresAt) {
+          const hoursLeft = (new Date(app.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60);
+          if (hoursLeft > 0 && hoursLeft <= 24 && !notifiedExpiringApps.has(app.id)) {
+            notifiedExpiringApps.add(app.id);
+            new Notification({
+              title: 'App Expiring Soon',
+              body: `${app.appName || app.bundleId} expires in ${Math.round(hoursLeft)} hours`,
+            }).show();
+          }
+        }
+      }
     } catch (err) {
       // Non-critical: tray just shows stale data
       console.warn('[tray] Polling failed:', err);
@@ -293,6 +370,16 @@ function buildWindow(): BrowserWindow {
   if (savedState.isMaximized) win.maximize();
   trackWindowState(win);
   win.once('ready-to-show', () => win.show());
+
+  // Hide to tray instead of quitting when the user closes the window
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+      if (process.platform === 'darwin') app.dock?.hide();
+    }
+  });
+
   win.on('closed', () => {
     mainWindow = undefined;
     rendererReady = false;
@@ -308,6 +395,27 @@ async function createWindow(): Promise<void> {
   if (readEnv('SIDELINK_DEVTOOLS') === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // Process any .ipa files queued before the backend was ready
+  if (pendingFilePaths.length > 0 && backendUrl && internalToken) {
+    const queued = pendingFilePaths.splice(0);
+    for (const filePath of queued) {
+      fetch(`${backendUrl}/api/ipas/import-path`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${internalToken}`,
+        },
+        body: JSON.stringify({ path: filePath }),
+      }).then(async (res) => {
+        const json = await res.json();
+        if (json.ok) {
+          new Notification({ title: 'IPA Imported', body: json.data?.bundleName || path.basename(filePath) }).show();
+          mainWindow?.webContents.send('navigate', '/apps');
+        }
+      }).catch(() => {});
+    }
+  }
 }
 
 function createWindowFromExistingBackend(): void {
@@ -321,6 +429,7 @@ async function ensureMainWindow(): Promise<BrowserWindow | undefined> {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
+    if (process.platform === 'darwin') app.dock?.show();
     return mainWindow;
   }
 
@@ -360,10 +469,20 @@ async function stopBackend(): Promise<void> {
   stopTrayPolling();
   stopDiscoveryBroadcast?.();
   stopDiscoveryBroadcast = undefined;
+
+  // Close the HTTP server with a timeout to prevent hanging on stale connections
   await new Promise<void>((resolve) => {
-    if (server) server.close(() => resolve());
-    else resolve();
+    if (!server) return resolve();
+    const forceTimeout = setTimeout(() => {
+      console.warn('[desktop] Backend shutdown timed out after 5s, forcing close');
+      resolve();
+    }, 5000);
+    server.close(() => {
+      clearTimeout(forceTimeout);
+      resolve();
+    });
   });
+
   shutdownFn?.();
   server = undefined;
   shutdownFn = undefined;
@@ -415,7 +534,7 @@ app.whenReady().then(async () => {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
           ],
         },
       });
@@ -443,6 +562,26 @@ app.whenReady().then(async () => {
   createTray({
     showWindow: () => { void ensureMainWindow(); },
     navigate: (action) => navigateToAction(action),
+    hideToTray: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.hide();
+        if (process.platform === 'darwin') app.dock?.hide();
+      }
+    },
+    isWindowVisible: () => {
+      return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+    },
+  });
+
+  // Register global hotkey (Cmd/Ctrl+Shift+I) to show window and navigate to install
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (process.platform === 'darwin') app.dock?.show();
+      mainWindow.webContents.send(IPC.DEEP_LINK, { action: 'install', params: {} });
+    }
   });
 
   // Create the main window
@@ -461,8 +600,13 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   destroyTray();
   void stopBackend();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {

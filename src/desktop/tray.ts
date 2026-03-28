@@ -11,10 +11,14 @@ import { checkForUpdates } from './auto-updater';
 let tray: Tray | null = null;
 let showWindowAction: (() => void) | null = null;
 let navigateAction: ((action: string) => void) | null = null;
+let hideToTrayAction: (() => void) | null = null;
+let isWindowVisibleFn: (() => boolean) | null = null;
 
 type TrayActions = {
   showWindow?: () => void;
   navigate?: (action: string) => void;
+  hideToTray?: () => void;
+  isWindowVisible?: () => boolean;
 };
 
 /**
@@ -74,6 +78,8 @@ function navigateFromTray(action: string): void {
 export function createTray(actions?: TrayActions): Tray {
   showWindowAction = actions?.showWindow ?? showWindowAction;
   navigateAction = actions?.navigate ?? navigateAction;
+  hideToTrayAction = actions?.hideToTray ?? hideToTrayAction;
+  isWindowVisibleFn = actions?.isWindowVisible ?? isWindowVisibleFn;
   if (tray) return tray;
 
   const iconPath = getTrayIconPath();
@@ -134,11 +140,24 @@ export function updateTrayMenu(extra?: { deviceCount?: number; jobsRunning?: num
       ? 'Status: Busy'
       : 'Status: Idle';
 
+  const windowVisible = isWindowVisibleFn ? isWindowVisibleFn() : true;
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Open SideLink',
       click: focusMainWindow,
     },
+    {
+      label: windowVisible ? 'Hide to Tray' : 'Show Window',
+      click: () => {
+        if (windowVisible && hideToTrayAction) {
+          hideToTrayAction();
+        } else {
+          focusMainWindow();
+        }
+      },
+    },
+    { type: 'separator' },
     {
       label: 'Go to Install',
       click: () => navigateFromTray('install'),

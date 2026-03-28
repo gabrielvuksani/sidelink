@@ -13,7 +13,7 @@ struct SidelinkHelperApp: App {
         WindowGroup {
             SidelinkAppRootView()
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
                 Task { @MainActor in

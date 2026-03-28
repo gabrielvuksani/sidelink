@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, notifyAuthStateReset } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { getElectronAPI } from '../lib/electron';
@@ -31,10 +31,15 @@ export default function SettingsPage() {
       <TabBar tabs={[...TABS]} active={tab} onChange={setTab} />
 
       {tab === 'automation' && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr),minmax(420px,0.98fr)] 2xl:grid-cols-[minmax(0,1fr),minmax(520px,0.95fr)]">
-          <SchedulerSettings />
-          <HelperControlPanel />
-        </div>
+        <>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.02fr),minmax(420px,0.98fr)] 2xl:grid-cols-[minmax(0,1fr),minmax(520px,0.95fr)]">
+            <SchedulerSettings />
+            <HelperControlPanel />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2 mt-4">
+            <WebhookSettings />
+          </div>
+        </>
       )}
 
       {tab === 'security' && (
@@ -48,6 +53,7 @@ export default function SettingsPage() {
           <div className="grid gap-4 xl:grid-cols-2">
             {isElectron && <AppUpdateSection />}
             <SystemInfo />
+            <ExportImportSection />
           </div>
           {isElectron && <DesktopResetSection />}
         </>
@@ -181,7 +187,7 @@ function SchedulerSettings() {
             max={1440}
             value={interval}
             onChange={e => setInterval_(Number(e.target.value))}
-            className="sl-input !w-36"
+            className="sl-input w-36"
           />
         </div>
 
@@ -258,9 +264,9 @@ function PasswordChange() {
         <button
           onClick={submit}
           disabled={loading || !current || !newPwd || !confirmPwd}
-          className="sl-btn-ghost flex items-center gap-2"
+          className="sl-btn-primary flex items-center gap-2"
         >
-          {loading && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/40 border-t-[var(--sl-muted)]" />}
+          {loading && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
           {loading ? 'Changing...' : 'Change Password'}
         </button>
       </div>
@@ -353,6 +359,155 @@ function AppUpdateSection() {
   );
 }
 
+function ExportImportSection() {
+  const { toast } = useToast();
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await api.exportConfig();
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sidelink-config-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast('success', 'Configuration exported');
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to export configuration'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const config = JSON.parse(text);
+      const res = await api.importConfig(config);
+      const imported = (res.data as { sourcesImported: number })?.sourcesImported ?? 0;
+      toast('success', `Configuration imported (${imported} source${imported !== 1 ? 's' : ''} added)`);
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to import configuration'));
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <Panel title="Export & Import" subtitle="Back up or restore your SideLink configuration.">
+      <div className="space-y-3">
+        <p className="text-[12px] leading-5 text-[var(--sl-muted)]">
+          Export saves sources, scheduler config, and installed app records as a JSON file. Import restores sources and scheduler settings.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="sl-btn-primary flex items-center gap-2"
+          >
+            {exporting && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+            {exporting ? 'Exporting...' : 'Export Configuration'}
+          </button>
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="sl-btn-ghost flex items-center gap-2"
+          >
+            {importing && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--sl-muted)]/40 border-t-[var(--sl-muted)]" />}
+            {importing ? 'Importing...' : 'Import Configuration'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function WebhookSettings() {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    api.getWebhookUrl().then(r => {
+      setUrl(r.data?.url ?? '');
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.setWebhookUrl(url);
+      toast('success', url.trim() ? 'Webhook URL saved' : 'Webhook URL cleared');
+    } catch (e: unknown) {
+      toast('error', getErrorMessage(e, 'Failed to save webhook URL'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return null;
+
+  return (
+    <Panel title="Webhook Notifications" subtitle="Receive POST notifications when auto-refresh events occur.">
+      <div className="space-y-3">
+        <div>
+          <label htmlFor="webhook-url" className="mb-1.5 block text-xs text-[var(--sl-muted)]">Webhook URL</label>
+          <input
+            id="webhook-url"
+            type="url"
+            placeholder="https://example.com/webhook"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            className="sl-input w-full"
+          />
+          <p className="mt-1.5 text-[11px] text-[var(--sl-muted)]">
+            SideLink will POST JSON payloads with <code className="text-[10px] bg-[var(--sl-surface-soft)] px-1 py-0.5 rounded">event</code>, <code className="text-[10px] bg-[var(--sl-surface-soft)] px-1 py-0.5 rounded">data</code>, and <code className="text-[10px] bg-[var(--sl-surface-soft)] px-1 py-0.5 rounded">timestamp</code> fields on refresh success or failure.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="sl-btn-primary flex items-center gap-2"
+          >
+            {saving && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          {url.trim() && (
+            <button
+              onClick={() => { setUrl(''); }}
+              className="sl-btn-ghost text-[var(--sl-muted)]"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function DesktopResetSection() {
   const confirm = useConfirm();
   const { toast } = useToast();
@@ -401,9 +556,9 @@ function DesktopResetSection() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <MetricChip label="Database" value="Wiped" tone="violet" />
-          <MetricChip label="Sessions" value="Cleared" tone="sky" />
-          <MetricChip label="Secrets" value="Reset" tone="emerald" />
+          <MetricChip label="Database" value="Database" tone="violet" />
+          <MetricChip label="Sessions" value="Sessions" tone="sky" />
+          <MetricChip label="Stored secrets" value="Stored secrets" tone="emerald" />
         </div>
 
         {dataDir && (

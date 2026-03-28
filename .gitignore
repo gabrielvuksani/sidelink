@@ -24,3 +24,5 @@ sidelink-clean-impl/
 test-results/
 ios-helper/SidelinkHelper/build/
 .cursor/
+CLAUDE.md
+.claude/

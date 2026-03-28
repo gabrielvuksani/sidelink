@@ -6,6 +6,107 @@ import { useElectron } from '../hooks/useElectron';
 import { HelperPairingPanel } from './HelperPairingPanel';
 import { useDesktopHealth } from '../hooks/useDesktopHealth';
 
+const TEAM_SOURCE_LABELS: Record<string, string> = {
+  request: 'Manual override',
+  env: 'Environment',
+  'apple-account-authenticated': 'Connected Apple account',
+  'apple-account-any': 'Saved Apple account',
+  'xcode-signing-identity': 'Xcode signing identity',
+  none: 'Not detected',
+};
+
+// ─── Shared sub-components ──────────────────────────────────────────
+
+function SigningTeamSection({
+  detectedTeamId,
+  detectedTeamIdSource,
+  overrideTeamId,
+  setOverrideTeamId,
+  teamId,
+  setTeamId,
+  infoSlot,
+}: {
+  detectedTeamId: string | null | undefined;
+  detectedTeamIdSource: string | null | undefined;
+  overrideTeamId: boolean;
+  setOverrideTeamId: (v: boolean) => void;
+  teamId: string;
+  setTeamId: (v: string) => void;
+  infoSlot?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3 rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.02))] p-4 sm:p-5">
+      <div className={infoSlot ? 'flex flex-wrap items-start justify-between gap-3' : ''}>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Signing team</p>
+          <p className="mt-2 font-mono text-sm text-[var(--sl-text)]">{detectedTeamId ?? 'Unavailable'}</p>
+          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Source: {TEAM_SOURCE_LABELS[detectedTeamIdSource ?? 'none']}</p>
+        </div>
+        {infoSlot}
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--sl-muted)]">
+        <input
+          type="checkbox"
+          checked={overrideTeamId}
+          onChange={(event) => setOverrideTeamId(event.target.checked)}
+          className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
+        />
+        Use manual Team ID override
+      </label>
+
+      {overrideTeamId && (
+        <div>
+          <label className="mb-1.5 block text-xs text-[var(--sl-muted)]">Team ID override</label>
+          <input
+            placeholder="XXXXXXXXXX"
+            value={teamId}
+            onChange={(event) => setTeamId(event.target.value.toUpperCase())}
+            className="sl-input max-w-full sm:max-w-xs font-mono uppercase"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionButtons({
+  onProvision,
+  running,
+  secondaryAction,
+  className = '',
+}: {
+  onProvision: () => void;
+  running: boolean;
+  secondaryAction: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`grid gap-2 min-[420px]:grid-cols-2 ${className}`}>
+      <button
+        onClick={onProvision}
+        disabled={running}
+        className="sl-btn-secondary flex items-center justify-center gap-2"
+      >
+        {running && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+        {running ? 'Provisioning\u2026' : 'Provision helper'}
+      </button>
+      {secondaryAction}
+    </div>
+  );
+}
+
+function HelperStatus({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className={`rounded-lg border px-2.5 py-2 ${ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
+      <p className="font-medium">{label}</p>
+      <p className="mt-0.5 text-[11px]">{ok ? 'Ready' : 'Needs setup'}</p>
+    </div>
+  );
+}
+
+// ─── Main component ─────────────────────────────────────────────────
+
 export function HelperControlPanel({
   variant = 'settings',
   embedded = false,
@@ -55,14 +156,6 @@ export function HelperControlPanel({
 
   const platform = doctor?.platform ?? info.platform;
   const canBuild = platform === 'darwin';
-  const teamSourceLabel: Record<string, string> = {
-    request: 'Manual override',
-    env: 'Environment',
-    'apple-account-authenticated': 'Connected Apple account',
-    'apple-account-any': 'Saved Apple account',
-    'xcode-signing-identity': 'Xcode signing identity',
-    none: 'Not detected',
-  };
 
   const copy = variant === 'overview'
     ? {
@@ -81,8 +174,17 @@ export function HelperControlPanel({
   ];
 
   const pairingSubtitle = pairing?.paired
-    ? `Current token source: ${pairing.tokenSource === 'env' ? 'environment override' : 'desktop pairing'}${pairing.pairedAt ? ` · paired ${new Date(pairing.pairedAt).toLocaleString()}` : ''}`
+    ? `Current token source: ${pairing.tokenSource === 'env' ? 'environment override' : 'desktop pairing'}${pairing.pairedAt ? ` \u00b7 paired ${new Date(pairing.pairedAt).toLocaleString()}` : ''}`
     : 'Generate a fresh desktop code, keep the backend address visible, and use QR only when camera handoff is genuinely faster.';
+
+  const signingTeamProps = {
+    detectedTeamId: doctor?.detectedTeamId,
+    detectedTeamIdSource: doctor?.detectedTeamIdSource,
+    overrideTeamId,
+    setOverrideTeamId,
+    teamId,
+    setTeamId,
+  };
 
   const overviewControlSurface = (
     <>
@@ -96,64 +198,34 @@ export function HelperControlPanel({
       </div>
 
       {canBuild ? (
-        <div className="space-y-3 rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.02))] p-4 sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Signing team</p>
-              <p className="mt-2 font-mono text-sm text-[var(--sl-text)]">{doctor?.detectedTeamId ?? 'Unavailable'}</p>
-              <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Source: {teamSourceLabel[doctor?.detectedTeamIdSource ?? 'none']}</p>
-            </div>
+        <SigningTeamSection
+          {...signingTeamProps}
+          infoSlot={
             <div className="rounded-2xl border border-white/8 bg-black/10 px-3 py-2.5 text-[11px] leading-5 text-[var(--sl-muted)]">
               Build, import, and pairing now read from the same live readiness state instead of diverging across separate widgets.
             </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-xs text-[var(--sl-muted)]">
-            <input
-              type="checkbox"
-              checked={overrideTeamId}
-              onChange={(event) => setOverrideTeamId(event.target.checked)}
-              className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
-            />
-            Use manual Team ID override
-          </label>
-
-          {overrideTeamId && (
-            <div>
-              <label className="mb-1.5 block text-xs text-[var(--sl-muted)]">Team ID override</label>
-              <input
-                placeholder="XXXXXXXXXX"
-                value={teamId}
-                onChange={(event) => setTeamId(event.target.value.toUpperCase())}
-                className="sl-input max-w-full sm:max-w-xs font-mono uppercase"
-              />
-            </div>
-          )}
-        </div>
+          }
+        />
       ) : (
         <p className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 text-xs leading-5 text-[var(--sl-muted)]">
           Helper build and export stay macOS + Xcode only. This overview keeps import and pairing controls visible without dragging build-only setup into other workflows.
         </p>
       )}
 
-      <div className="grid gap-2 min-[420px]:grid-cols-2">
-        <button
-          onClick={ensureHelper}
-          disabled={running}
-          className="sl-btn-primary !bg-[var(--sl-accent-2)] flex items-center justify-center gap-2"
-        >
-          {running && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
-          {running ? 'Provisioning…' : 'Provision helper'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setPairingOpenSignal((current) => current + 1)}
-          disabled={loading}
-          className="sl-btn-ghost justify-center"
-        >
-          {pairing?.paired ? 'Repair pairing' : 'Pair iPhone'}
-        </button>
-      </div>
+      <ActionButtons
+        onProvision={ensureHelper}
+        running={running}
+        secondaryAction={
+          <button
+            type="button"
+            onClick={() => setPairingOpenSignal((current) => current + 1)}
+            disabled={loading}
+            className="sl-btn-ghost justify-center"
+          >
+            {pairing?.paired ? 'Repair pairing' : 'Pair iPhone'}
+          </button>
+        }
+      />
     </>
   );
 
@@ -207,37 +279,7 @@ export function HelperControlPanel({
             </div>
           )}
 
-          {canBuild && (
-            <div className="space-y-3 rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(180deg,rgba(14,165,233,0.08),rgba(255,255,255,0.02))] p-4 sm:p-5">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Signing team</p>
-                <p className="mt-2 font-mono text-sm text-[var(--sl-text)]">{doctor?.detectedTeamId ?? 'Unavailable'}</p>
-                <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Source: {teamSourceLabel[doctor?.detectedTeamIdSource ?? 'none']}</p>
-              </div>
-
-              <label className="flex items-center gap-2 text-xs text-[var(--sl-muted)]">
-                <input
-                  type="checkbox"
-                  checked={overrideTeamId}
-                  onChange={(event) => setOverrideTeamId(event.target.checked)}
-                  className="h-4 w-4 rounded border-[var(--sl-border)] bg-transparent text-[var(--sl-accent)] focus:ring-[var(--sl-accent)]"
-                />
-                Use manual Team ID override
-              </label>
-
-              {overrideTeamId && (
-                <div>
-                  <label className="mb-1.5 block text-xs text-[var(--sl-muted)]">Team ID override</label>
-                  <input
-                    placeholder="XXXXXXXXXX"
-                    value={teamId}
-                    onChange={(event) => setTeamId(event.target.value.toUpperCase())}
-                    className="sl-input max-w-full sm:max-w-xs font-mono uppercase"
-                  />
-                </div>
-              )}
-            </div>
-          )}
+          {canBuild && <SigningTeamSection {...signingTeamProps} />}
 
           {!canBuild && (
             <p className="rounded-2xl border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-3 text-xs leading-5 text-[var(--sl-muted)]">
@@ -245,23 +287,20 @@ export function HelperControlPanel({
             </p>
           )}
 
-          <div className="grid gap-2 min-[420px]:grid-cols-2 xl:flex xl:flex-wrap">
-            <button
-              onClick={ensureHelper}
-              disabled={running}
-              className="sl-btn-primary !bg-[var(--sl-accent-2)] flex items-center justify-center gap-2 xl:justify-start"
-            >
-              {running && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
-              {running ? 'Provisioning…' : 'Provision helper'}
-            </button>
-            <button
-              onClick={() => { void refresh({ bypassCache: true }); }}
-              disabled={loading}
-              className="sl-btn-ghost justify-center xl:justify-start"
-            >
-              Refresh
-            </button>
-          </div>
+          <ActionButtons
+            onProvision={ensureHelper}
+            running={running}
+            className="xl:flex xl:flex-wrap"
+            secondaryAction={
+              <button
+                onClick={() => { void refresh({ bypassCache: true }); }}
+                disabled={loading}
+                className="sl-btn-ghost justify-center xl:justify-start"
+              >
+                Refresh
+              </button>
+            }
+          />
 
           <HelperPairingPanel
             paired={!!pairing?.paired}
@@ -306,14 +345,5 @@ export function HelperControlPanel({
 
       {body}
     </section>
-  );
-}
-
-function HelperStatus({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <div className={`rounded-lg border px-2.5 py-2 ${ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
-      <p className="font-medium">{label}</p>
-      <p className="mt-0.5 text-[11px]">{ok ? 'Ready' : 'Needs setup'}</p>
-    </div>
   );
 }

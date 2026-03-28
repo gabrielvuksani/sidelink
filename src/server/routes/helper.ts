@@ -13,41 +13,35 @@ import fs from 'node:fs/promises';
 import multer from 'multer';
 import type { AppContext } from '../context';
 import { getHelperPairingState, getHelperToken } from '../services/helper-pairing-service';
-import { onPipelineJobLog, onPipelineUpdate, startInstallPipeline, submitJobTwoFA } from '../pipeline';
-import { FREE_ACCOUNT_LIMITS, UI_LIMITS } from '../../shared/constants';
+import { onPipelineJobLog, onPipelineUpdate, submitJobTwoFA, cancelJob } from '../pipeline';
+import { UI_LIMITS } from '../../shared/constants';
 import { Apple2FARequiredError } from '../utils/errors';
 import { validators } from '../utils/validators';
 import {
   deactivateInstalledApp,
   deleteAppleAppId,
+  getHealth,
+  getHelperConfigPayload,
+  getHelperStatusPayload,
   listSafeAppleAccounts,
   listAppleAppIdUsage,
   listAppleCertificates,
   listDeviceAppInventory,
   listTrustedSources,
   reactivateInstalledApp,
+  serializeHelperDevice,
   syncAndListAppleAppIds,
   startValidatedInstall,
   toSafeAppleAccount,
   triggerRefreshAllActiveApps,
 } from '../services/shared-backend';
 import { notifyInstalledAppsChanged, onInstalledAppsChanged } from '../services/installed-app-events';
-import { getHelperIpaPath } from '../utils/paths';
 import { downloadToFileWithLimit } from '../utils/fetch';
 import { isLocalNetworkHost } from '../utils/network';
+import { activeSSEResponses } from './system';
 
 export function helperRoutes(ctx: AppContext): Router {
   const router = Router();
-  const serializeHelperDevice = (device: ReturnType<AppContext['devices']['list']>[number]) => ({
-    id: device.udid,
-    name: device.name,
-    connection: device.connection,
-    transport: device.transport,
-    networkName: null,
-    iosVersion: device.iosVersion,
-    productType: device.productType,
-    model: device.model,
-  });
   const upload = multer({
     dest: ctx.uploadDir,
     limits: { fileSize: UI_LIMITS.maxIpaFileSizeBytes },
@@ -75,102 +69,11 @@ export function helperRoutes(ctx: AppContext): Router {
   // ── GET /status ─────────────────────────────────────────────────
   router.get('/status', async (req, res) => {
     const deviceId = req.query.deviceId as string | undefined;
-    const schedulerState = ctx.scheduler.getSnapshot();
-    const autoRefreshStates = ctx.scheduler.getAutoRefreshStates();
-    const autoRefreshByInstallId = new Map(autoRefreshStates.map((state) => [state.installedAppId, state]));
-
-    // Installed apps — optionally filtered by device
-    const allInstalls = deviceId
-      ? ctx.db.listInstalledAppsForDevice(deviceId)
-      : ctx.db.listInstalledApps();
-
-    const installs = allInstalls.map((app) => ({
-      id: app.id,
-      deviceId: app.deviceUdid,
-      kind: 'primary',
-      label: app.appName || app.originalBundleId,
-      bundleId: app.bundleId,
-      health: getHealth(app.expiresAt),
-      expiresAt: app.expiresAt,
-      refreshCount: app.refreshCount ?? 0,
-      autoRefresh: {
-        nextAttemptAt: '',
-        retryCount: 0,
-        lastFailureReason: autoRefreshByInstallId.get(app.id)?.lastError ?? null,
-        lastSuccessAt: autoRefreshByInstallId.get(app.id)?.lastRefreshAt ?? app.lastRefreshAt ?? null,
-      },
-    }));
-
-    const devices = ctx.devices.list().map(serializeHelperDevice);
-    let helperIpaAvailable = false;
-    try {
-      await fs.access(getHelperIpaPath());
-      helperIpaAvailable = true;
-    } catch {
-      helperIpaAvailable = false;
-    }
-
-    res.json({
-      ok: true,
-      now: new Date().toISOString(),
-      mode: process.env.SIDELINK_MODE ?? 'demo',
-      scheduler: {
-        running: schedulerState.running,
-        simulatedNow: new Date().toISOString(),
-        autoRefreshThresholdHours: Math.max(1, Math.round(schedulerState.refreshThresholdMs / (60 * 60 * 1000))),
-      },
-      installs,
-      devices,
-      helperArtifact: {
-        available: helperIpaAvailable,
-        message: helperIpaAvailable ? null : 'Helper IPA is missing from the current desktop runtime.',
-      },
-    });
+    res.json(await getHelperStatusPayload(ctx, deviceId));
   });
 
   router.get('/config', (_req, res) => {
-    const scheduler = ctx.scheduler.getSnapshot();
-    const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const weeklyAppIdsUsedByAccount = Object.fromEntries(
-      ctx.appleAccounts
-        .list()
-        .filter((account) => account.accountType !== 'paid')
-        .map((account) => [
-          account.id,
-          ctx.db.countAppIdsCreatedSince(account.id, account.teamId, sevenDaysAgoIso),
-        ]),
-    );
-    const sourceFeeds = ctx.sources.list().map((source) => ({
-      id: source.id,
-      name: source.name,
-      url: source.url,
-      enabled: source.enabled,
-    }));
-    res.json({
-      ok: true,
-      data: {
-        serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
-        serverVersion: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
-        schedulerEnabled: scheduler.enabled,
-        schedulerCheckIntervalMs: scheduler.checkIntervalMs,
-        capabilities: {
-          pairingCode: true,
-          sourceImport: true,
-          installEvents: true,
-          inline2FA: true,
-        },
-        freeAccountLimits: {
-          maxActiveApps: FREE_ACCOUNT_LIMITS.maxAppsPerDevice,
-          maxNewAppIdsPerWeek: FREE_ACCOUNT_LIMITS.maxNewAppIdsPerWeek,
-          certValidityDays: FREE_ACCOUNT_LIMITS.certExpiryDays,
-        },
-        freeAccountUsage: {
-          activeSlotsUsed: ctx.db.countInstalledAppsByStatus('active'),
-          weeklyAppIdsUsedByAccount,
-        },
-        sourceFeeds,
-      },
-    });
+    res.json(getHelperConfigPayload(ctx));
   });
 
   router.get('/sources', (_req, res) => {
@@ -369,6 +272,14 @@ export function helperRoutes(ctx: AppContext): Router {
     res.json({ ok: true });
   });
 
+  router.post('/jobs/:id/cancel', (req, res) => {
+    const cancelled = cancelJob(ctx.db, req.params.id);
+    if (!cancelled) {
+      return res.status(409).json({ ok: false, error: 'Job cannot be cancelled' });
+    }
+    res.json({ ok: true });
+  });
+
   router.post('/jobs/:id/2fa', (req, res) => {
     const code = String(req.body?.code ?? '').trim();
     if (!/^\d{6}$/.test(code)) {
@@ -529,10 +440,7 @@ export function helperRoutes(ctx: AppContext): Router {
     const rawLimit = Number.parseInt(String(req.query.limit ?? '200'), 10);
     const limit = Number.isNaN(rawLimit) ? 200 : Math.min(Math.max(rawLimit, 1), 1000);
     const level = typeof req.query.level === 'string' ? req.query.level : undefined;
-    const validLevels = new Set(['info', 'warn', 'error', 'debug']);
-    const logs = level && validLevels.has(level)
-      ? ctx.db.listLogs(limit * 5).filter((entry) => entry.level === level).slice(0, limit)
-      : ctx.db.listLogs(limit);
+    const logs = ctx.db.listLogs(limit, level);
     res.json({ ok: true, data: logs });
   });
 
@@ -607,6 +515,8 @@ export function helperRoutes(ctx: AppContext): Router {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    activeSSEResponses.add(res);
+
     const send = (type: string, data: unknown) => {
       res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -658,18 +568,10 @@ export function helperRoutes(ctx: AppContext): Router {
       unsubInstalledApps();
       unsubAccounts();
       clearInterval(keepalive);
+      activeSSEResponses.delete(res);
     });
   });
 
   return router;
-}
-
-function getHealth(expiresAt: string): string {
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  const days = ms / (1000 * 60 * 60 * 24);
-  if (days <= 0) return 'expired';
-  if (days <= 2) return 'critical';
-  if (days <= 4) return 'warning';
-  return 'healthy';
 }
 

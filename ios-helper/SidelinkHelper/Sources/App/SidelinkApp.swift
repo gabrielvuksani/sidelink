@@ -68,7 +68,7 @@ struct SidelinkAppRootView: View {
                 await permissions.requestAllIfNeeded()
             }
         }
-        .onChange(of: scenePhase) { phase in
+        .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task {
                     await model.refreshAllSilently()

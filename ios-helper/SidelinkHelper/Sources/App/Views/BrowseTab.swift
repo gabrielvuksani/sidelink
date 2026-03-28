@@ -600,7 +600,7 @@ struct SearchTab: View {
                 }
             }
             .searchable(text: $query, prompt: "Search apps and sources")
-            .onChange(of: query) { newValue in
+            .onChange(of: query) { _, newValue in
                 debounceTask?.cancel()
                 debounceTask = Task {
                     try? await Task.sleep(nanoseconds: 300_000_000) // 300ms

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { AppContext } from '../context';
 import type { SourceManifest } from '../../shared/types';
 import { listTrustedSources } from '../services/shared-backend';
+import communitySourcesData from '../data/community-sources.json';
 
 export function sourceRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -55,6 +56,10 @@ export function sourceRoutes(ctx: AppContext): Router {
     res.json({ ok: true, data: ctx.sources.combined() });
   });
 
+  router.get('/community', (_req, res) => {
+    res.json({ ok: true, data: communitySourcesData });
+  });
+
   router.get('/:id/manifest', (req, res, next) => {
     try {
       res.json({ ok: true, data: ctx.sources.getManifest(req.params.id) });
@@ -63,19 +68,7 @@ export function sourceRoutes(ctx: AppContext): Router {
     }
   });
 
-  router.get('/self-hosted', (_req, res) => {
-    const manifest = ctx.sources.getSelfHostedManifest();
-    if (!manifest) {
-      const fallback: SourceManifest = {
-        name: 'SideLink Self Hosted',
-        identifier: 'com.sidelink.self-hosted',
-        sourceURL: '/api/sources/self-hosted',
-        apps: [],
-      };
-      return res.json(fallback);
-    }
-    return res.json(manifest);
-  });
+  // GET /self-hosted is served publicly from app.ts (no auth required for AltStore compatibility)
 
   router.put('/self-hosted', (req, res, next) => {
     try {

@@ -10,9 +10,129 @@ import { getErrorMessage } from '../lib/errors';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
-import { StatusBadge, PageHeader, PageLoader, EmptyState, SectionHeading, ExpiryBadge } from '../components/Shared';
+import { StatusBadge, PageHeader, EmptyState, SectionHeading, ExpiryBadge, PasswordInput } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { AppleAccount, DashboardState } from '../../../shared/types';
+import { FREE_ACCOUNT_LIMITS, PAID_ACCOUNT_LIMITS } from '../../../shared/constants';
+
+/* ── Account type badge ─────────────────────────────────────────────── */
+
+function AccountTypeBadge({ accountType }: { accountType: AppleAccount['accountType'] }) {
+  if (accountType === 'paid') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
+        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+        Pro
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+      Free
+    </span>
+  );
+}
+
+function AccountLimitsInfo({ accountType }: { accountType: AppleAccount['accountType'] }) {
+  if (accountType === 'paid') {
+    const limits = PAID_ACCOUNT_LIMITS;
+    return (
+      <div className="mt-2 flex flex-wrap gap-2">
+        <span className="rounded-full border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] text-emerald-300">
+          Apps: Unlimited
+        </span>
+        <span className="rounded-full border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] text-emerald-300">
+          App IDs: Unlimited
+        </span>
+        <span className="rounded-full border border-emerald-500/15 bg-emerald-500/[0.06] px-2 py-0.5 text-[10px] text-emerald-300">
+          Cert: {limits.certExpiryDays}d
+        </span>
+      </div>
+    );
+  }
+  const limits = FREE_ACCOUNT_LIMITS;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      <span className="rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-2 py-0.5 text-[10px] text-amber-300">
+        {limits.maxAppsPerDevice} apps/device
+      </span>
+      <span className="rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-2 py-0.5 text-[10px] text-amber-300">
+        {limits.maxAppIds} App IDs
+      </span>
+      <span className="rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-2 py-0.5 text-[10px] text-amber-300">
+        Cert: {limits.certExpiryDays}d
+      </span>
+    </div>
+  );
+}
+
+/* ── Certificate status badge lookup ────────────────────────────────── */
+
+const certStatusConfig: Record<string, { label: string; classes: string }> = {
+  revoked: {
+    label: 'Revoked',
+    classes: 'border-[var(--sl-border)] bg-[var(--sl-surface)] text-[var(--sl-muted)]',
+  },
+  expired: {
+    label: 'Expired',
+    classes: 'border-red-500/20 bg-red-500/10 text-red-300',
+  },
+  expiring: {
+    label: 'Expiring',
+    classes: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
+  },
+  active: {
+    label: 'Active',
+    classes: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
+  },
+};
+
+function getCertStatus(isRevoked: boolean, isExpired: boolean, isExpiring: boolean): string {
+  if (isRevoked) return 'revoked';
+  if (isExpired) return 'expired';
+  if (isExpiring) return 'expiring';
+  return 'active';
+}
+
+function CertStatusBadge({ status }: { status: string }) {
+  const cfg = certStatusConfig[status] ?? certStatusConfig.active;
+  return (
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${cfg.classes}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+/* ── Certificate expiry timeline ───────────────────────────────────── */
+
+function CertTimeline({ cert }: { cert: { createdAt: string; expiresAt: string; serialNumber: string } }) {
+  const created = new Date(cert.createdAt).getTime();
+  const expires = new Date(cert.expiresAt).getTime();
+  const now = Date.now();
+  const total = expires - created;
+  const elapsed = Math.min(now - created, total);
+  const pct = total > 0 ? Math.round((elapsed / total) * 100) : 100;
+  const daysLeft = Math.max(0, Math.ceil((expires - now) / (1000 * 60 * 60 * 24)));
+
+  return (
+    <div className="mt-2">
+      <div className="flex justify-between text-[11px] text-[var(--sl-muted)] mb-1">
+        <span>Created</span>
+        <span>{daysLeft > 0 ? `${daysLeft}d remaining` : 'Expired'}</span>
+      </div>
+      <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${
+            daysLeft <= 1 ? 'bg-[var(--sl-danger)]' : daysLeft <= 3 ? 'bg-[var(--sl-warning)]' : 'bg-[var(--sl-accent)]'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── Page snapshot type ─────────────────────────────────────────────── */
 
 type AppleAccountsPageSnapshot = {
   accounts: AppleAccount[];
@@ -111,10 +231,35 @@ export default function AppleAccountPage() {
         ]}
       />
 
-      {showSignIn && <SignInForm onDone={() => { setShowSignIn(false); void reload(true); }} />}
+      {showSignIn && (
+        <div className="animate-fadeInUp">
+          <SignInForm onDone={() => { setShowSignIn(false); void reload(true); }} />
+        </div>
+      )}
 
       {loading && accounts.length === 0 ? (
-        <PageLoader message="Loading accounts..." />
+        <div className="space-y-4 animate-fadeIn">
+          {/* Account card skeletons */}
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="sl-card p-4">
+              <div className="flex items-center gap-3">
+                <div className="sl-skeleton h-9 w-9 rounded-lg shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="sl-skeleton h-3.5 w-48" />
+                  <div className="sl-skeleton h-3 w-32" />
+                </div>
+                <div className="sl-skeleton h-8 w-20 rounded-lg" />
+              </div>
+            </div>
+          ))}
+          {/* Certificate section skeleton */}
+          <div className="sl-card p-5 space-y-3">
+            <div className="sl-skeleton h-4 w-28" />
+            <div className="sl-skeleton h-3 w-64" />
+            <div className="sl-skeleton h-3 w-full" />
+            <div className="sl-skeleton h-3 w-3/5" />
+          </div>
+        </div>
       ) : accounts.length === 0 ? (
         <EmptyState
           title="No Apple ID added"
@@ -193,10 +338,7 @@ export default function AppleAccountPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <p className="text-[12px] font-semibold text-[var(--sl-text)] truncate">{certificate.commonName}</p>
-                            {isRevoked && <span className="shrink-0 rounded-full border border-[var(--sl-border)] bg-[var(--sl-surface)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--sl-muted)]">Revoked</span>}
-                            {!isRevoked && isExpired && <span className="shrink-0 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red-300">Expired</span>}
-                            {!isRevoked && !isExpired && isExpiring && <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">Expiring</span>}
-                            {!isRevoked && !isExpired && !isExpiring && <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">Active</span>}
+                            <CertStatusBadge status={getCertStatus(isRevoked, isExpired, isExpiring)} />
                           </div>
                           <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">Serial: {certificate.serialNumber}</p>
                           <div className="mt-1 flex items-center gap-2">
@@ -204,11 +346,7 @@ export default function AppleAccountPage() {
                             <span className="text-[11px] text-[var(--sl-muted)]">· {expiresAt.toLocaleDateString()}</span>
                           </div>
                           <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{certificate.accountAppleId ?? certificate.teamName ?? certificate.teamId}</p>
-                          {!isRevoked && !isExpired && (
-                            <div className="mt-2 h-1 w-full max-w-[200px] overflow-hidden rounded-full bg-[var(--sl-bg)]">
-                              <div className={`h-full rounded-full ${isExpiring ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (daysLeft / 7) * 100)}%` }} />
-                            </div>
-                          )}
+                          <CertTimeline cert={certificate} />
                         </div>
                         {!isRevoked && matchingAccount?.status === 'active' && (
                           <CertRotateButton accountId={certificate.accountId} onRotated={() => void reload(true)} />
@@ -256,7 +394,7 @@ function AppIdRow({ appId, onChanged }: { appId: AppleAppIdRecord; onChanged: ()
           <p className="mt-1 font-mono text-[11px] text-[var(--sl-muted)] truncate">{appId.bundleId}</p>
           <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{appId.accountAppleId ?? appId.teamName ?? appId.teamId}</p>
         </div>
-        <button onClick={remove} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">Delete</button>
+        <button onClick={remove} className="sl-btn-danger sl-btn-xs">Delete</button>
       </div>
     </div>
   );
@@ -334,16 +472,20 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
             <svg className={`w-4.5 h-4.5 ${needsReAuth ? 'text-amber-400' : 'text-indigo-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{account.appleId}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{account.appleId}</p>
+              <AccountTypeBadge accountType={account.accountType ?? 'free'} />
+            </div>
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
               <StatusBadge status={account.status} />
               <span className="text-[11px] text-[var(--sl-muted)]">
-                {account.teamName ?? 'Unknown Team'} · {account.accountType ?? 'free'}
+                {account.teamName ?? 'Unknown Team'}
               </span>
-                      {usageLabel && (
-                        <span className="text-[11px] text-amber-300/90">{usageLabel}</span>
-                      )}
+              {usageLabel && (
+                <span className="text-[11px] text-amber-300/90">{usageLabel}</span>
+              )}
             </div>
+            <AccountLimitsInfo accountType={account.accountType ?? 'free'} />
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -361,7 +503,7 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
           <button
             onClick={remove}
             disabled={removing || reAuthState === 'loading' || reAuthState === '2fa-submitting'}
-            className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5 disabled:opacity-50"
+            className="sl-btn-danger sl-btn-xs disabled:opacity-50"
           >
             {removing ? 'Removing...' : 'Remove'}
           </button>
@@ -372,7 +514,7 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
       {(reAuthState === '2fa' || reAuthState === '2fa-submitting') && (
         <div className="border-t border-[var(--sl-border)] px-4 py-3.5 bg-amber-500/[0.02]">
           {error && (
-            <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-2.5 mb-3">
+            <div className="sl-card sl-card-red p-2.5 mb-3">
               <p className="text-red-400 text-[12px]">{error}</p>
             </div>
           )}
@@ -385,13 +527,13 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
               placeholder="000000"
               value={code}
               onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="sl-input !w-32 text-center tracking-[0.3em] font-mono"
+              className="sl-input w-32 text-center tracking-[0.3em] font-mono"
               autoFocus
             />
             <button
               onClick={submitReAuth2FA}
               disabled={reAuthState === '2fa-submitting' || code.length !== 6}
-              className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 disabled:opacity-50"
+              className="sl-btn-secondary disabled:opacity-50"
             >
               {reAuthState === '2fa-submitting' ? (
                 <span className="flex items-center gap-1.5">
@@ -400,7 +542,7 @@ function AccountCard({ account, usageByAccount, onRemove }: { account: AppleAcco
                 </span>
               ) : 'Verify'}
             </button>
-            <button onClick={() => { setReAuthState('idle'); setCode(''); setError(''); }} className="sl-btn-ghost !text-[12px]">Cancel</button>
+            <button onClick={() => { setReAuthState('idle'); setCode(''); setError(''); }} className="sl-btn-ghost sl-btn-sm">Cancel</button>
           </div>
         </div>
       )}
@@ -470,11 +612,11 @@ function SignInForm({ onDone }: { onDone: () => void }) {
         <h3 className="text-[13px] font-semibold text-[var(--sl-text)]">
           {step === 'credentials' ? 'Apple ID Sign In' : 'Two-Factor Authentication'}
         </h3>
-        <button onClick={onDone} className="sl-btn-ghost !text-[12px] !px-2.5 !py-1">Cancel</button>
+        <button onClick={onDone} className="sl-btn-ghost sl-btn-xs">Cancel</button>
       </div>
 
       {error && (
-        <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3 mb-4">
+        <div className="sl-card sl-card-red p-3 mb-4">
           <p className="text-red-400 text-[12px]">{error}</p>
         </div>
       )}
@@ -487,7 +629,7 @@ function SignInForm({ onDone }: { onDone: () => void }) {
           </div>
           <div>
             <label htmlFor="apple-pwd" className="text-[12px] text-[var(--sl-muted)] block mb-1.5">Password</label>
-            <input id="apple-pwd" type="password" autoComplete="off" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="sl-input" />
+            <PasswordInput id="apple-pwd" autoComplete="off" placeholder="Password" value={password} onChange={setPassword} />
           </div>
           <p className="text-[11px] text-[var(--sl-muted)] opacity-60">Your Apple ID is used to sign apps. Credentials are encrypted at rest.</p>
           <button onClick={signIn} disabled={loading || !appleId || !password} className="sl-btn-primary w-full">
@@ -538,7 +680,7 @@ function SignInForm({ onDone }: { onDone: () => void }) {
                           setError(getErrorMessage(e, 'Failed to send SMS'));
                         }
                       }}
-                      className="sl-btn-ghost !text-[12px] !px-2.5 !py-1.5"
+                      className="sl-btn-ghost sl-btn-xs"
                     >
                       SMS to {phone.numberWithDialCode}
                     </button>
@@ -594,7 +736,7 @@ function CertRotateButton({ accountId, onRotated }: { accountId: string; onRotat
     <button
       onClick={handleRotate}
       disabled={rotating}
-      className="sl-btn-ghost shrink-0 !px-3 !py-1.5 !text-[11px] flex items-center gap-1.5"
+      className="sl-btn-ghost sl-btn-xs shrink-0 flex items-center gap-1.5"
     >
       {rotating ? (
         <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--sl-muted)]/40 border-t-[var(--sl-muted)]" />

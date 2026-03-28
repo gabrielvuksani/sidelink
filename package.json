@@ -128,6 +128,10 @@
       "package.json",
       "node_modules/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/keytar/**"
+    ],
     "extraResources": [
       {
         "from": "python-bundle/dist/${platform}-${arch}/",
@@ -180,9 +184,26 @@
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "fileAssociations": [
+        {
+          "ext": "ipa",
+          "name": "iOS App Package",
+          "role": "Viewer",
+          "mimeType": "application/octet-stream"
+        }
+      ],
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "SideLink discovers nearby helpers and device services on your local network so pairing and desktop control work out of the box."
       }
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ],
+      "window": { "width": 540, "height": 380 }
     },
     "win": {
       "target": [

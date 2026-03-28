@@ -102,7 +102,7 @@ export function EmptyState({
       className="sl-card flex flex-col items-center px-8 py-20 text-center animate-fadeIn bg-gradient-to-b from-white/[0.02] to-transparent"
     >
       {icon && (
-        <div className="mb-5 flex items-center justify-center h-14 w-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-[var(--sl-muted)] opacity-50">
+        <div className="mb-5 flex items-center justify-center h-14 w-14 rounded-2xl bg-white/[0.06] border border-white/[0.12] text-[var(--sl-muted)]">
           {icon}
         </div>
       )}
@@ -487,7 +487,14 @@ export function Collapsible({
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
         </svg>
       </button>
-      {open && <div className="animate-fadeIn">{children}</div>}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+      >
+        <div className="overflow-hidden">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -670,90 +677,6 @@ export function SkeletonLoader({
         />
       ))}
     </div>
-  );
-}
-
-// ─── ConnectionStatus ───────────────────────────────────────────────
-
-/** Inline connection status indicator for sidebar/header */
-export function ConnectionStatus({
-  connected,
-  label,
-}: {
-  connected: boolean;
-  label?: string;
-}) {
-  const defaultLabel = connected ? 'Connected' : 'Disconnected';
-  const displayLabel = label ?? defaultLabel;
-
-  return (
-    <span
-      className="inline-flex items-center gap-1.5"
-      role="status"
-      aria-label={displayLabel}
-    >
-      <span
-        className={`h-2 w-2 rounded-full shrink-0 ${
-          connected
-            ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]'
-            : 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.4)]'
-        }`}
-        aria-hidden="true"
-      />
-      <span className={`text-[11px] font-medium ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
-        {displayLabel}
-      </span>
-    </span>
-  );
-}
-
-// ─── Breadcrumb ─────────────────────────────────────────────────────
-
-/** Simple breadcrumb for nested page navigation */
-export function Breadcrumb({
-  items,
-}: {
-  items: Array<{ label: string; href?: string }>;
-}) {
-  return (
-    <nav aria-label="Breadcrumb" className="mb-4">
-      <ol className="flex items-center gap-1 text-[12px] text-[var(--sl-muted)]">
-        {items.map((item, i) => {
-          const isLast = i === items.length - 1;
-          return (
-            <li key={i} className="flex items-center gap-1">
-              {i > 0 && (
-                <svg
-                  className="h-3 w-3 text-[var(--sl-muted)] opacity-40 shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                </svg>
-              )}
-              {isLast || !item.href ? (
-                <span
-                  className={isLast ? 'font-semibold text-[var(--sl-text)]' : ''}
-                  aria-current={isLast ? 'page' : undefined}
-                >
-                  {item.label}
-                </span>
-              ) : (
-                <a
-                  href={item.href}
-                  className="hover:text-[var(--sl-text)] transition-colors underline-offset-2 hover:underline"
-                >
-                  {item.label}
-                </a>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
   );
 }
 

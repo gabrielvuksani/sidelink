@@ -55,7 +55,7 @@ export function UpdateBanner() {
   const v = variants[variant];
 
   return (
-    <div className={`${v.bg} ${v.border} border rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 animate-fadeInDown`}>
+    <div className={`sticky top-0 z-10 ${v.bg} ${v.border} border rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 animate-fadeInDown`}>
       <div className="flex items-center gap-3 min-w-0">
         {variant === 'progress' && (
           <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin shrink-0" />

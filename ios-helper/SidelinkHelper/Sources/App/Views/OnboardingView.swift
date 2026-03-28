@@ -210,18 +210,6 @@ struct OnboardingView: View {
                 }
 
                 permissionCard(
-                    title: "Camera",
-                    icon: "camera.viewfinder",
-                    description: "Used when you choose the optional QR scanner. Prime it now so the pairing sheet stays uninterrupted.",
-                    state: permissions.camera,
-                    tint: .slAccent2
-                ) {
-                    Task {
-                        await permissions.requestCameraIfNeeded()
-                    }
-                }
-
-                permissionCard(
                     title: "Local Network",
                     icon: "dot.radiowaves.left.and.right",
                     description: "Needed to discover your desktop helper automatically and keep nearby desktops visible for manual code entry.",
@@ -248,7 +236,7 @@ struct OnboardingView: View {
     }
 
     private var permissionsIntroCard: some View {
-        SidelinkSectionIntro(eyebrow: "Permissions", title: "Prime the essentials up front", subtitle: "Request the permissions SideLink actually uses before pairing so discovery, notifications, and the optional QR scanner do not interrupt the flow later.")
+        SidelinkSectionIntro(eyebrow: "Permissions", title: "Prime the essentials up front", subtitle: "Request the permissions SideLink actually uses before pairing so discovery and notifications do not interrupt the flow later.")
             .liquidPanel()
     }
 
@@ -256,9 +244,8 @@ struct OnboardingView: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 permissionSummaryTile(title: "Notify", state: permissions.notifications)
-                permissionSummaryTile(title: "Camera", state: permissions.camera)
+                permissionSummaryTile(title: "Network", state: permissions.localNetwork)
             }
-            permissionSummaryTile(title: "Network", state: permissions.localNetwork)
         }
     }
 

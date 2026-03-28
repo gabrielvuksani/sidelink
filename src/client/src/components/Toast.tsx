@@ -11,6 +11,7 @@ interface Toast {
   id: number;
   type: ToastType;
   message: string;
+  dismissing?: boolean;
 }
 
 interface ToastCtx {
@@ -33,15 +34,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
 
+  const dismiss = useCallback((id: number) => {
+    setToasts(prev => prev.map(t => t.id === id ? { ...t, dismissing: true } : t));
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 200);
+  }, []);
+
   const toast = useCallback((type: ToastType, message: string) => {
     const id = ++nextId.current;
     setToasts(prev => [...prev.slice(-4), { id, type, message }]); // max 5
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), UI_LIMITS.toastTimeoutMs);
-  }, []);
-
-  const dismiss = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
+    setTimeout(() => dismiss(id), UI_LIMITS.toastTimeoutMs);
+  }, [dismiss]);
 
   return (
     <ToastContext value={{ toasts, toast, dismiss }}>
@@ -73,7 +77,7 @@ function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: nu
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md animate-slideInBottom ${colors[t.type]}`}
+          className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md ${t.dismissing ? 'animate-slideOutBottom' : 'animate-slideInBottom'} ${colors[t.type]}`}
           role="alert"
         >
           <span className="shrink-0 mt-0.5">{toastIcons[t.type]}</span>

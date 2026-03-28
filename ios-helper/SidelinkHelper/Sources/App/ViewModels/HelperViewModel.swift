@@ -3,15 +3,15 @@ import SwiftUI
 
 @MainActor
 final class HelperViewModel: ObservableObject {
-    private enum LastInstallRequest {
+    enum LastInstallRequest {
         case library(ipaId: String, appName: String, subtitle: String)
         case source(app: SourceAppDTO, sourceName: String, subtitle: String)
     }
 
-    private static let officialSourceURL = SidelinkSourceURLUtil.canonicalOfficialSourceURL
-    private static let installPollingTimeout: TimeInterval = 20 * 60
-    private static let maxInstallLogEntries = 300
-    private static let bundledTrustedSources: [TrustedSourceDTO] = [
+    static let officialSourceURL = SidelinkSourceURLUtil.canonicalOfficialSourceURL
+    static let installPollingTimeout: TimeInterval = 20 * 60
+    static let maxInstallLogEntries = 300
+    static let bundledTrustedSources: [TrustedSourceDTO] = [
         TrustedSourceDTO(
             id: "altstore-classic",
             name: "AltStore Classic",
@@ -41,7 +41,7 @@ final class HelperViewModel: ObservableObject {
     @AppStorage("serverName") var serverName = ""
     @AppStorage("serverVersion") var serverVersion = ""
     @AppStorage("deviceId") var deviceId = ""
-    @AppStorage("customSourceURLs") private var customSourceURLsJSON = "[]"
+    @AppStorage("customSourceURLs") var customSourceURLsJSON = "[]"
     @AppStorage("selectedAccountId") private var persistedSelectedAccountId = ""
     @AppStorage("primarySigningAccountId") private var persistedPrimarySigningAccountId = ""
     @AppStorage("selectedDeviceUdid") private var persistedSelectedDeviceUdid = ""
@@ -51,7 +51,7 @@ final class HelperViewModel: ObservableObject {
     @Published var selectedAccountId = "" {
         didSet { persistedSelectedAccountId = selectedAccountId }
     }
-    @Published private(set) var primarySigningAccountId = "" {
+    @Published var primarySigningAccountId = "" {
         didSet { persistedPrimarySigningAccountId = primarySigningAccountId }
     }
     @Published var selectedDeviceUdid = "" {
@@ -118,16 +118,16 @@ final class HelperViewModel: ObservableObject {
     @Published var sseConnected = false
     @Published var sourceCatalogFailures: [String] = []
 
-    private let api = APIClient()
+    let api = APIClient()
     private let discovery = DiscoveryListener()
     private let sseClient = SSEClient()
-    private var activeJobPollingTask: Task<Void, Never>?
+    var activeJobPollingTask: Task<Void, Never>?
     private var sseReconnectTask: Task<Void, Never>?
     private var sseReconnectAttempt = 0
     private static let sseMaxRetries = 10
-    private var lastInstallRequest: LastInstallRequest?
-    private var installConsoleAutoPresentationSuppressed = false
-    private var installConsoleAllowsNextDismissal = false
+    var lastInstallRequest: LastInstallRequest?
+    var installConsoleAutoPresentationSuppressed = false
+    var installConsoleAllowsNextDismissal = false
     private var refreshInFlight = false
 
     init() {
@@ -175,6 +175,8 @@ final class HelperViewModel: ObservableObject {
         sseClient.disconnect()
         discovery.stop()
     }
+
+    // MARK: - Computed Properties
 
     var isPaired: Bool {
         !helperToken.isEmpty
@@ -361,6 +363,8 @@ final class HelperViewModel: ObservableObject {
         account.status != "active"
     }
 
+    // MARK: - Primary Signing Identity
+
     func setPrimarySigningAccount(_ accountId: String, showConfirmation: Bool = true) {
         guard activeAccounts.contains(where: { $0.id == accountId }) else {
             errorMessage = "Only active Apple IDs can become your primary signing identity"
@@ -375,6 +379,8 @@ final class HelperViewModel: ObservableObject {
             toastMessage = "Primary signing identity switched to \(account.appleId)"
         }
     }
+
+    // MARK: - Pairing
 
     func pair() async {
         let code = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -486,6 +492,8 @@ final class HelperViewModel: ObservableObject {
         let normalized = components.string ?? value
         return normalized.hasSuffix("/") ? String(normalized.dropLast()) : normalized
     }
+
+    // MARK: - Refresh
 
     func refreshAll() async {
         await refreshAll(showLoading: true)
@@ -599,7 +607,7 @@ final class HelperViewModel: ObservableObject {
             }
         } catch {
             if case HelperAPIError.unauthorized = error {
-                // Token is no longer valid — clear it so the user is prompted to
+                // Token is no longer valid -- clear it so the user is prompted to
                 // re-pair instead of repeatedly hitting 401 on every refresh.
                 updateHelperToken("")
                 backendURL = ""
@@ -617,281 +625,7 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    func triggerRefresh(installId: String) async {
-        guard requirePairing(for: "refresh installed apps") else { return }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            try await api.triggerRefresh(baseURL: backendURL, token: helperToken, installId: installId)
-            toastMessage = "Refresh triggered"
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func importFromURL() async {
-        guard requirePairing(for: "import IPA URLs") else { return }
-
-        errorMessage = nil
-        let raw = importURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
-            errorMessage = "Enter an IPA URL first"
-            return
-        }
-
-        guard isValidRemoteURL(raw) else {
-            errorMessage = "Invalid IPA URL"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            if let fileName = URL(string: raw)?.lastPathComponent,
-               let existing = ipas.first(where: { $0.originalName.caseInsensitiveCompare(fileName) == .orderedSame }) {
-                toastMessage = "IPA already in your library. Opening the install console."
-                importURL = ""
-                await startInstall(
-                    ipaId: existing.id,
-                    appName: existing.bundleName,
-                    subtitle: "Installing an imported IPA from URL"
-                )
-                return
-            }
-
-            let imported = try await api.importIpaFromURL(baseURL: backendURL, token: helperToken, urlString: raw)
-            let isDuplicateBundle = ipas.contains(where: { $0.bundleId == imported.bundleId && $0.id != imported.id })
-            importURL = ""
-            toastMessage = isDuplicateBundle
-                ? "Imported another version of \(imported.bundleId). Opening the install console."
-                : "IPA imported. Opening the install console."
-            await startInstall(
-                ipaId: imported.id,
-                appName: imported.bundleName,
-                subtitle: "Installing an imported IPA from URL"
-            )
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func importLocalIpa(fileName: String, fileData: Data) async {
-        guard requirePairing(for: "upload IPA files") else { return }
-
-        errorMessage = nil
-        guard !fileData.isEmpty else {
-            errorMessage = "The selected IPA file is empty"
-            return
-        }
-
-        let normalizedName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveName = normalizedName.isEmpty ? "Imported.ipa" : normalizedName
-        guard effectiveName.lowercased().hasSuffix(".ipa") else {
-            errorMessage = "Only .ipa files can be imported"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            if let existing = ipas.first(where: { $0.originalName.caseInsensitiveCompare(effectiveName) == .orderedSame }) {
-                toastMessage = "IPA already in your library. Opening the install console."
-                await startInstall(
-                    ipaId: existing.id,
-                    appName: existing.bundleName,
-                    subtitle: "Installing an imported IPA from Files"
-                )
-                return
-            }
-
-            let imported = try await api.uploadIpa(
-                baseURL: backendURL,
-                token: helperToken,
-                fileName: effectiveName,
-                fileData: fileData
-            )
-
-            let isDuplicateBundle = ipas.contains(where: { $0.bundleId == imported.bundleId && $0.id != imported.id })
-            toastMessage = isDuplicateBundle
-                ? "Imported another version of \(imported.bundleId). Opening the install console."
-                : "IPA imported. Opening the install console."
-            await startInstall(
-                ipaId: imported.id,
-                appName: imported.bundleName,
-                subtitle: "Installing an imported IPA from Files"
-            )
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func startInstall(ipaId: String, appName: String? = nil, subtitle: String? = nil) async {
-        let resolvedName = appName ?? ipas.first(where: { $0.id == ipaId })?.bundleName ?? "Library App"
-        let resolvedSubtitle = installSubtitle(base: subtitle ?? "Installing from your library")
-        prepareInstallConsole(title: resolvedName, subtitle: resolvedSubtitle)
-        lastInstallRequest = .library(ipaId: ipaId, appName: resolvedName, subtitle: resolvedSubtitle)
-
-        guard requireInstallReadiness() else {
-            return
-        }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            _ = try await api.startInstall(
-                baseURL: backendURL,
-                token: helperToken,
-                ipaId: ipaId,
-                accountId: primarySigningAccountId,
-                deviceUdid: selectedDeviceUdid
-            )
-            await refreshLatestInstallJob()
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func installFromSource(_ app: SourceAppDTO, sourceName: String? = nil, subtitle: String? = nil) async {
-        let resolvedSourceName = sourceName ?? sourceCatalogs.first(where: { $0.manifest.apps.contains(where: { $0.id == app.id }) })?.manifest.name ?? "Source"
-        let resolvedSubtitle = installSubtitle(base: subtitle ?? "Installing from \(resolvedSourceName)")
-        prepareInstallConsole(title: app.name, subtitle: resolvedSubtitle)
-        lastInstallRequest = .source(app: app, sourceName: resolvedSourceName, subtitle: resolvedSubtitle)
-
-        guard requireInstallReadiness() else {
-            return
-        }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let downloadURL = app.primaryDownloadURL
-            guard !downloadURL.isEmpty else {
-                errorMessage = "Selected source app has no download URL"
-                return
-            }
-
-            let imported = try await api.importIpaFromURL(baseURL: backendURL, token: helperToken, urlString: downloadURL)
-            _ = try await api.startInstall(
-                baseURL: backendURL,
-                token: helperToken,
-                ipaId: imported.id,
-                accountId: primarySigningAccountId,
-                deviceUdid: selectedDeviceUdid
-            )
-            await refreshLatestInstallJob()
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func addSourceFromDeepLink(_ urlString: String) async {
-        let raw = SidelinkSourceURLUtil.normalized(urlString)
-        guard !raw.isEmpty, isValidRemoteURL(raw) else {
-            recordLocalActivity(level: "warn", code: "source.import.invalid", message: "Rejected an invalid source URL.")
-            toastMessage = "Invalid source URL"
-            return
-        }
-
-        if hasSourceURL(raw) {
-            recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
-            toastMessage = "Source already configured"
-            return
-        }
-
-        do {
-            if isPaired {
-                try await api.addSource(baseURL: backendURL, token: helperToken, urlString: raw)
-            } else {
-                let manifest = try await api.fetchSourceManifest(urlString: raw)
-                _ = manifest
-                customSourceURLs.append(raw)
-                persistCustomSources()
-            }
-            await refreshSourceCatalogs()
-            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(raw).")
-            toastMessage = "Source imported from deep link"
-        } catch {
-            recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
-            toastMessage = error.localizedDescription
-        }
-    }
-
-    func addCustomSource() async {
-        errorMessage = nil
-        let raw = SidelinkSourceURLUtil.normalized(sourceURLInput)
-        guard !raw.isEmpty else {
-            recordLocalActivity(level: "warn", code: "source.import.empty", message: "Tried to import a source without entering a URL.")
-            errorMessage = "Enter a source URL"
-            return
-        }
-
-        guard isValidRemoteURL(raw) else {
-            recordLocalActivity(level: "warn", code: "source.import.invalid", message: "Rejected an invalid source URL.")
-            errorMessage = "Invalid source URL"
-            return
-        }
-
-        if hasSourceURL(raw) {
-            recordLocalActivity(level: "info", code: "source.import.duplicate", message: "Skipped importing a source that was already added.")
-            errorMessage = "Source already added"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            if isPaired {
-                try await api.addSource(baseURL: backendURL, token: helperToken, urlString: raw)
-            } else {
-                let manifest = try await api.fetchSourceManifest(urlString: raw)
-                _ = manifest
-                customSourceURLs.append(raw)
-                persistCustomSources()
-            }
-            sourceURLInput = ""
-            await refreshSourceCatalogs()
-            recordLocalActivity(level: "info", code: "source.import.success", message: "Imported source \(raw).")
-            toastMessage = "Source added"
-        } catch {
-            recordLocalActivity(level: "error", code: "source.import.failed", message: "Failed to import source: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func removeCustomSource(_ url: String) async {
-        let normalized = SidelinkSourceURLUtil.normalized(url)
-        if isPaired, let source = sourceCatalogs.first(where: { SidelinkSourceURLUtil.normalized($0.sourceURL) == normalized }) {
-            guard let sourceId = source.sourceId, !source.isBuiltIn else {
-                return
-            }
-            do {
-                try await api.deleteSource(baseURL: backendURL, token: helperToken, sourceId: sourceId)
-            } catch {
-                errorMessage = error.localizedDescription
-                return
-            }
-        } else {
-            customSourceURLs.removeAll { SidelinkSourceURLUtil.normalized($0) == normalized }
-            persistCustomSources()
-        }
-        await refreshSourceCatalogs()
-    }
+    // MARK: - Clear Pairing
 
     func clearPairing() {
         activeJobPollingTask?.cancel()
@@ -931,57 +665,7 @@ final class HelperViewModel: ObservableObject {
         selectedDeviceUdid = ""
     }
 
-    func refreshAllApps() async {
-        guard requirePairing(for: "refresh all installed apps") else { return }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let result = try await api.refreshAll(baseURL: backendURL, token: helperToken)
-            toastMessage = "Triggered refresh for \(result.triggered) app\(result.triggered == 1 ? "" : "s")"
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func deactivateInstalledApp(_ appId: String) async {
-        guard requirePairing(for: "deactivate installed apps") else { return }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            _ = try await api.deactivateInstalledApp(baseURL: backendURL, token: helperToken, appId: appId)
-            toastMessage = "App deactivated"
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func reactivateInstalledApp(_ appId: String) async {
-        guard requirePairing(for: "reactivate installed apps") else { return }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            _ = try await api.reactivateInstalledApp(baseURL: backendURL, token: helperToken, appId: appId)
-            toastMessage = "Reactivation queued"
-            await refreshLatestInstallJob()
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
+    // MARK: - Logs & Certificates
 
     func loadHelperLogs(level: String? = nil) async {
         guard requirePairing(for: "view helper logs") else { return }
@@ -1032,401 +716,16 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    func refreshTrustedSources() async {
-        guard isPaired else {
-            trustedSources = Self.bundledTrustedSources
-            return
-        }
-        do {
-            let remoteSources = try await api.listTrustedSources(baseURL: backendURL, token: helperToken)
-            trustedSources = mergeTrustedSources(remoteSources)
-        } catch {
-            trustedSources = Self.bundledTrustedSources
-        }
-    }
-
-    func addTrustedSource(_ source: TrustedSourceDTO) async {
-        sourceURLInput = source.url
-        await addCustomSource()
-    }
-
-    private func mergeTrustedSources(_ remoteSources: [TrustedSourceDTO]) -> [TrustedSourceDTO] {
-        var mergedByURL: [String: TrustedSourceDTO] = [:]
-        for source in Self.bundledTrustedSources {
-            mergedByURL[SidelinkSourceURLUtil.normalized(source.url).lowercased()] = source
-        }
-
-        for source in remoteSources {
-            mergedByURL[SidelinkSourceURLUtil.normalized(source.url).lowercased()] = source
-        }
-
-        let remoteURLs = Set(remoteSources.map { SidelinkSourceURLUtil.normalized($0.url).lowercased() })
-        return mergedByURL.values.sorted { lhs, rhs in
-            let lhsRemote = remoteURLs.contains(SidelinkSourceURLUtil.normalized(lhs.url).lowercased())
-            let rhsRemote = remoteURLs.contains(SidelinkSourceURLUtil.normalized(rhs.url).lowercased())
-            if lhsRemote != rhsRemote {
-                return lhsRemote && !rhsRemote
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
-    func refreshDeviceInventory() async {
-        guard isPaired else {
-            unmanagedInstalledApps = []
-            return
-        }
-
-        let targetDeviceUdid = selectedDeviceUdid.isEmpty ? (devices.first?.id ?? "") : selectedDeviceUdid
-        guard !targetDeviceUdid.isEmpty else {
-            unmanagedInstalledApps = []
-            return
-        }
-
-        do {
-            let inventory = try await api.listAllDeviceApps(baseURL: backendURL, token: helperToken, deviceUdid: targetDeviceUdid)
-            if !inventory.managed.isEmpty {
-                installedApps = inventory.managed
-            }
-            unmanagedInstalledApps = inventory.unmanaged
-        } catch {
-            unmanagedInstalledApps = []
-        }
-    }
-
-    func submitActiveInstall2FA() async {
-        guard requirePairing(for: "verify install jobs") else { return }
-        guard let job = activeInstallJob, job.status == "waiting_2fa" else {
-            errorMessage = "No install job is currently waiting for 2FA"
-            return
-        }
-
-        installConsolePresented = true
-        errorMessage = nil
-
-        let code = activeInstall2FACode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard code.count == 6 else {
-            errorMessage = "Enter the 6-digit verification code"
-            return
-        }
-
-        do {
-            try await api.submitInstallJob2FA(baseURL: backendURL, token: helperToken, jobId: job.id, code: code)
-            activeInstall2FACode = ""
-            let updated = try await api.getInstallJob(baseURL: backendURL, token: helperToken, jobId: job.id)
-            let logs = await refreshActiveInstallLogs(jobId: updated.id)
-            let resolved = applyInstallSnapshot(updated, logs: logs)
-            if resolved.status == "running" || resolved.status == "queued" {
-                beginPollingInstallJob(jobId: resolved.id)
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func retryLastInstallRequest() async {
-        guard let lastInstallRequest else {
-            if let job = activeInstallJob {
-                await startInstall(ipaId: job.ipaId, appName: inferredInstallName(for: job), subtitle: "Retrying install")
-            }
-            return
-        }
-
-        switch lastInstallRequest {
-        case .library(let ipaId, let appName, let subtitle):
-            await startInstall(ipaId: ipaId, appName: appName, subtitle: subtitle)
-        case .source(let app, let sourceName, let subtitle):
-            await installFromSource(app, sourceName: sourceName, subtitle: subtitle)
-        }
-    }
-
-    func openInstallConsole() {
-        installConsoleAllowsNextDismissal = false
-        installConsoleAutoPresentationSuppressed = false
-        installConsolePresented = true
-    }
-
-    func requestInstallConsoleClose() {
-        installConsoleAllowsNextDismissal = true
-        dismissInstallConsole()
-    }
-
-    func handleInstallConsoleDismissAttempt() {
-        if installConsoleAllowsNextDismissal {
-            installConsoleAllowsNextDismissal = false
-            installConsolePresented = false
-            return
-        }
-
-        if installConsoleRequiresPersistentPresentation {
-            installConsolePresented = true
-            return
-        }
-
-        dismissInstallConsole()
-    }
-
-    func dismissInstallConsole() {
-        if let activeInstallJob, isInstallJobInFlight(activeInstallJob) {
-            installConsoleAutoPresentationSuppressed = true
-        }
-        installConsolePresented = false
-    }
+    // MARK: - Discovery
 
     func applyDiscoveredBackend(_ backend: DiscoveredBackend) {
         backendURL = backend.url
         errorMessage = nil
     }
 
-    func signInAppleAccount(appleId: String, password: String) async {
-        guard isPaired else {
-            errorMessage = "Pair with a SideLink server before adding an Apple ID"
-            return
-        }
+    // MARK: - Internal Helpers
 
-        let normalizedAppleId = appleId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedAppleId.isEmpty, !password.isEmpty else {
-            errorMessage = "Apple ID and password are required"
-            return
-        }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let response = try await api.signInAppleAccount(
-                baseURL: backendURL,
-                token: helperToken,
-                appleId: normalizedAppleId,
-                password: password
-            )
-
-            if response.requires2FA == true {
-                pendingAppleAuth = PendingAppleAuthContext(
-                    mode: .signIn,
-                    appleId: normalizedAppleId,
-                    password: password,
-                    accountId: nil,
-                    authType: response.authType,
-                    trustedPhoneNumbers: response.trustedPhoneNumbers ?? []
-                )
-                toastMessage = "Enter the 6-digit verification code to finish adding this Apple ID"
-                return
-            }
-
-            guard let account = response.account else {
-                errorMessage = "Apple sign-in returned an unexpected response"
-                return
-            }
-
-            pendingAppleAuth = nil
-            if primarySigningAccountId.isEmpty {
-                setPrimarySigningAccount(account.id, showConfirmation: false)
-                toastMessage = "Apple ID added and set as your primary signing identity"
-            } else {
-                toastMessage = "Apple ID added. Your primary signing identity stayed the same"
-            }
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func reauthenticateAppleAccount(accountId: String) async {
-        guard isPaired else {
-            errorMessage = "Pair with a SideLink server before re-authenticating Apple IDs"
-            return
-        }
-        guard let account = accounts.first(where: { $0.id == accountId }) else {
-            errorMessage = "Apple account not found"
-            return
-        }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let response = try await api.reauthenticateAppleAccount(
-                baseURL: backendURL,
-                token: helperToken,
-                accountId: accountId
-            )
-
-            if response.requires2FA == true {
-                pendingAppleAuth = PendingAppleAuthContext(
-                    mode: .reauth,
-                    appleId: account.appleId,
-                    password: "",
-                    accountId: accountId,
-                    authType: response.authType,
-                    trustedPhoneNumbers: response.trustedPhoneNumbers ?? []
-                )
-                toastMessage = "Enter the 6-digit verification code to re-authenticate \(account.appleId)"
-                return
-            }
-
-            pendingAppleAuth = nil
-            if primarySigningAccountId.isEmpty {
-                setPrimarySigningAccount(accountId, showConfirmation: false)
-                toastMessage = "Apple ID re-authenticated and set as your primary signing identity"
-            } else {
-                toastMessage = "Apple ID re-authenticated"
-            }
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func submitPendingAppleAccount2FA(code: String) async {
-        guard isPaired else {
-            errorMessage = "Pair with a SideLink server before verifying Apple IDs"
-            return
-        }
-        guard let pendingAppleAuth else {
-            errorMessage = "No Apple ID verification is pending"
-            return
-        }
-
-        errorMessage = nil
-
-        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedCode.count == 6, trimmedCode.allSatisfy(\.isNumber) else {
-            errorMessage = "Enter the 6-digit verification code"
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let account: AccountDTO
-            switch pendingAppleAuth.mode {
-            case .signIn:
-                account = try await api.submitAppleAccount2FA(
-                    baseURL: backendURL,
-                    token: helperToken,
-                    appleId: pendingAppleAuth.appleId,
-                    password: pendingAppleAuth.password,
-                    code: trimmedCode
-                )
-            case .reauth:
-                guard let accountId = pendingAppleAuth.accountId else {
-                    errorMessage = "Missing Apple account ID for verification"
-                    return
-                }
-                account = try await api.submitAppleAccountReauth2FA(
-                    baseURL: backendURL,
-                    token: helperToken,
-                    accountId: accountId,
-                    code: trimmedCode
-                )
-            }
-
-            self.pendingAppleAuth = nil
-            if primarySigningAccountId.isEmpty {
-                setPrimarySigningAccount(account.id, showConfirmation: false)
-                toastMessage = "Apple ID verified and set as your primary signing identity"
-            } else {
-                toastMessage = "Apple ID verified successfully"
-            }
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func deleteAppleAccount(_ accountId: String) async {
-        guard isPaired else {
-            errorMessage = "Pair with a SideLink server before removing Apple IDs"
-            return
-        }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let removedPrimarySigningIdentity = primarySigningAccountId == accountId
-            try await api.deleteAppleAccount(baseURL: backendURL, token: helperToken, accountId: accountId)
-            if removedPrimarySigningIdentity {
-                primarySigningAccountId = ""
-            }
-            if selectedAccountId == accountId {
-                selectedAccountId = ""
-            }
-            pendingAppleAuth = nil
-            await refreshAll()
-            if removedPrimarySigningIdentity {
-                if let fallback = primaryActiveSigningAccount {
-                    toastMessage = "Primary signing identity removed. SideLink switched to \(fallback.appleId)"
-                } else {
-                    toastMessage = "Primary signing identity removed"
-                }
-            } else {
-                toastMessage = "Apple ID removed"
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func deleteInstalledApp(_ appId: String) async {
-        guard requirePairing(for: "remove installed apps") else { return }
-
-        errorMessage = nil
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            try await api.deleteInstalledApp(baseURL: backendURL, token: helperToken, appId: appId)
-            installedApps.removeAll { $0.id == appId }
-            toastMessage = "Removed installed app entry"
-            await refreshAll()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func loadCustomSourcesFromStorage() {
-        guard let data = customSourceURLsJSON.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([String].self, from: data)
-        else {
-            customSourceURLs = []
-            return
-        }
-        customSourceURLs = Array(Set(decoded.map(SidelinkSourceURLUtil.normalized))).sorted()
-    }
-
-    private func ensureDefaultSourcePresent() {
-        if !customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == Self.officialSourceURL }) {
-            customSourceURLs.append(Self.officialSourceURL)
-            persistCustomSources()
-        }
-    }
-
-    private func persistCustomSources() {
-        let unique = Array(Set(customSourceURLs.map(SidelinkSourceURLUtil.normalized))).sorted()
-        customSourceURLs = unique
-        let encoded = (try? JSONEncoder().encode(unique)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        customSourceURLsJSON = encoded
-    }
-
-    private func hasSourceURL(_ url: String) -> Bool {
-        let normalized = SidelinkSourceURLUtil.normalized(url)
-        if isPaired {
-            return sourceCatalogs.contains(where: { SidelinkSourceURLUtil.normalized($0.sourceURL) == normalized })
-        }
-        return customSourceURLs.contains(where: { SidelinkSourceURLUtil.normalized($0) == normalized })
-    }
-
-    private func requirePairing(for action: String) -> Bool {
+    func requirePairing(for action: String) -> Bool {
         guard isPaired else {
             errorMessage = "Pair with a SideLink server before you \(action)."
             return false
@@ -1434,7 +733,7 @@ final class HelperViewModel: ObservableObject {
         return true
     }
 
-    private func requireInstallReadiness() -> Bool {
+    func requireInstallReadiness() -> Bool {
         guard let message = installReadinessMessage else {
             return true
         }
@@ -1443,106 +742,28 @@ final class HelperViewModel: ObservableObject {
         return false
     }
 
-    private func refreshSourceCatalogs() async {
-        if isPaired {
-            do {
-                let sources = try await api.listSources(baseURL: backendURL, token: helperToken)
-                sourceCatalogFailures = sources
-                    .filter { $0.enabled && $0.cachedManifest == nil }
-                    .map { "\($0.name): manifest is not available yet. Refresh the source from the desktop if this persists." }
-                sourceCatalogs = sources
-                    .filter { $0.enabled }
-                    .compactMap { source in
-                        guard let manifest = source.cachedManifest else {
-                            return nil
-                        }
-                        return SourceCatalog(
-                            sourceId: source.id,
-                            sourceURL: source.url,
-                            manifest: manifest,
-                            isBuiltIn: source.isBuiltIn
-                        )
-                    }
-                    .sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
-                return
-            } catch {
-                sourceCatalogFailures = ["Desktop-managed sources could not be refreshed: \(error.localizedDescription)"]
-                sourceCatalogs = []
-                return
-            }
+    func recordLocalActivity(level: String, code: String, message: String) {
+        let entry = HelperLogEntryDTO(
+            id: "local-\(UUID().uuidString)",
+            level: level,
+            code: code,
+            message: message,
+            at: ISO8601DateFormatter().string(from: Date())
+        )
+        localActivityLogs.insert(entry, at: 0)
+        if localActivityLogs.count > 100 {
+            localActivityLogs.removeLast(localActivityLogs.count - 100)
         }
-
-        let feedURLs = ((config?.sourceFeeds.map { $0.url } ?? []) + customSourceURLs).map(SidelinkSourceURLUtil.normalized)
-        let uniqueURLs = Array(Set(feedURLs + [Self.officialSourceURL])).sorted()
-
-        var catalogs: [SourceCatalog] = []
-        var failures: [String] = []
-        for url in uniqueURLs {
-            do {
-                let manifest = try await api.fetchSourceManifest(urlString: url)
-                catalogs.append(SourceCatalog(sourceId: nil, sourceURL: url, manifest: manifest, isBuiltIn: isOfficialSourceURL(url)))
-            } catch {
-                failures.append("\(url): \(error.localizedDescription)")
-            }
-        }
-
-        sourceCatalogFailures = failures
-        sourceCatalogs = catalogs.sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
     }
 
-    private func prepareInstallConsole(title: String, subtitle: String) {
-        installConsoleTitle = title
-        installConsoleSubtitle = subtitle
-        installConsoleAutoPresentationSuppressed = false
-        installConsolePresented = true
-        activeInstall2FACode = ""
-        errorMessage = nil
-    }
-
-    private func inferredInstallName(for job: InstallJobDetailDTO) -> String {
-        if let ipa = ipas.first(where: { $0.id == job.ipaId }) {
-            return ipa.bundleName
+    func isValidRemoteURL(_ raw: String) -> Bool {
+        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(), let host = url.host else {
+            return false
         }
-
-        if let install = installedApps.first(where: { $0.id == job.ipaId || $0.bundleId == job.ipaId || $0.originalBundleId == job.ipaId }) {
-            return install.appName ?? install.bundleId
+        guard scheme == "https" || scheme == "http" else {
+            return false
         }
-
-        return "App Install"
-    }
-
-    private func inferredInstallSubtitle(for job: InstallJobDetailDTO) -> String {
-        let account = accounts.first(where: { $0.id == job.accountId })?.appleId
-        let device = devices.first(where: { $0.id == job.deviceUdid })?.name
-
-        if let account, let device {
-            return "Signing with \(account) on \(device)"
-        }
-
-        if let device {
-            return "Signing and installing to \(device)"
-        }
-
-        return "Signing, provisioning, and device installation happen here in one place."
-    }
-
-    private func installSubtitle(base: String) -> String {
-        let summaryBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let account = effectiveSigningAccount?.appleId,
-           let device = selectedDevice?.name {
-            return "\(summaryBase). Using \(account) on \(device)."
-        }
-
-        if let account = effectiveSigningAccount?.appleId {
-            return "\(summaryBase). Using \(account)."
-        }
-
-        if let device = selectedDevice?.name {
-            return "\(summaryBase). Installing to \(device)."
-        }
-
-        return summaryBase
+        return scheme == "https" || isLocalHost(host)
     }
 
     private func resolvePrimarySigningAccountId(preferred: String? = nil) -> String {
@@ -1588,94 +809,7 @@ final class HelperViewModel: ObservableObject {
         return ISO8601DateFormatter().date(from: createdAt)
     }
 
-    private func recordLocalActivity(level: String, code: String, message: String) {
-        let entry = HelperLogEntryDTO(
-            id: "local-\(UUID().uuidString)",
-            level: level,
-            code: code,
-            message: message,
-            at: ISO8601DateFormatter().string(from: Date())
-        )
-        localActivityLogs.insert(entry, at: 0)
-        if localActivityLogs.count > 100 {
-            localActivityLogs.removeLast(localActivityLogs.count - 100)
-        }
-    }
-
-    private func refreshLatestInstallJob() async {
-        guard isPaired else { return }
-
-        do {
-            let jobs = try await api.listInstallJobs(baseURL: backendURL, token: helperToken)
-            guard let latest = jobs.max(by: { $0.updatedAt < $1.updatedAt }) else {
-                activeInstallJob = nil
-                activeInstallLogs = []
-                installConsoleAutoPresentationSuppressed = false
-                return
-            }
-            let logs = await refreshActiveInstallLogs(jobId: latest.id)
-            let resolved = applyInstallSnapshot(latest, logs: logs)
-            if installConsoleTitle.isEmpty {
-                installConsoleTitle = inferredInstallName(for: resolved)
-            }
-            if installConsoleSubtitle.isEmpty {
-                installConsoleSubtitle = inferredInstallSubtitle(for: resolved)
-            }
-            if isInstallJobInFlight(resolved) && !installConsoleAutoPresentationSuppressed {
-                installConsolePresented = true
-            }
-            if isInstallJobInFlight(resolved) {
-                beginPollingInstallJob(jobId: resolved.id)
-            }
-        } catch {
-            // Non-fatal for the main dashboard; install progress is best-effort.
-        }
-    }
-
-    private func beginPollingInstallJob(jobId: String) {
-        activeJobPollingTask?.cancel()
-        activeJobPollingTask = Task { [weak self] in
-            guard let self else { return }
-            let startedAt = Date()
-            while !Task.isCancelled {
-                if Date().timeIntervalSince(startedAt) > Self.installPollingTimeout {
-                    await MainActor.run {
-                        self.activeJobPollingTask = nil
-                    }
-                    break
-                }
-                do {
-                    let job = try await self.api.getInstallJob(baseURL: self.backendURL, token: self.helperToken, jobId: jobId)
-                    let logs = await self.refreshActiveInstallLogs(jobId: job.id)
-
-                    let resolved = await MainActor.run {
-                        let snapshot = self.applyInstallSnapshot(job, logs: logs)
-                        if self.installConsoleTitle.isEmpty {
-                            self.installConsoleTitle = self.inferredInstallName(for: snapshot)
-                        }
-                        if self.installConsoleSubtitle.isEmpty {
-                            self.installConsoleSubtitle = self.inferredInstallSubtitle(for: snapshot)
-                        }
-                        return snapshot
-                    }
-
-                    if resolved.status == "completed" || resolved.status == "failed" {
-                        await MainActor.run {
-                            self.activeJobPollingTask = nil
-                        }
-                        break
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.activeJobPollingTask = nil
-                    }
-                    break
-                }
-
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-            }
-        }
-    }
+    // MARK: - SSE
 
     private func connectSSEIfPossible() {
         guard isPaired,
@@ -1722,15 +856,7 @@ final class HelperViewModel: ObservableObject {
         SidelinkNetworkUtil.isLocalHost(host)
     }
 
-    private func isValidRemoteURL(_ raw: String) -> Bool {
-        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(), let host = url.host else {
-            return false
-        }
-        guard scheme == "https" || scheme == "http" else {
-            return false
-        }
-        return scheme == "https" || isLocalHost(host)
-    }
+    // MARK: - SSE Event Handling
 
     private func handleSSEEvent(event: String, data: String) {
         guard !data.isEmpty else {
@@ -1818,117 +944,6 @@ final class HelperViewModel: ObservableObject {
         }
     }
 
-    private func refreshActiveInstallLogs(jobId: String) async -> [InstallJobLogDTO] {
-        do {
-            let logs = try await api.getInstallJobLogs(baseURL: backendURL, token: helperToken, jobId: jobId)
-            await MainActor.run {
-                self.activeInstallLogs = logs
-            }
-            return logs
-        } catch {
-            // Keep existing logs if refresh fails.
-            return activeInstallLogs
-        }
-    }
-
-    private func isInstallJobInFlight(_ job: InstallJobDetailDTO) -> Bool {
-        job.status == "queued" || job.status == "running" || job.status == "waiting_2fa"
-    }
-
-    @discardableResult
-    private func applyInstallSnapshot(_ job: InstallJobDetailDTO, logs: [InstallJobLogDTO]? = nil) -> InstallJobDetailDTO {
-        let previous = activeInstallJob
-        let resolved = reconcileInstallJob(job, logs: logs ?? activeInstallLogs)
-        activeInstallJob = resolved
-
-        if previous?.id == resolved.id,
-           previous?.status != resolved.status,
-           (resolved.status == "completed" || resolved.status == "failed") {
-            installConsoleAutoPresentationSuppressed = false
-            if !installConsolePresented {
-                if resolved.status == "completed" {
-                    toastMessage = "\(installConsoleResolvedTitle) installed successfully"
-                } else {
-                    let failureMessage = resolved.error.map(SidelinkLogRedaction.sanitize)
-                    toastMessage = failureMessage.map { "Install failed: \($0)" } ?? "Install failed"
-                }
-            }
-
-            Task {
-                await refreshAllSilently()
-            }
-        }
-
-        return resolved
-    }
-
-    private func reconcileInstallJob(_ job: InstallJobDetailDTO, logs: [InstallJobLogDTO]) -> InstallJobDetailDTO {
-        let failedStep = job.steps.first(where: { $0.status == "failed" })
-        let existingError = job.error?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let logError = latestInstallFailureMessage(from: logs)
-        let effectiveError = failedStep?.error.map(SidelinkLogRedaction.sanitize)
-            ?? ((existingError?.isEmpty == false) ? existingError.map(SidelinkLogRedaction.sanitize) : nil)
-            ?? logError.map(SidelinkLogRedaction.sanitize)
-
-        let shouldSynthesizeFailure = job.status != "failed"
-            && (failedStep != nil || ((job.status == "queued" || job.status == "running") && effectiveError != nil))
-
-        guard shouldSynthesizeFailure else {
-            return job
-        }
-
-        let resolvedSteps = job.steps.map { step in
-            guard failedStep == nil,
-                  step.name == job.currentStep,
-                  step.status == "running"
-            else {
-                return step
-            }
-
-            return PipelineStepDTO(
-                name: step.name,
-                status: "failed",
-                startedAt: step.startedAt,
-                completedAt: logs.last?.at ?? step.completedAt,
-                error: effectiveError
-            )
-        }
-
-        return InstallJobDetailDTO(
-            id: job.id,
-            ipaId: job.ipaId,
-            deviceUdid: job.deviceUdid,
-            accountId: job.accountId,
-            includeExtensions: job.includeExtensions,
-            status: "failed",
-            currentStep: job.currentStep,
-            steps: resolvedSteps,
-            error: effectiveError,
-            createdAt: job.createdAt,
-            updatedAt: logs.last?.at ?? job.updatedAt
-        )
-    }
-
-    private func latestInstallFailureMessage(from logs: [InstallJobLogDTO]) -> String? {
-        for entry in logs.reversed() where entry.level.lowercased() == "error" {
-            let message = entry.message.trimmingCharacters(in: .whitespacesAndNewlines)
-            if message.isEmpty {
-                continue
-            }
-
-            if let range = message.range(of: " - ", options: .backwards) {
-                let suffix = String(message[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !suffix.isEmpty {
-                    return suffix
-                }
-            }
-
-            return SidelinkLogRedaction.sanitize(message)
-        }
-
-        return nil
-    }
-
     private func parseJSONDictionary(_ raw: String) -> [String: Any]? {
         guard let data = raw.data(using: .utf8),
               let value = try? JSONSerialization.jsonObject(with: data),
@@ -1938,6 +953,8 @@ final class HelperViewModel: ObservableObject {
         }
         return dict
     }
+
+    // MARK: - Discovery (Network)
 
     private func ingestDiscovery(_ payload: DiscoveryBroadcastDTO) {
         guard let address = preferredDiscoveryAddress(from: payload.addresses) else {

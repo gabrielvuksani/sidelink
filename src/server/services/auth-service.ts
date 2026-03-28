@@ -158,6 +158,9 @@ export class AuthService {
    * Login with username and password.
    */
   async login(username: string, password: string, ip?: string): Promise<UserSession> {
+    // Prune stale auth attempts to keep the table bounded
+    this.pruneStaleAttempts();
+
     // Check lockout first
     this.checkLockout(username);
 
@@ -293,6 +296,12 @@ export class AuthService {
 
   private clearFailedAttempts(username: string): void {
     this.db.prepare('DELETE FROM auth_attempts WHERE username = ?').run(username);
+  }
+
+  /** Delete auth_attempts older than the lockout window to keep the table bounded. */
+  private pruneStaleAttempts(): void {
+    const cutoff = new Date(Date.now() - LOCKOUT_WINDOW_MS).toISOString();
+    this.db.prepare('DELETE FROM auth_attempts WHERE attempted_at <= ?').run(cutoff);
   }
 
   // ─── Session Helpers ────────────────────────────────────────────

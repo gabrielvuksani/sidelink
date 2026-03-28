@@ -4,7 +4,7 @@ import { getErrorMessage } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
-import { PageHeader, PageLoader, EmptyState, SectionHeading, Collapsible } from '../components/Shared';
+import { PageHeader, EmptyState, SectionHeading, Collapsible } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { DeviceInfo } from '../../../shared/types';
 
@@ -99,7 +99,27 @@ export default function DevicesPage() {
       />
 
       {loading && devices.length === 0 ? (
-        <PageLoader message="Scanning for devices..." />
+        <div className="animate-fadeIn space-y-3">
+          <SectionHeading eyebrow="Inventory" title="Connected targets" description="Transport, model, iOS version, and pairing status." />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="sl-card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="sl-skeleton h-11 w-11 rounded-xl shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="sl-skeleton h-4 w-32" />
+                    <div className="flex gap-2">
+                      <div className="sl-skeleton h-3 w-14 rounded-md" />
+                      <div className="sl-skeleton h-3 w-20" />
+                      <div className="sl-skeleton h-3 w-16" />
+                    </div>
+                    <div className="sl-skeleton h-2.5 w-40" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : devices.length === 0 ? (
         <EmptyState
           title="No devices found"
@@ -178,6 +198,40 @@ function TroubleshootTip({ title, detail }: { title: string; detail: string }) {
   );
 }
 
+function useTimeSince(timestampMs: number): string {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const seconds = Math.floor((Date.now() - timestampMs) / 1000);
+  if (seconds < 5) return 'Just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(1)} GB`;
+}
+
+function BatteryIcon({ level }: { level: number }) {
+  const color = level <= 20 ? 'text-rose-400' : level <= 50 ? 'text-amber-400' : 'text-emerald-400';
+  return (
+    <svg className={`h-3 w-3 ${color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 10h-1V8a1 1 0 00-1-1H4a1 1 0 00-1 1v8a1 1 0 001 1h15a1 1 0 001-1v-2h1a1 1 0 001-1v-2a1 1 0 00-1-1z" />
+      <rect x="4.5" y="8.5" width={Math.max(1, (level / 100) * 13.5)} height="7" rx="0.5" fill="currentColor" opacity={0.6} />
+    </svg>
+  );
+}
+
 function DeviceCard({ device, onRefresh, lastRefreshedAt }: { device: DeviceInfo; onRefresh: () => void; lastRefreshedAt: number }) {
   const [pairing, setPairing] = useState(false);
   const { toast } = useToast();
@@ -201,14 +255,13 @@ function DeviceCard({ device, onRefresh, lastRefreshedAt }: { device: DeviceInfo
   const deviceType = getDeviceModelIcon(device.productType);
   const displayModel = getDeviceDisplayModel(device.productType, device.model);
 
-  // Format "Last seen" time
-  const lastSeenText = (() => {
-    const seconds = Math.floor((Date.now() - lastRefreshedAt) / 1000);
-    if (seconds < 5) return 'Just now';
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m ago`;
-  })();
+  const hasBattery = device.batteryLevel != null;
+  const hasStorage = device.diskTotalBytes != null && device.diskAvailableBytes != null;
+  const storageUsedPct = hasStorage
+    ? Math.round(((device.diskTotalBytes! - device.diskAvailableBytes!) / device.diskTotalBytes!) * 100)
+    : null;
+
+  const dataRefreshedText = useTimeSince(lastRefreshedAt);
 
   return (
     <div
@@ -254,16 +307,41 @@ function DeviceCard({ device, onRefresh, lastRefreshedAt }: { device: DeviceInfo
               {displayModel && <span className="text-[11px] text-[var(--sl-muted)]">{displayModel}</span>}
               {device.iosVersion && <span className="text-[11px] text-[var(--sl-muted)]">iOS {device.iosVersion}</span>}
             </div>
+
+            {/* Battery & Storage metrics */}
+            {(hasBattery || hasStorage) && (
+              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                {hasBattery && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-[var(--sl-muted)]">
+                    <BatteryIcon level={device.batteryLevel!} />
+                    {device.batteryLevel}%
+                  </span>
+                )}
+                {hasStorage && (
+                  <span className="inline-flex items-center gap-1.5 text-[10px] text-[var(--sl-muted)]">
+                    <svg className="h-3 w-3 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125v-3.75" /></svg>
+                    {formatBytes(device.diskAvailableBytes!)} free / {formatBytes(device.diskTotalBytes!)}
+                    <span className="ml-0.5 inline-block h-1.5 w-12 rounded-full bg-[var(--sl-surface-soft)] overflow-hidden">
+                      <span
+                        className={`block h-full rounded-full ${storageUsedPct! > 90 ? 'bg-rose-400' : storageUsedPct! > 70 ? 'bg-amber-400' : 'bg-violet-400'}`}
+                        style={{ width: `${storageUsedPct}%` }}
+                      />
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-3 mt-1.5">
               <p className="text-[10px] font-mono text-[var(--sl-muted)] opacity-60">{device.udid?.slice(0, 16)}...</p>
-              <span className="text-[10px] text-[var(--sl-muted)] opacity-60">Last seen: {lastSeenText}</span>
+              <span className="text-[10px] text-[var(--sl-muted)] opacity-60">Data refreshed: {dataRefreshedText}</span>
             </div>
           </div>
         </div>
         <button
           onClick={pair}
           disabled={pairing}
-          className="sl-btn-ghost !text-[12px] !px-3 !py-1.5 flex items-center gap-1.5 disabled:opacity-50"
+          className="sl-btn-ghost sl-btn-sm flex items-center gap-1.5 disabled:opacity-50"
           aria-label={`Pair with ${device.name || 'device'}`}
         >
           {pairing && <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--sl-muted)]/30 border-t-[var(--sl-muted)]" />}

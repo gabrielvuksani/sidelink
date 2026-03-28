@@ -2,7 +2,7 @@
 // Global keyboard shortcut handling for the SideLink client.
 // Supports Cmd/Ctrl modifiers, navigation, and action shortcuts.
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 /** Shortcut definition */
@@ -61,7 +61,7 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
 export function useGlobalShortcuts() {
   const navigate = useNavigate();
 
-  const shortcuts: Shortcut[] = [
+  const shortcuts: Shortcut[] = useMemo(() => [
     // Navigation (Cmd/Ctrl + 1-8)
     { key: '1', meta: true, action: () => navigate('/'),          label: 'Go to Dashboard' },
     { key: '2', meta: true, action: () => navigate('/apple'),     label: 'Go to Apple ID' },
@@ -72,7 +72,7 @@ export function useGlobalShortcuts() {
     { key: '7', meta: true, action: () => navigate('/logs'),      label: 'Go to Logs' },
     { key: '8', meta: true, action: () => navigate('/settings'),  label: 'Go to Settings' },
     { key: '9', meta: true, action: () => navigate('/sources'),   label: 'Go to Sources' },
-  ];
+  ], [navigate]);
 
   useKeyboardShortcuts(shortcuts);
 }

@@ -1002,10 +1002,13 @@ export class Database {
     }
   }
 
-  listLogs(limit = 200): LogEntry[] {
-    return (this.db.prepare('SELECT * FROM logs ORDER BY at DESC LIMIT ?').all(limit) as any[])
-      .map(r => ({ id: r.id, level: r.level as LogLevel, code: r.code,
-        message: r.message, meta: r.meta ? JSON.parse(r.meta) : null, at: r.at }));
+  listLogs(limit = 200, level?: string): LogEntry[] {
+    const validLevels = ['info', 'warn', 'error', 'debug'];
+    const rows = level && validLevels.includes(level)
+      ? (this.db.prepare('SELECT * FROM logs WHERE level = ? ORDER BY at DESC LIMIT ?').all(level, limit) as any[])
+      : (this.db.prepare('SELECT * FROM logs ORDER BY at DESC LIMIT ?').all(limit) as any[]);
+    return rows.map(r => ({ id: r.id, level: r.level as LogLevel, code: r.code,
+      message: r.message, meta: r.meta ? JSON.parse(r.meta) : null, at: r.at }));
   }
 
   clearLogs(): void {

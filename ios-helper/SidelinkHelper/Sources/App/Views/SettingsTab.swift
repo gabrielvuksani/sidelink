@@ -170,19 +170,16 @@ struct SettingsTab: View {
 
     private var permissionsCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Access", title: "Permission status", subtitle: "Prime notifications, camera, and local-network access up front, then verify their state here later without guessing.")
+            SidelinkSectionIntro(eyebrow: "Access", title: "Permission status", subtitle: "Prime notifications and local-network access up front, then verify their state here later without guessing.")
 
             HStack(spacing: 12) {
                 SidelinkStatusTile(label: "Notify", value: permissions.notifications.statusLabel, tint: permissions.notifications.tint)
-                SidelinkStatusTile(label: "Camera", value: permissions.camera.statusLabel, tint: permissions.camera.tint)
+                SidelinkStatusTile(label: "Network", value: permissions.localNetwork.statusLabel, tint: permissions.localNetwork.tint)
             }
 
             VStack(spacing: 10) {
                 settingsPermissionRow(title: "Notifications", icon: "bell.badge", state: permissions.notifications, tint: .slAccent) {
                     Task { await permissions.requestNotificationsIfNeeded() }
-                }
-                settingsPermissionRow(title: "Camera", icon: "camera.viewfinder", state: permissions.camera, tint: .slAccent2) {
-                    Task { await permissions.requestCameraIfNeeded() }
                 }
                 settingsPermissionRow(title: "Local Network", icon: "dot.radiowaves.left.and.right", state: permissions.localNetwork, tint: .slSuccess) {
                     permissions.requestLocalNetworkIfNeeded(force: true)
@@ -395,7 +392,7 @@ struct SettingsTab: View {
             Toggle(isOn: $backgroundRefreshEnabled) {
                 Label("Enable Background Refresh", systemImage: "arrow.triangle.2.circlepath")
             }
-            .onChange(of: backgroundRefreshEnabled) { enabled in
+            .onChange(of: backgroundRefreshEnabled) { _, enabled in
                 if enabled {
                     Task {
                         await BackgroundRefreshCoordinator.shared.requestNotificationAuthorizationIfNeeded()
@@ -420,7 +417,7 @@ struct SettingsTab: View {
                 )
                 .tint(.slAccent)
             }
-            .onChange(of: backgroundRefreshIntervalMinutes) { _ in
+            .onChange(of: backgroundRefreshIntervalMinutes) { _, _ in
                 guard backgroundRefreshEnabled else { return }
                 BackgroundRefreshCoordinator.shared.scheduleAppRefresh()
             }

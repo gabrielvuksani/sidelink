@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { UI_LIMITS } from '../../../shared/constants';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 
@@ -60,9 +61,7 @@ export function HelperPairingPanel({
   const isModalOpen = activeModal !== null;
 
   const refreshPairing = async (options?: { silent?: boolean }) => {
-    if (options?.silent) {
-      setRefreshing(false);
-    } else {
+    if (!options?.silent) {
       setRefreshing(true);
     }
 
@@ -90,7 +89,9 @@ export function HelperPairingPanel({
       }
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      if (!options?.silent) {
+        setRefreshing(false);
+      }
     }
   };
 
@@ -111,16 +112,7 @@ export function HelperPairingPanel({
     };
   }, [autoRefresh, isModalOnly, isModalOpen]);
 
-  useEffect(() => {
-    if (!isModalOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isModalOpen]);
+  useBodyScrollLock(isModalOpen);
 
   useEffect(() => {
     if (!pairingExpiresAt) return;
@@ -186,7 +178,7 @@ export function HelperPairingPanel({
     : [
         'Open SideLink on your iPhone.',
         'Go to Pair / Repair in onboarding or settings.',
-        'Scan the QR to fill the server and pairing code instantly.',
+        'Scan the QR code or enter the pairing code to connect.',
       ];
 
   const showInlineQr = !isModalOnly && (!compact || isFeatureLayout);
@@ -224,12 +216,12 @@ export function HelperPairingPanel({
                 <div>
                   <p className="sl-kicker">iPhone Helper Pairing</p>
                   <h5 id={modalTitleId} className="mt-3 text-[1.2rem] font-semibold tracking-[-0.04em] text-[var(--sl-text)] sm:text-[1.5rem]">
-                    {activeModal === 'qr' ? 'Scan the desktop QR on your iPhone' : 'Enter the desktop pairing code on your iPhone'}
+                    {activeModal === 'qr' ? 'Scan this QR code with SideLink on your iPhone' : 'Enter this pairing code in SideLink on your iPhone'}
                   </h5>
                   <p className="mt-2 max-w-2xl text-[13px] leading-6 text-[var(--sl-muted)]">
                     {activeModal === 'qr'
-                      ? 'Use camera handoff when it is faster than typing. If scanning is inconvenient, the same short code is available below.'
-                      : 'Manual entry stays reliable when the camera handoff is inconvenient. Open the QR modal any time for the faster path.'}
+                      ? 'Point your iPhone camera at the QR code. If scanning is not possible, you can also enter the code shown below.'
+                      : 'Type this code into SideLink on your iPhone. You can also switch to the QR code for faster pairing.'}
                   </p>
                 </div>
 
@@ -239,7 +231,7 @@ export function HelperPairingPanel({
                       Refreshes every 60s · expires {expiresLabel}
                     </span>
                   )}
-                  <button type="button" onClick={closeModal} className="sl-btn-ghost justify-center !px-3 !py-2 !text-[12px]">
+                  <button type="button" onClick={closeModal} className="sl-btn-ghost sl-btn-sm justify-center">
                     Close
                   </button>
                 </div>
@@ -257,7 +249,7 @@ export function HelperPairingPanel({
                     <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--sl-muted)]">Pairing code</p>
                     <p className="mt-5 break-all font-mono text-[clamp(1.45rem,9vw,4rem)] font-semibold tracking-[0.18em] text-[var(--sl-text)] sm:tracking-[0.28em]">{pairingCode}</p>
                     <p className="mt-4 text-[12px] leading-6 text-[var(--sl-muted)]">
-                      Keep this code visible while the helper is open on your iPhone. It is regenerated every 60 seconds while this modal stays open.
+                      Enter this code in SideLink on your iPhone. The code refreshes automatically every 60 seconds.
                     </p>
                   </div>
                 )}
@@ -266,14 +258,14 @@ export function HelperPairingPanel({
                   <button
                     type="button"
                     onClick={() => void copyText(pairingCode, 'Pairing code copied')}
-                    className="sl-btn-primary justify-center !py-2.5 text-center"
+                    className="sl-btn-primary justify-center text-center"
                   >
                     Copy code
                   </button>
                   <button
                     type="button"
                     onClick={() => openModal(activeModal === 'qr' ? 'code' : 'qr')}
-                    className="sl-btn-ghost justify-center !py-2.5 text-center"
+                    className="sl-btn-ghost justify-center text-center"
                   >
                     {activeModal === 'qr' ? 'Show code' : 'Show QR'}
                   </button>
@@ -281,7 +273,7 @@ export function HelperPairingPanel({
                     type="button"
                     onClick={() => { void refreshPairing(); }}
                     disabled={refreshing}
-                    className="sl-btn-ghost justify-center !py-2.5 text-center"
+                    className="sl-btn-ghost justify-center text-center"
                   >
                     {refreshing ? 'Refreshing…' : 'Refresh'}
                   </button>
@@ -292,7 +284,7 @@ export function HelperPairingPanel({
                     <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
                     <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost justify-center !py-2 text-center">
+                      <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost sl-btn-sm justify-center text-center">
                         Copy address
                       </button>
                       {pairingCandidateAddresses.length > 0 && (
@@ -332,7 +324,7 @@ export function HelperPairingPanel({
             <button
               type="button"
               onClick={() => openModal(defaultModal)}
-              className="sl-btn-primary min-[420px]:w-auto w-full justify-center !px-3 !py-1.5 !text-[11px]"
+              className="sl-btn-primary sl-btn-xs min-[420px]:w-auto w-full justify-center"
             >
               Open pairing modal
             </button>
@@ -341,7 +333,7 @@ export function HelperPairingPanel({
             <button
               type="button"
               onClick={() => void copyText(pairingCode, 'Pairing code copied')}
-              className="sl-btn-ghost min-[420px]:w-auto w-full justify-center !px-2.5 !py-1.5 !text-[11px]"
+              className="sl-btn-ghost sl-btn-xs min-[420px]:w-auto w-full justify-center"
             >
               Copy code
             </button>
@@ -350,7 +342,7 @@ export function HelperPairingPanel({
             type="button"
             onClick={() => { void refreshPairing(); }}
             disabled={refreshing}
-            className="sl-btn-ghost min-[420px]:w-auto w-full justify-center !px-2.5 !py-1.5 !text-[11px]"
+            className="sl-btn-ghost sl-btn-xs min-[420px]:w-auto w-full justify-center"
           >
             {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -370,18 +362,18 @@ export function HelperPairingPanel({
         <div className="mt-4 space-y-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1.12fr),minmax(220px,0.88fr)]">
             <div className="rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(135deg,rgba(8,145,178,0.16),rgba(14,116,144,0.05))] p-4 sm:p-5">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--sl-muted)]">Pairing handoff</p>
-              <p className="mt-3 text-[15px] font-semibold text-[var(--sl-text)]">Open the code or QR only when you need it</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--sl-muted)]">Pairing</p>
+              <p className="mt-3 text-[15px] font-semibold text-[var(--sl-text)]">Open the code or QR when you are ready to pair</p>
               <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">
-                Overview stays compact and stable while the pairing payload lives in dedicated full-screen modals. That keeps the widget from constantly reflowing during refreshes.
+                Tap one of the buttons above to show a pairing code or scannable QR code for your iPhone.
               </p>
             </div>
 
             <div className="rounded-[24px] border border-[var(--sl-border)] bg-[var(--sl-surface-soft)] p-4 sm:p-5">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Refresh policy</p>
-              <p className="mt-3 text-[15px] font-semibold text-[var(--sl-text)]">60-second payload rotation</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Security</p>
+              <p className="mt-3 text-[15px] font-semibold text-[var(--sl-text)]">Codes refresh every 60 seconds</p>
               <p className="mt-2 text-[12px] leading-6 text-[var(--sl-muted)]">
-                The pairing code and QR now refresh only while a pairing modal is open, so the widget itself stays visually calm.
+                Pairing codes automatically rotate for security. A fresh code is generated each time you open the pairing dialog.
               </p>
             </div>
           </div>
@@ -403,7 +395,7 @@ export function HelperPairingPanel({
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
               <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
               <p className="mt-2 text-[11px] leading-5 text-[var(--sl-muted)]">
-                If discovery fails on the iPhone, enter this desktop address manually and then type the same 6-digit code.
+                If your iPhone cannot find this desktop automatically, enter this address manually in SideLink.
               </p>
             </div>
           )}
@@ -425,9 +417,9 @@ export function HelperPairingPanel({
                 <p className="mt-3 text-[12px] leading-5 text-[var(--sl-muted)]">
                   {showInlineQr
                     ? (isFeatureLayout
-                      ? 'Keep the code visible for manual pairing, with QR available beside it when camera handoff is faster.'
-                      : 'Use the QR for the fastest handoff. If camera pairing is blocked, the code below is enough to pair manually.')
-                    : 'Use Show QR when you want the full camera handoff. The code below is enough for manual pairing without expanding the whole dashboard card.'}
+                      ? 'Enter this code on your iPhone, or scan the QR code for faster pairing.'
+                      : 'Scan the QR code for quick pairing, or enter this code manually on your iPhone.')
+                    : 'Enter this code on your iPhone, or tap Show QR to scan instead.'}
                 </p>
               </div>
 
@@ -437,15 +429,15 @@ export function HelperPairingPanel({
                   {showInlineQr ? (
                     <p className="font-mono text-[1.45rem] font-semibold tracking-[0.2em] text-[var(--sl-text)] sm:text-2xl">{pairingCode}</p>
                   ) : (
-                    <button type="button" onClick={() => openModal('qr')} className="sl-btn-primary w-full justify-center !py-2.5 text-center">
+                    <button type="button" onClick={() => openModal('qr')} className="sl-btn-primary w-full justify-center text-center">
                       Open QR modal
                     </button>
                   )}
                 </div>
                 <p className="mt-3 text-[11px] leading-5 text-[var(--sl-muted)]">
                   {showInlineQr
-                    ? 'Choose a discovered desktop or enter the desktop address, then type this code on the iPhone.'
-                    : 'Open the modal for a full-size QR when the iPhone camera is ready, or keep using the manual code shown alongside it.'}
+                    ? 'Type this code into SideLink on your iPhone after selecting this desktop.'
+                    : 'Open the QR code for quick scanning, or continue with the manual code.'}
                 </p>
               </div>
             </div>
@@ -467,7 +459,7 @@ export function HelperPairingPanel({
                 <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--sl-muted)]">Desktop address fallback</p>
                 <p className="mt-3 break-all font-mono text-[13px] text-[var(--sl-text)]">{pairingBackendUrl}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost justify-center !py-2 text-center">
+                  <button type="button" onClick={() => void copyText(pairingBackendUrl, 'Desktop address copied')} className="sl-btn-ghost sl-btn-sm justify-center text-center">
                     Copy address
                   </button>
                   {pairingCandidateAddresses.length > 0 && (

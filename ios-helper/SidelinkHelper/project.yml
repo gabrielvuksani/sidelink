@@ -44,7 +44,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        NSCameraUsageDescription: SideLink Helper uses the camera to scan pairing QR codes from your desktop app.
         NSBonjourServices:
           - _sidelink._tcp
         NSLocalNetworkUsageDescription: SideLink Helper discovers and connects to your desktop server on your local network.

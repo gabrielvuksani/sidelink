@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useInstallModal } from '../components/InstallModal';
-import { StatusBadge, PageHeader, PageLoader, EmptyState } from '../components/Shared';
+import { StatusBadge, PageHeader, EmptyState } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import { HelperControlPanel } from '../components/HelperControlPanel';
 import { DesktopReadinessPanel } from '../components/DesktopReadinessPanel';
@@ -19,88 +19,50 @@ type DashboardWidgetId =
   | 'readiness'
   | 'active-jobs'
   | 'recent-jobs'
+  | 'analytics'
   | 'auto-refresh'
   | 'quota';
-
-type DashboardWidgetSize = 'small' | 'medium' | 'wide' | 'large';
-
-type DashboardLayoutItem = {
-  id: DashboardWidgetId;
-  size: DashboardWidgetSize;
-};
 
 type DashboardWidgetDefinition = {
   id: DashboardWidgetId;
   title: string;
   description: string;
-  allowedSizes: DashboardWidgetSize[];
-  defaultSize: DashboardWidgetSize;
   tone?: 'default' | 'feature' | 'warning';
   headerMode?: 'hidden' | 'compact' | 'standard';
-  render: (size: DashboardWidgetSize) => ReactNode;
+  render: () => ReactNode;
 };
 
-const OVERVIEW_LAYOUT_STORAGE_KEY = 'sidelink:overview-layout:v3';
-
-const DEFAULT_WIDGET_LAYOUT: DashboardLayoutItem[] = [
-  { id: 'accounts', size: 'small' },
-  { id: 'devices', size: 'small' },
-  { id: 'ipas', size: 'small' },
-  { id: 'installed', size: 'small' },
-  { id: 'helper', size: 'large' },
-  { id: 'readiness', size: 'wide' },
-  { id: 'active-jobs', size: 'wide' },
-  { id: 'recent-jobs', size: 'medium' },
-  { id: 'auto-refresh', size: 'medium' },
-  { id: 'quota', size: 'wide' },
+const DEFAULT_WIDGET_LAYOUT: { id: DashboardWidgetId }[] = [
+  { id: 'accounts' },
+  { id: 'devices' },
+  { id: 'ipas' },
+  { id: 'installed' },
+  { id: 'helper' },
+  { id: 'readiness' },
+  { id: 'active-jobs' },
+  { id: 'recent-jobs' },
+  { id: 'analytics' },
+  { id: 'auto-refresh' },
+  { id: 'quota' },
 ];
-
-type WidgetSizeMeta = { allowedSizes: DashboardWidgetSize[]; defaultSize: DashboardWidgetSize };
-
-const WIDGET_META: Record<DashboardWidgetId, WidgetSizeMeta> = {
-  accounts: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
-  devices: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
-  ipas: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
-  installed: { allowedSizes: ['small', 'medium'], defaultSize: 'small' },
-  helper: { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'large' },
-  readiness: { allowedSizes: ['medium', 'wide'], defaultSize: 'wide' },
-  'active-jobs': { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'wide' },
-  'recent-jobs': { allowedSizes: ['medium', 'wide'], defaultSize: 'medium' },
-  'auto-refresh': { allowedSizes: ['small', 'medium', 'wide'], defaultSize: 'medium' },
-  quota: { allowedSizes: ['medium', 'wide', 'large'], defaultSize: 'wide' },
-};
 
 export default function DashboardPage() {
   const warmSnapshot = getUiSnapshot<DashboardState>('page:dashboard');
   const [data, setData] = useState<DashboardState | null>(warmSnapshot?.data ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!warmSnapshot);
-  const [layout, setLayout] = useState<DashboardLayoutItem[]>(() => loadDashboardLayout());
   const { openInstall } = useInstallModal();
   const refreshTimerRef = useRef<number | null>(null);
   const dataRef = useRef<DashboardState | null>(warmSnapshot?.data ?? null);
   const reloadInFlightRef = useRef(false);
   const queuedForceReloadRef = useRef(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(Date.now());
-  const [secondsAgo, setSecondsAgo] = useState(0);
 
   useEffect(() => { document.title = 'Overview — SideLink'; }, []);
-
-  // Tick "last updated X seconds ago" every second
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setSecondsAgo(Math.floor((Date.now() - lastUpdatedAt) / 1000));
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [lastUpdatedAt]);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
-
-  useEffect(() => {
-    persistDashboardLayout(layout);
-  }, [layout]);
 
   const reload = useCallback(async (force = false) => {
     if (reloadInFlightRef.current) {
@@ -242,9 +204,10 @@ export default function DashboardPage() {
       ...statCards.map((stat) => ({
         id: stat.id,
         title: stat.label,
-        description: `Open ${stat.label.toLowerCase()} and inspect the current roster.`,
-        allowedSizes: ['small', 'medium'] as DashboardWidgetSize[],
-        defaultSize: 'small' as DashboardWidgetSize,
+        description: stat.id === 'accounts' ? 'Your Apple signing accounts and their status.'
+          : stat.id === 'devices' ? 'Connected iOS devices ready for installation.'
+          : stat.id === 'ipas' ? 'IPA files in your library.'
+          : 'Apps installed on your devices.',
         headerMode: 'hidden' as const,
         render: () => (
           <OverviewStatCard
@@ -259,9 +222,7 @@ export default function DashboardPage() {
       {
         id: 'helper',
         title: 'iPhone helper',
-        description: 'Build, import, and open pairing code or QR handoff from one operational widget instead of a long right-rail card.',
-        allowedSizes: ['medium', 'wide', 'large'],
-        defaultSize: 'large',
+        description: 'iPhone companion app pairing and provisioning.',
         tone: 'feature',
         headerMode: 'standard',
         render: () => <HelperControlPanel variant="overview" embedded />,
@@ -269,23 +230,19 @@ export default function DashboardPage() {
       {
         id: 'readiness',
         title: 'Desktop readiness',
-        description: 'Runtime, signing, transport, and helper health in one glanceable diagnostic surface.',
-        allowedSizes: ['medium', 'wide'],
-        defaultSize: 'wide',
+        description: 'System health and component status.',
         headerMode: 'standard',
         render: () => <DesktopReadinessPanel embedded />,
       },
       {
         id: 'active-jobs',
         title: 'Active installs',
-        description: 'Keep live signing or install work visible without pushing other cards into dead space.',
-        allowedSizes: ['medium', 'wide', 'large'],
-        defaultSize: 'wide',
+        description: 'Installations currently in progress.',
         headerMode: 'compact',
         render: () => (
           <WidgetListStack
             emptyTitle="No active installations"
-            emptyDetail="When a signing or install job starts, this widget becomes the live progress surface instead of leaving an empty column in the overview."
+            emptyDetail="Active installations will appear here once you start signing or installing an app."
             items={activeJobs.map((job) => ({
               key: job.id,
               title: job.currentStep ?? 'Starting install',
@@ -299,9 +256,7 @@ export default function DashboardPage() {
       {
         id: 'recent-jobs',
         title: 'Recent jobs',
-        description: 'Completed and failed install history, close enough to act on without opening another page first.',
-        allowedSizes: ['medium', 'wide'],
-        defaultSize: 'medium',
+        description: 'Recently completed installations.',
         headerMode: 'compact',
         render: () => (
           <>
@@ -310,7 +265,7 @@ export default function DashboardPage() {
             </div>
             <WidgetListStack
               emptyTitle="No jobs yet"
-              emptyDetail="The first install or signing action will appear here with a stable card height instead of shifting the entire overview grid."
+              emptyDetail="Your recent installations will appear here."
               items={recentJobs.map((job) => ({
                 key: job.id,
                 title: job.currentStep ?? 'Pending job',
@@ -323,11 +278,39 @@ export default function DashboardPage() {
         ),
       },
       {
+        id: 'analytics',
+        title: 'Install Analytics',
+        description: 'Success rate and activity summary.',
+        headerMode: 'compact',
+        render: () => {
+          const total = (data?.jobs ?? []).length;
+          const completed = (data?.jobs ?? []).filter(j => j.status === 'completed').length;
+          const failed = (data?.jobs ?? []).filter(j => j.status === 'failed').length;
+          const successRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+          return (
+            <div className="space-y-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-[var(--sl-text)]">{successRate}%</span>
+                <span className="text-[12px] text-[var(--sl-muted)]">success rate</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden flex">
+                {completed > 0 && <div className="h-full bg-[var(--sl-success)]" style={{ width: `${(completed/total)*100}%` }} />}
+                {failed > 0 && <div className="h-full bg-[var(--sl-danger)]" style={{ width: `${(failed/total)*100}%` }} />}
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-lg font-semibold text-[var(--sl-text)]">{total}</p><p className="text-[11px] text-[var(--sl-muted)]">Total</p></div>
+                <div><p className="text-lg font-semibold text-[var(--sl-success)]">{completed}</p><p className="text-[11px] text-[var(--sl-muted)]">Passed</p></div>
+                <div><p className="text-lg font-semibold text-[var(--sl-danger)]">{failed}</p><p className="text-[11px] text-[var(--sl-muted)]">Failed</p></div>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
         id: 'auto-refresh',
         title: 'Auto-refresh',
-        description: 'Scheduler health and renewal pressure without leaving the overview.',
-        allowedSizes: ['small', 'medium', 'wide'],
-        defaultSize: 'medium',
+        description: 'Automatic certificate refresh schedule.',
         headerMode: 'compact',
         render: () => (
           <SchedulerWidget
@@ -340,9 +323,7 @@ export default function DashboardPage() {
       {
         id: 'quota',
         title: 'Weekly app ID usage',
-        description: 'Show free-account quota pressure before limits become install failures.',
-        allowedSizes: ['medium', 'wide', 'large'],
-        defaultSize: 'wide',
+        description: 'Free account App ID usage and limits.',
         tone: maxFreeUsage >= 0.8 ? 'warning' : 'default',
         headerMode: 'compact',
         render: () => (
@@ -353,23 +334,12 @@ export default function DashboardPage() {
         ),
       },
     ];
-  }, [activeAccounts.length, activeJobs, data?.accounts, data?.devices, data?.installedApps, data?.ipas, data?.scheduler, freeAccountUsages, maxFreeUsage, recentJobs]);
+  }, [activeAccounts.length, activeJobs, data?.accounts, data?.devices, data?.installedApps, data?.ipas, data?.jobs, data?.scheduler, freeAccountUsages, maxFreeUsage, recentJobs]);
 
   const widgetDefinitionMap = useMemo(
     () => Object.fromEntries(widgetDefinitions.map((definition) => [definition.id, definition])) as Record<DashboardWidgetId, DashboardWidgetDefinition>,
     [widgetDefinitions],
   );
-
-  const normalizedLayout = useMemo(
-    () => normalizeDashboardLayout(layout, WIDGET_META),
-    [layout],
-  );
-
-  useEffect(() => {
-    if (!areLayoutsEqual(layout, normalizedLayout)) {
-      setLayout(normalizedLayout);
-    }
-  }, [layout, normalizedLayout]);
 
   const statusSummary = useMemo(() => {
     if (setupAlerts.length > 0) return `${setupAlerts.length} setup step${setupAlerts.length > 1 ? 's' : ''} remaining`;
@@ -384,7 +354,42 @@ export default function DashboardPage() {
     return 'All systems ready';
   }, [setupAlerts.length, activeJobs.length, data?.installedApps, maxFreeUsage]);
 
-  if (loading && !data) return <PageLoader message="Loading overview..." />;
+  if (loading && !data) {
+    return (
+      <div className="sl-page animate-fadeIn">
+        <div className="sl-page-hero">
+          <div className="sl-page-hero-inner sl-hero-single-col">
+            <div>
+              <div className="sl-skeleton h-4 w-24 mb-3" />
+              <div className="sl-skeleton h-10 w-64 mb-3" />
+              <div className="sl-skeleton h-5 w-96" />
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="dashboard-widget sl-card p-5 dashboard-widget-stat">
+              <div className="sl-skeleton h-3 w-16 mb-4" />
+              <div className="sl-skeleton h-8 w-12 mb-2" />
+              <div className="sl-skeleton h-3 w-24" />
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="dashboard-widget sl-card p-5 min-h-[180px]">
+              <div className="sl-skeleton h-4 w-32 mb-6" />
+              <div className="space-y-3">
+                <div className="sl-skeleton h-3 w-full" />
+                <div className="sl-skeleton h-3 w-3/4" />
+                <div className="sl-skeleton h-3 w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!data) {
     return (
@@ -405,13 +410,13 @@ export default function DashboardPage() {
         title={statusSummary}
         description={(
           <>
-            Devices, installs, helper pairing, and signing readiness in one dashboard snapshot.
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-slate-200">
+            Your apps, devices, and signing status at a glance.
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-[var(--sl-text)]">
               <span className="sl-chip"><SSEIndicator state={sseState} /> Live sync</span>
               <span className="sl-chip">{activeJobs.length > 0 ? `${activeJobs.length} active install${activeJobs.length > 1 ? 's' : ''}` : 'Ready for installs'}</span>
               <span className="sl-chip text-[var(--sl-muted)]">
                 <svg className="inline h-3 w-3 mr-1 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Updated {secondsAgo < 5 ? 'just now' : `${secondsAgo}s ago`}
+                Updated <TimeAgo timestamp={lastUpdatedAt} />
               </span>
             </div>
           </>
@@ -435,7 +440,7 @@ export default function DashboardPage() {
       />
 
       {setupAlerts.length > 0 && (
-        <div className="sl-card rounded-[24px] !border-amber-500/20 !bg-amber-500/[0.06] p-5 sm:p-6 shadow-[0_0_30px_rgba(245,158,11,0.06)]">
+        <div className="sl-card sl-card-amber-strong rounded-[24px] p-5 sm:p-6 shadow-[0_0_30px_rgba(245,158,11,0.06)]">
           <div className="flex items-center gap-2 mb-4">
             <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
             <p className="text-[14px] font-bold text-amber-300 tracking-tight">Setup Required</p>
@@ -451,7 +456,7 @@ export default function DashboardPage() {
                   <p className="text-[13px] font-semibold text-amber-200">{alert.title}</p>
                   <p className="mt-0.5 text-[12px] text-amber-400/60">{alert.detail}</p>
                 </div>
-                <Link to={alert.to} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 w-full shrink-0 text-center text-[13px] font-semibold sm:w-auto flex items-center justify-center gap-1.5">
+                <Link to={alert.to} className="sl-btn-secondary w-full shrink-0 text-center text-[13px] font-semibold sm:w-auto flex items-center justify-center gap-1.5">
                   {alert.action}
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
                 </Link>
@@ -462,12 +467,12 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4" role="region" aria-label="Dashboard statistics">
-        {normalizedLayout.filter((w) => ['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
+        {DEFAULT_WIDGET_LAYOUT.filter((w) => ['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
           const definition = widgetDefinitionMap[widget.id];
           return (
             <section key={widget.id} className="sl-card dashboard-widget flex min-h-[180px] flex-col overflow-hidden" aria-label={`${definition.title} widget`}>
               <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-                {definition.render(widget.size)}
+                {definition.render()}
               </div>
             </section>
           );
@@ -475,7 +480,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {normalizedLayout.filter((w) => !['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
+        {DEFAULT_WIDGET_LAYOUT.filter((w) => !['accounts', 'devices', 'ipas', 'installed'].includes(w.id)).map((widget) => {
           const definition = widgetDefinitionMap[widget.id];
           return (
             <OverviewWidgetShell
@@ -485,7 +490,7 @@ export default function DashboardPage() {
               tone={definition.tone ?? 'default'}
               headerMode={definition.headerMode ?? 'standard'}
             >
-              {definition.render(widget.size)}
+              {definition.render()}
             </OverviewWidgetShell>
           );
         })}
@@ -509,8 +514,8 @@ function OverviewWidgetShell({
 }) {
   const toneClass = {
     default: '',
-    feature: '!border-sky-400/15 !bg-[linear-gradient(180deg,rgba(21,40,54,0.96),rgba(10,18,27,0.98))]',
-    warning: '!border-amber-500/15 !bg-amber-500/[0.04]',
+    feature: 'sl-card-sky',
+    warning: 'sl-card-amber',
   }[tone];
 
   return (
@@ -518,8 +523,7 @@ function OverviewWidgetShell({
       {headerMode !== 'hidden' && (
         <div className={`border-b border-[var(--sl-border)] ${headerMode === 'standard' ? 'px-4 py-4 sm:px-5' : 'px-4 py-3 sm:px-5'} bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent)]`}>
           <div className="min-w-0">
-            {headerMode === 'standard' ? <p className="sl-section-label">Overview Widget</p> : null}
-            <h3 className={`${headerMode === 'compact' ? 'text-[14px]' : 'mt-1 text-[15px]'} font-semibold tracking-tight text-[var(--sl-text)]`}>{title}</h3>
+            <h3 className={`${headerMode === 'compact' ? 'text-[14px]' : 'text-[15px]'} font-semibold tracking-tight text-[var(--sl-text)]`}>{title}</h3>
             <p className="mt-1 max-w-2xl text-[12px] leading-5 text-[var(--sl-muted)]">{description}</p>
           </div>
         </div>
@@ -532,33 +536,20 @@ function OverviewWidgetShell({
   );
 }
 
-function useCountUp(target: number, duration = 600): number {
-  const [display, setDisplay] = useState(0);
-  const prevRef = useRef(0);
-
+function TimeAgo({ timestamp }: { timestamp: number }) {
+  const [secondsAgo, setSecondsAgo] = useState(0);
   useEffect(() => {
-    const from = prevRef.current;
-    const diff = target - from;
-    if (diff === 0) return;
-    const start = performance.now();
-    let raf: number;
-    const tick = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      // ease-out quad
-      const eased = 1 - (1 - progress) * (1 - progress);
-      setDisplay(Math.round(from + diff * eased));
-      if (progress < 1) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        prevRef.current = target;
-      }
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
+    setSecondsAgo(Math.floor((Date.now() - timestamp) / 1000));
+    const interval = window.setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - timestamp) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [timestamp]);
 
-  return display;
+  if (secondsAgo < 5) return <>just now</>;
+  if (secondsAgo < 60) return <>{secondsAgo}s ago</>;
+  const minutes = Math.floor(secondsAgo / 60);
+  return <>{minutes}m ago</>;
 }
 
 function OverviewStatCard({
@@ -581,13 +572,11 @@ function OverviewStatCard({
     cyan: 'bg-cyan-500/10 text-cyan-300',
   }[tone];
 
-  const animatedCount = useCountUp(count);
-
   return (
     <Link to={to} className="block h-full" aria-label={`${label}: ${count}. Click to view details.`}>
       <div className="flex h-full flex-col justify-between gap-4">
         <div className="flex items-start justify-between gap-3">
-          <div className={`flex h-11 w-11 items-center justify-center rounded-[14px] ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
+          <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${toneClass} shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]`}>
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>{icon}</svg>
           </div>
           <span className="text-[12px] text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-accent-hover)]">
@@ -596,7 +585,7 @@ function OverviewStatCard({
         </div>
 
         <div>
-          <p className="text-4xl font-extrabold leading-none tracking-[-0.05em] text-[var(--sl-text)] tabular-nums" aria-live="polite">{animatedCount}</p>
+          <p className="text-4xl font-extrabold leading-none tracking-[-0.05em] text-[var(--sl-text)] tabular-nums" aria-live="polite">{count}</p>
           <p className="mt-2 max-w-[14ch] text-[12px] leading-5 text-[var(--sl-muted)] sm:text-[13px] font-medium">{label}</p>
         </div>
       </div>
@@ -721,84 +710,4 @@ function WidgetEmptyState({ title, detail }: { title: string; detail: string }) 
   );
 }
 
-function loadDashboardLayout(): DashboardLayoutItem[] {
-  if (typeof window === 'undefined') return DEFAULT_WIDGET_LAYOUT;
-
-  try {
-    const raw = window.localStorage.getItem(OVERVIEW_LAYOUT_STORAGE_KEY);
-    if (!raw) return DEFAULT_WIDGET_LAYOUT;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_WIDGET_LAYOUT;
-
-    const nextLayout = parsed.flatMap((item) => {
-      if (!item || typeof item !== 'object') return [];
-      const id = 'id' in item ? item.id : null;
-      const size = 'size' in item ? item.size : null;
-      if (!isDashboardWidgetId(id) || !isDashboardWidgetSize(size)) return [];
-      return [{ id, size }];
-    });
-
-    return nextLayout.length > 0 ? mergeWithDefaultLayout(nextLayout) : DEFAULT_WIDGET_LAYOUT;
-  } catch {
-    return DEFAULT_WIDGET_LAYOUT;
-  }
-}
-
-function persistDashboardLayout(layout: DashboardLayoutItem[]): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(OVERVIEW_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
-}
-
-function normalizeDashboardLayout(
-  layout: DashboardLayoutItem[],
-  meta: Record<DashboardWidgetId, WidgetSizeMeta>,
-): DashboardLayoutItem[] {
-  const seen = new Set<DashboardWidgetId>();
-  const nextLayout: DashboardLayoutItem[] = [];
-
-  for (const item of layout) {
-    if (seen.has(item.id)) continue;
-    const widgetMeta = meta[item.id];
-    if (!widgetMeta) continue;
-    const nextSize = widgetMeta.allowedSizes.includes(item.size) ? item.size : widgetMeta.defaultSize;
-    nextLayout.push({ id: item.id, size: nextSize });
-    seen.add(item.id);
-  }
-
-  for (const defaultItem of DEFAULT_WIDGET_LAYOUT) {
-    if (!seen.has(defaultItem.id)) {
-      const widgetMeta = meta[defaultItem.id];
-      nextLayout.push({ id: defaultItem.id, size: widgetMeta.defaultSize });
-    }
-  }
-
-  return nextLayout;
-}
-
-function mergeWithDefaultLayout(layout: DashboardLayoutItem[]): DashboardLayoutItem[] {
-  const defaultIds = new Set(DEFAULT_WIDGET_LAYOUT.map((item) => item.id));
-  const merged = layout.filter((item) => defaultIds.has(item.id));
-  const seen = new Set(merged.map((item) => item.id));
-
-  for (const defaultItem of DEFAULT_WIDGET_LAYOUT) {
-    if (!seen.has(defaultItem.id)) {
-      merged.push(defaultItem);
-    }
-  }
-
-  return merged;
-}
-
-function areLayoutsEqual(left: DashboardLayoutItem[], right: DashboardLayoutItem[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((item, index) => item.id === right[index].id && item.size === right[index].size);
-}
-
-function isDashboardWidgetId(value: unknown): value is DashboardWidgetId {
-  return typeof value === 'string' && DEFAULT_WIDGET_LAYOUT.some((item) => item.id === value);
-}
-
-function isDashboardWidgetSize(value: unknown): value is DashboardWidgetSize {
-  return value === 'small' || value === 'medium' || value === 'wide' || value === 'large';
-}
 

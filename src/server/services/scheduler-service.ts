@@ -30,6 +30,7 @@ export class SchedulerService {
   private config: SchedulerConfig;
   private refreshInProgress = new Set<string>(); // track by installed_app id
   private retryBackoff = new Map<string, RetryBackoffState>();
+  private refreshErrors = new Map<string, { message: string; at: string }>();
   private lastCheckAt: string | null = null;
   private lastError: string | null = null;
   private listeners: SchedulerListener[] = [];
@@ -41,6 +42,7 @@ export class SchedulerService {
     private devices: DeviceService,
   ) {
     this.config = this.loadConfig();
+    this.loadRefreshErrors();
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────
@@ -139,9 +141,9 @@ export class SchedulerService {
         isExpired,
         needsRefresh,
         msUntilExpiry: Math.max(0, msUntilExpiry),
-        refreshInProgress: this.refreshInProgress.has(app.id!),
+        refreshInProgress: this.refreshInProgress.has(app.id),
         lastRefreshAt: app.lastRefreshAt ?? null,
-        lastError: null,
+        lastError: this.refreshErrors.get(app.id)?.message ?? null,
       };
     });
   }
@@ -231,12 +233,27 @@ export class SchedulerService {
     }
   }
 
+  // ─── Webhook ───────────────────────────────────────────────────
+
+  private async fireWebhook(event: string, data: Record<string, unknown>): Promise<void> {
+    const url = this.db.getSetting('webhook_url');
+    if (!url) return;
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event, data, timestamp: new Date().toISOString() }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* best-effort */ }
+  }
+
   // ─── Refresh Logic ─────────────────────────────────────────────
 
   private async refreshApp(app: InstalledApp): Promise<void> {
-    if (this.refreshInProgress.has(app.id!)) return;
+    if (this.refreshInProgress.has(app.id)) return;
 
-    this.refreshInProgress.add(app.id!);
+    this.refreshInProgress.add(app.id);
     this.notifyListeners();
     this.logs.info(LOG_CODES.REFRESH_SCHEDULED, `Starting refresh: ${app.appName}`, {
       installedAppId: app.id, bundleId: app.bundleId, deviceUdid: app.deviceUdid,
@@ -249,7 +266,15 @@ export class SchedulerService {
         ipaId: app.ipaId,
         deviceUdid: app.deviceUdid,
       });
+      this.refreshErrors.delete(app.id);
+      this.persistRefreshErrors();
+      this.fireWebhook('refresh.success', { appName: app.appName, bundleId: app.bundleId });
     } catch (err) {
+      this.refreshErrors.set(app.id, {
+        message: err instanceof Error ? err.message : String(err),
+        at: new Date().toISOString(),
+      });
+      this.persistRefreshErrors();
       // Detect 2FA / auth errors and surface to user via logs
       const msg = err instanceof Error ? err.message : String(err);
       if (/2fa|two.?factor|verification code|session.*expired|auth.*required/i.test(msg)) {
@@ -258,9 +283,10 @@ export class SchedulerService {
           { installedAppId: app.id, bundleId: app.bundleId },
         );
       }
+      this.fireWebhook('refresh.failed', { appName: app.appName, error: msg });
       throw err;
     } finally {
-      this.refreshInProgress.delete(app.id!);
+      this.refreshInProgress.delete(app.id);
       this.notifyListeners();
     }
   }
@@ -285,6 +311,24 @@ export class SchedulerService {
 
   private saveConfig(): void {
     this.db.setSetting('scheduler_config', JSON.stringify(this.config));
+  }
+
+  private persistRefreshErrors(): void {
+    const obj = Object.fromEntries(this.refreshErrors);
+    this.db.setSetting('scheduler_refresh_errors', JSON.stringify(obj));
+  }
+
+  private loadRefreshErrors(): void {
+    const raw = this.db.getSetting('scheduler_refresh_errors');
+    if (!raw) return;
+    try {
+      const obj = JSON.parse(raw) as Record<string, { message: string; at: string }>;
+      for (const [key, value] of Object.entries(obj)) {
+        this.refreshErrors.set(key, value);
+      }
+    } catch {
+      // Ignore corrupt data
+    }
   }
 
   private notifyListeners(): void {

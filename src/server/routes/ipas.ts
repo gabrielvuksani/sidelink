@@ -118,6 +118,15 @@ export function ipaRoutes(ctx: AppContext): Router {
     }
 
     const resolvedPath = path.resolve(rawPath);
+
+    // Security: reject paths that traverse above the user's home directory or into system dirs
+    const homedir = require('node:os').homedir();
+    const forbidden = ['/etc', '/var', '/usr', '/bin', '/sbin', '/System', '/Library', '/private'];
+    const isForbidden = forbidden.some(prefix => resolvedPath.startsWith(prefix) && !resolvedPath.startsWith(path.join(homedir, 'Library')));
+    if (isForbidden) {
+      return res.status(403).json({ ok: false, error: 'Access to system directories is not allowed' });
+    }
+
     const tempPath = path.join(ctx.uploadDir, `import-local-${crypto.randomUUID()}.ipa`);
 
     try {

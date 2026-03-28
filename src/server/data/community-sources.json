@@ -1,0 +1,16 @@
+[
+  {
+    "id": "altstore-classic",
+    "name": "AltStore Classic",
+    "url": "https://cdn.altstore.io/file/altstore/apps.json",
+    "description": "The original AltStore community source with popular apps.",
+    "category": "General"
+  },
+  {
+    "id": "sidelink-official",
+    "name": "SideLink Official",
+    "url": "https://gabrielvuksani.github.io/sidelink/source/source.json",
+    "description": "Official SideLink source with companion tools.",
+    "category": "Tools"
+  }
+]

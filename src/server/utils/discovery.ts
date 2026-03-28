@@ -45,6 +45,14 @@ export function startDiscoveryBroadcaster(params: { name: string; port: number }
     socket.send(data, DISCOVERY_PORT, '255.255.255.255', () => {});
   };
 
+  socket.on('error', (err) => {
+    console.error('[discovery] UDP socket error:', err.message);
+    if (timer) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  });
+
   socket.bind(() => {
     socket.setBroadcast(true);
     broadcast();

@@ -102,6 +102,9 @@ export interface DeviceInfo {
   transport: DeviceTransport;
   wifiAddress: string | null;
   paired: boolean;
+  batteryLevel?: number | null;
+  diskTotalBytes?: number | null;
+  diskAvailableBytes?: number | null;
 }
 
 export interface DeviceRegistration {
@@ -134,6 +137,12 @@ export interface IpaArtifact {
   /** App extensions found in the IPA (PlugIns/*.appex) */
   extensions: Array<{ bundleId: string; name: string }>;
   uploadedAt: string;
+  /** Present when a previous version with the same bundleId exists */
+  previousVersion?: {
+    id: string;
+    version: string;
+    fileSize: number;
+  } | null;
 }
 
 // ─── Install Jobs ───────────────────────────────────────────────────
@@ -375,6 +384,8 @@ export interface SourceApp {
   versions?: SourceAppVersion[];
   appPermissions?: SourceAppPermissions;
   patreon?: SourceAppPatreon;
+  /** Legacy flat array of screenshot image URLs (AltStore v1 format). */
+  screenshotURLs?: string[];
   // Legacy/simplified compatibility fields.
   version?: string;
   versionDate?: string;

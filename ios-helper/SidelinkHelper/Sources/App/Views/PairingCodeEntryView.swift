@@ -33,7 +33,7 @@ struct PairingCodeEntryView: View {
                 .focused($isFocused)
                 .frame(width: 0, height: 0)
                 .opacity(0)
-                .onChange(of: code) { newValue in
+                .onChange(of: code) { _, newValue in
                     // Limit to digits only & max 6
                     let filtered = String(newValue.filter(\.isNumber).prefix(digitCount))
                     if filtered != newValue { code = filtered }
@@ -92,7 +92,7 @@ struct PairingCodeEntryView: View {
                 isFocused = true
             }
         }
-        .onChange(of: focusTrigger) { _ in
+        .onChange(of: focusTrigger) { _, _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isFocused = true
             }

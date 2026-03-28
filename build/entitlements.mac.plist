@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required for Electron's V8 JIT compiler -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Required for native Node.js addons (better-sqlite3, keytar) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Required for loading native modules from app.asar.unpacked -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Required for Express server (listening) and Apple API calls (outbound) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Required for UDP discovery broadcast -->
+    <key>com.apple.security.network.multicast</key>
+    <true/>
+</dict>
+</plist>

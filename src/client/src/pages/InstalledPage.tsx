@@ -10,9 +10,7 @@ import { useInstallModal } from '../components/InstallModal';
 import { PageHeader, PageLoader, EmptyState, SectionHeading, SearchInput, ExpiryBadge, Collapsible } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { InstalledApp, AutoRefreshState, AppleAccount } from '../../../shared/types';
-import type { AppleAppIdRecord, AppleAppIdUsageRecord } from '../lib/api';
-
-const FALLBACK_REFRESH_MS = 5000;
+import type { AppleAppIdRecord, AppleAppIdUsageRecord, AppUpdateInfo } from '../lib/api';
 
 type InstalledSnapshot = {
   apps: InstalledApp[];
@@ -20,6 +18,7 @@ type InstalledSnapshot = {
   accounts: AppleAccount[];
   appIds: AppleAppIdRecord[];
   appIdUsage: AppleAppIdUsageRecord[];
+  updates: AppUpdateInfo[];
   staleSections: string[];
 };
 
@@ -36,6 +35,7 @@ export default function InstalledPage() {
   const [accounts, setAccounts] = useState<AppleAccount[]>(warmSnapshot?.data.accounts ?? []);
   const [appIds, setAppIds] = useState<AppleAppIdRecord[]>(warmSnapshot?.data.appIds ?? []);
   const [appIdUsage, setAppIdUsage] = useState<AppleAppIdUsageRecord[]>(warmSnapshot?.data.appIdUsage ?? []);
+  const [updates, setUpdates] = useState<AppUpdateInfo[]>(warmSnapshot?.data.updates ?? []);
   const [staleSections, setStaleSections] = useState<string[]>(warmSnapshot?.data.staleSections ?? []);
   const [lastSnapshotAt, setLastSnapshotAt] = useState<number | null>(warmSnapshot?.updatedAt ?? null);
   const [loading, setLoading] = useState(!warmSnapshot);
@@ -51,6 +51,7 @@ export default function InstalledPage() {
     accounts: warmSnapshot?.data.accounts ?? [],
     appIds: warmSnapshot?.data.appIds ?? [],
     appIdUsage: warmSnapshot?.data.appIdUsage ?? [],
+    updates: warmSnapshot?.data.updates ?? [],
     staleSections: warmSnapshot?.data.staleSections ?? [],
   });
 
@@ -95,13 +96,15 @@ export default function InstalledPage() {
     const currentAccounts = stateRef.current.accounts;
     const currentAppIds = stateRef.current.appIds;
     const currentAppIdUsage = stateRef.current.appIdUsage;
+    const currentUpdates = stateRef.current.updates;
 
-    const [appsRes, statesRes, accountsRes, appIdsRes, appIdUsageRes] = await Promise.allSettled([
+    const [appsRes, statesRes, accountsRes, appIdsRes, appIdUsageRes, updatesRes] = await Promise.allSettled([
       api.listInstalledApps({ bypassCache: force }),
       api.getAutoRefreshStates({ bypassCache: force }),
       api.listAppleAccounts({ bypassCache: force }),
       api.listAppleAppIds(false, { bypassCache: force }),
       api.listAppleAppIdUsage({ bypassCache: force }),
+      api.checkAppUpdates({ bypassCache: force }),
     ]);
 
     const stale: string[] = [];
@@ -121,6 +124,9 @@ export default function InstalledPage() {
     const nextAppIdUsage = appIdUsageRes.status === 'fulfilled'
       ? (appIdUsageRes.value.data ?? [])
       : (stale.push('App ID usage'), currentAppIdUsage);
+    const nextUpdates = updatesRes.status === 'fulfilled'
+      ? (updatesRes.value.data ?? [])
+      : currentUpdates;
 
     return {
       apps: nextApps,
@@ -128,6 +134,7 @@ export default function InstalledPage() {
       accounts: nextAccounts,
       appIds: nextAppIds,
       appIdUsage: nextAppIdUsage,
+      updates: nextUpdates,
       staleSections: stale,
     };
   }, []);
@@ -139,6 +146,7 @@ export default function InstalledPage() {
     setAccounts(snapshot.accounts);
     setAppIds(snapshot.appIds);
     setAppIdUsage(snapshot.appIdUsage);
+    setUpdates(snapshot.updates);
     setStaleSections(snapshot.staleSections);
     setLastSnapshotAt(Date.now());
     setUiSnapshot('page:installed', snapshot);
@@ -166,21 +174,9 @@ export default function InstalledPage() {
       refreshTimerRef.current = null;
       void reload(force);
     }, 200);
-  }, []);
+  }, [reload]);
 
   usePageRefresh(reload, { initialForce: !warmSnapshot, minIntervalMs: 8_000, revalidateOnFocus: false });
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void reload(true);
-      }
-    }, FALLBACK_REFRESH_MS);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => () => {
     if (refreshTimerRef.current !== null) {
@@ -341,29 +337,33 @@ export default function InstalledPage() {
       : 'border-sky-300/15 bg-sky-300/10 text-sky-100';
 
   const feedHealthHeadline = staleSections.length > 0
-    ? 'Partial data snapshot'
+    ? 'Partial data'
     : sseState === 'connected'
-      ? 'Live installed feed'
-      : 'Polling fallback active';
+      ? 'Connected'
+      : 'Reconnecting';
 
   const feedHealthDetail = staleSections.length > 0
-    ? `Using the last successful snapshot while ${staleSections.join(', ')} ${staleSections.length === 1 ? 'retries' : 'retry'}.`
+    ? `Some data may be outdated while ${staleSections.join(', ')} ${staleSections.length === 1 ? 'reconnects' : 'reconnect'}.`
     : refreshStates.length === 0 && activeApps.length > 0
-      ? 'Tracked installs are loaded, but refresh-state details have not landed yet. The page will keep polling until scheduler state catches up.'
-      : 'Direct app-change events update this page, with a 5-second polling fallback if SSE drops.';
+      ? 'Installed apps are loaded. Refresh schedule details are still syncing.'
+      : 'This page updates automatically as changes happen.';
 
   const lastSnapshotLabel = lastSnapshotAt
     ? new Date(lastSnapshotAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
     : null;
+
+  const [verifyDismissed, setVerifyDismissed] = useState(() => {
+    try { return localStorage.getItem('sidelink:verify-banner-dismissed') === '1'; } catch { return false; }
+  });
 
   if (loading && apps.length === 0) return <PageLoader message="Loading installed apps..." />;
 
   return (
     <div className="sl-page animate-fadeIn">
       <PageHeader
-        eyebrow="Installed Fleet"
-        title="Track live installs, expiry risk, and recovery actions from one board"
-        description="The installed view now shows both tracked installs and the App IDs that actually consume free-account capacity, including extensions and leftover identifiers that were previously invisible."
+        eyebrow="Installed Apps"
+        title="Monitor installed apps and auto-refresh status"
+        description="View your installed apps, check certificate expiry dates, and manage App ID usage across your accounts."
         actions={(
           <>
             {expiringSoon > 0 && (
@@ -377,7 +377,7 @@ export default function InstalledPage() {
                   await Promise.allSettled(expiring.map((app) => api.triggerRefresh(app.id)));
                   void reload(true);
                 }}
-                className="sl-btn-ghost flex items-center gap-2 !border-amber-400/20 !text-amber-300"
+                className="sl-btn-ghost flex items-center gap-2 border-amber-400/20 text-amber-300"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg>
                 Refresh {expiringSoon} Expiring
@@ -401,36 +401,37 @@ export default function InstalledPage() {
           { label: 'Active', value: activeApps.length, tone: 'teal' },
           { label: 'Deactivated', value: deactivatedApps.length, tone: 'slate' },
           { label: 'Expiring Soon', value: expiringSoon, tone: expiringSoon > 0 ? 'amber' : 'sky' },
-          { label: 'Hidden Consumers', value: hiddenConsumers, tone: hiddenConsumers > 0 ? 'amber' : 'sky' },
+          { label: 'Updates', value: updates.length, tone: updates.length > 0 ? 'sky' : 'slate' },
         ]}
       />
 
-      <div className="sl-card flex items-center justify-between gap-3 p-3">
-        <div>
-          <p className="text-[12px] font-semibold text-[var(--sl-text)]">Installed feed health</p>
-          <p className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${feedHealthTone}`}>
-            {feedHealthHeadline}
-          </p>
-          <p className="text-[11px] text-[var(--sl-muted)]">{feedHealthDetail}</p>
-          {lastSnapshotLabel && (
-            <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Last snapshot: {lastSnapshotLabel}</p>
-          )}
-          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
-            {apps.length} tracked app{apps.length === 1 ? '' : 's'} • {refreshStates.length} refresh state{refreshStates.length === 1 ? '' : 's'} • {appIdUsage.length} quota snapshot{appIdUsage.length === 1 ? '' : 's'}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
+      <Collapsible title={
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] font-semibold text-[var(--sl-text)]">Connection status</span>
           <SSEIndicator state={sseState} />
           {staleSections.length > 0 && (
             <span className="rounded-full border border-amber-300/15 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">
-              Partial snapshot
+              Partial data
             </span>
           )}
         </div>
-      </div>
+      }>
+        <div className="sl-card p-3 mt-2">
+          <p className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${feedHealthTone}`}>
+            {feedHealthHeadline}
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">{feedHealthDetail}</p>
+          {lastSnapshotLabel && (
+            <p className="mt-1 text-[11px] text-[var(--sl-muted)]">Last updated: {lastSnapshotLabel}</p>
+          )}
+          <p className="mt-1 text-[11px] text-[var(--sl-muted)]">
+            {apps.length} tracked app{apps.length === 1 ? '' : 's'} • {refreshStates.length} refresh state{refreshStates.length === 1 ? '' : 's'} • {appIdUsage.length} quota record{appIdUsage.length === 1 ? '' : 's'}
+          </p>
+        </div>
+      </Collapsible>
 
       {appIdUsage.length > 0 && (
-        <Collapsible title={<SectionHeading eyebrow="Quota" title="App ID consumers" description="Free-account limits are driven by App IDs, not just the installs listed below." action={<Link to="/apple" className="sl-btn-ghost !px-3 !py-2 !text-[12px]">Manage in Apple IDs</Link>} />}>
+        <Collapsible title={<SectionHeading eyebrow="Quota" title="App ID usage" description="App IDs used by your installed apps and their impact on free account limits." action={<Link to="/apple" className="sl-btn-ghost sl-btn-sm">Manage in Apple IDs</Link>} />}>
         <section className="space-y-2 mt-2">
 
           <div className="grid gap-3 xl:grid-cols-2">
@@ -475,7 +476,7 @@ export default function InstalledPage() {
                             {consumer.kind === 'orphaned' && (
                               <button
                                 onClick={() => removeOrphanedAppId(consumer.record)}
-                                className="sl-btn-danger !px-2.5 !py-1.5 !text-[11px]"
+                                className="sl-btn-danger sl-btn-xs"
                               >
                                 Delete
                               </button>
@@ -508,10 +509,11 @@ export default function InstalledPage() {
         />
       ) : (
         <div className="space-y-6 stagger-children">
-          <div className="sl-card !border-amber-500/15 !bg-amber-500/[0.04] px-4 py-3">
+          {!verifyDismissed && (
+          <div className="sl-card sl-card-amber px-4 py-3">
             <div className="flex items-start gap-2.5">
               <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-              <div className="space-y-1.5 text-[12px] text-[var(--sl-muted)] leading-relaxed">
+              <div className="space-y-1.5 text-[12px] text-[var(--sl-muted)] leading-relaxed flex-1">
                 <p>
                   <span className="text-amber-300 font-semibold">Seeing &ldquo;Verify App&rdquo;?</span>{' '}
                   Open <strong className="text-[var(--sl-text)]">Settings → General → VPN &amp; Device Management</strong> on your device and trust the exact developer profile that signed the app. This is required once per signing certificate.
@@ -530,8 +532,16 @@ export default function InstalledPage() {
                   </p>
                 )}
               </div>
+              <button
+                onClick={() => { setVerifyDismissed(true); try { localStorage.setItem('sidelink:verify-banner-dismissed', '1'); } catch {} }}
+                className="text-[var(--sl-muted)] hover:text-[var(--sl-text)] shrink-0 mt-0.5 transition-colors"
+                title="Dismiss banner"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
           </div>
+          )}
           {/* Search & Sort Controls */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex-1 min-w-[200px]">
@@ -558,31 +568,42 @@ export default function InstalledPage() {
             <SectionHeading eyebrow="Live Apps" title="Active installs" description={`${filteredActiveApps.length} of ${activeApps.length} install${activeApps.length === 1 ? '' : 's'} shown.`} />
             {filteredActiveApps.map(app => {
             const refreshState = getRefreshState(app.id);
+            const appUpdate = updates.find(u => u.installedAppId === app.id);
 
               return (
               <div key={app.id} className="sl-card sl-card-interactive p-4 animate-fadeInUp group">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-[14px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
-                      {app.expiresAt && <ExpiryBadge expiresAt={app.expiresAt} />}
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[var(--sl-accent)]/20 to-[var(--sl-accent-2)]/20 flex items-center justify-center shrink-0">
+                      <span className="text-[15px] font-bold text-[var(--sl-accent)]">{(app.appName || app.originalBundleId).charAt(0).toUpperCase()}</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[220px]">{app.originalBundleId}</span>
-                      {app.appVersion && <span className="text-[11px] text-[var(--sl-muted)]">v{app.appVersion}</span>}
-                      <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
-                      {app.deviceUdid && <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid.slice(0, 8)}...</span>}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[14px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
+                        {app.expiresAt && <ExpiryBadge expiresAt={app.expiresAt} />}
+                        {appUpdate && (
+                          <span className="shrink-0 rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-sky-300">
+                            Update v{appUpdate.availableVersion}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[220px]">{app.originalBundleId}</span>
+                        {app.appVersion && <span className="text-[11px] text-[var(--sl-muted)]">v{app.appVersion}</span>}
+                        <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
+                        {app.deviceUdid && <span className="text-[11px] text-[var(--sl-muted)]">{app.deviceUdid.slice(0, 8)}...</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5" title="Refresh signing">
+                    <button onClick={() => triggerRefresh(app.id)} className="sl-btn-ghost sl-btn-sm" title="Refresh signing">
                       <svg className="w-3.5 h-3.5 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
                       Refresh
                     </button>
-                    <button onClick={() => deactivateApp(app)} className="sl-btn-ghost !text-[12px] !px-3 !py-1.5">
+                    <button onClick={() => deactivateApp(app)} className="sl-btn-ghost sl-btn-sm">
                       Deactivate
                     </button>
-                    <button onClick={() => removeApp(app)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">
+                    <button onClick={() => removeApp(app)} className="sl-btn-danger sl-btn-xs">
                       Remove
                     </button>
                   </div>
@@ -627,19 +648,24 @@ export default function InstalledPage() {
               {filteredDeactivatedApps.map(app => (
                 <div key={app.id} className="sl-card p-4 animate-fadeInUp border border-amber-500/15 bg-amber-500/[0.03]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">Deactivated</span>
-                        <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[200px]">{app.originalBundleId}</span>
-                        <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                        <span className="text-[15px] font-bold text-amber-300">{(app.appName || app.originalBundleId).charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[var(--sl-text)] truncate">{app.appName || app.originalBundleId}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">Deactivated</span>
+                          <span className="text-[11px] font-mono text-[var(--sl-muted)] truncate max-w-[200px]">{app.originalBundleId}</span>
+                          <span className="text-[11px] text-[var(--sl-muted)]">{getAccountLabel(app.accountId)}</span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <button onClick={() => reactivateApp(app)} className="sl-btn-primary !text-[12px] !px-3 !py-1.5">
+                      <button onClick={() => reactivateApp(app)} className="sl-btn-primary sl-btn-sm">
                         Reactivate
                       </button>
-                      <button onClick={() => removeApp(app)} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">
+                      <button onClick={() => removeApp(app)} className="sl-btn-danger sl-btn-xs">
                         Remove
                       </button>
                     </div>

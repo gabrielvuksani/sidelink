@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import type { AppContext } from '../context';
 import { startInstallPipeline } from '../pipeline';
 import { FREE_ACCOUNT_LIMITS } from '../../shared/constants';
 import { notifyInstalledAppsChanged } from './installed-app-events';
+import { getHelperIpaPath } from '../utils/paths';
 import trustedSourcesData from '../data/trusted-sources.json';
 
 type SafeAppleAccountInput = {
@@ -220,4 +222,127 @@ export async function listDeviceAppInventory(ctx: AppContext, udid: string) {
     .map((bundleId) => ({ bundleId, name: bundleId }));
 
   return { managed, unmanaged };
+}
+
+// ── Helper-route shared utilities ────────────────────────────────────
+
+export function getHealth(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = ms / (1000 * 60 * 60 * 24);
+  if (days <= 0) return 'expired';
+  if (days <= 2) return 'critical';
+  if (days <= 4) return 'warning';
+  return 'healthy';
+}
+
+export function serializeHelperDevice(device: ReturnType<AppContext['devices']['list']>[number]) {
+  return {
+    id: device.udid,
+    name: device.name,
+    connection: device.connection,
+    transport: device.transport,
+    networkName: null,
+    iosVersion: device.iosVersion,
+    productType: device.productType,
+    model: device.model,
+  };
+}
+
+export async function getHelperStatusPayload(ctx: AppContext, deviceId?: string) {
+  const schedulerState = ctx.scheduler.getSnapshot();
+  const autoRefreshStates = ctx.scheduler.getAutoRefreshStates();
+  const autoRefreshByInstallId = new Map(autoRefreshStates.map((state) => [state.installedAppId, state]));
+
+  const allInstalls = deviceId
+    ? ctx.db.listInstalledAppsForDevice(deviceId)
+    : ctx.db.listInstalledApps();
+
+  const installs = allInstalls.map((app) => ({
+    id: app.id,
+    deviceId: app.deviceUdid,
+    kind: 'primary',
+    label: app.appName || app.originalBundleId,
+    bundleId: app.bundleId,
+    health: getHealth(app.expiresAt),
+    expiresAt: app.expiresAt,
+    refreshCount: app.refreshCount ?? 0,
+    autoRefresh: {
+      nextAttemptAt: '',
+      retryCount: 0,
+      lastFailureReason: autoRefreshByInstallId.get(app.id)?.lastError ?? null,
+      lastSuccessAt: autoRefreshByInstallId.get(app.id)?.lastRefreshAt ?? app.lastRefreshAt ?? null,
+    },
+  }));
+
+  const devices = ctx.devices.list().map(serializeHelperDevice);
+  let helperIpaAvailable = false;
+  try {
+    await fs.access(getHelperIpaPath());
+    helperIpaAvailable = true;
+  } catch {
+    helperIpaAvailable = false;
+  }
+
+  return {
+    ok: true,
+    now: new Date().toISOString(),
+    mode: process.env.SIDELINK_MODE ?? 'demo',
+    scheduler: {
+      running: schedulerState.running,
+      simulatedNow: new Date().toISOString(),
+      autoRefreshThresholdHours: Math.max(1, Math.round(schedulerState.refreshThresholdMs / (60 * 60 * 1000))),
+    },
+    installs,
+    devices,
+    helperArtifact: {
+      available: helperIpaAvailable,
+      message: helperIpaAvailable ? null : 'Helper IPA is missing from the current desktop runtime.',
+    },
+  };
+}
+
+export function getHelperConfigPayload(ctx: AppContext) {
+  const scheduler = ctx.scheduler.getSnapshot();
+  const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const weeklyAppIdsUsedByAccount = Object.fromEntries(
+    ctx.appleAccounts
+      .list()
+      .filter((account) => account.accountType !== 'paid')
+      .map((account) => [
+        account.id,
+        ctx.db.countAppIdsCreatedSince(account.id, account.teamId, sevenDaysAgoIso),
+      ]),
+  );
+  const sourceFeeds = ctx.sources.list().map((source) => ({
+    id: source.id,
+    name: source.name,
+    url: source.url,
+    enabled: source.enabled,
+  }));
+
+  return {
+    ok: true,
+    data: {
+      serverName: process.env.SIDELINK_SERVER_NAME ?? 'SideLink',
+      serverVersion: process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version ?? '1.0.0',
+      schedulerEnabled: scheduler.enabled,
+      schedulerCheckIntervalMs: scheduler.checkIntervalMs,
+      capabilities: {
+        pairingCode: true,
+        sourceImport: true,
+        installEvents: true,
+        inline2FA: true,
+      },
+      freeAccountLimits: {
+        maxActiveApps: FREE_ACCOUNT_LIMITS.maxAppsPerDevice,
+        maxNewAppIdsPerWeek: FREE_ACCOUNT_LIMITS.maxNewAppIdsPerWeek,
+        certValidityDays: FREE_ACCOUNT_LIMITS.certExpiryDays,
+      },
+      freeAccountUsage: {
+        activeSlotsUsed: ctx.db.countInstalledAppsByStatus('active'),
+        weeklyAppIdsUsedByAccount,
+      },
+      sourceFeeds,
+    },
+  };
 }

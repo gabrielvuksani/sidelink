@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import type { AppContext } from '../context';
-import { getJob, listJobs, submitJobTwoFA } from '../pipeline';
+import { getJob, listJobs, submitJobTwoFA, cancelJob } from '../pipeline';
 import { validators } from '../utils/validators';
 import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
 import { notifyInstalledAppsChanged } from '../services/installed-app-events';
@@ -71,6 +71,15 @@ export function installRoutes(ctx: AppContext): Router {
     res.json({ ok: true, data: ctx.db.listJobLogs(job.id) });
   });
 
+  // Cancel a running or queued job
+  router.post('/jobs/:id/cancel', (req, res) => {
+    const cancelled = cancelJob(ctx.db, req.params.id);
+    if (!cancelled) {
+      return res.status(409).json({ ok: false, error: 'Job cannot be cancelled (not found or already terminal)' });
+    }
+    res.json({ ok: true });
+  });
+
   // Submit 2FA code for a waiting job
   router.post('/jobs/:id/2fa', validators.jobTwoFA, (req, res) => {
     const { code } = req.body;
@@ -84,6 +93,35 @@ export function installRoutes(ctx: AppContext): Router {
       return res.status(409).json({ ok: false, error: 'Job is no longer waiting for 2FA' });
     }
     res.json({ ok: true });
+  });
+
+  // Check for available updates from sources
+  router.get('/apps/updates', (_req, res) => {
+    const installed = ctx.db.listInstalledApps();
+    const sources = ctx.sources.combined();
+
+    const updates = installed
+      .filter(app => app.status === 'active')
+      .map(app => {
+        const sourceApp = sources.apps.find(s => s.bundleIdentifier === app.originalBundleId);
+        if (!sourceApp) return null;
+        const sourceVersion = sourceApp.version ?? sourceApp.versions?.[0]?.version;
+        const installedVersion = app.appVersion;
+        if (sourceVersion && installedVersion && sourceVersion !== installedVersion) {
+          return {
+            installedAppId: app.id,
+            appName: app.appName,
+            bundleId: app.originalBundleId,
+            installedVersion,
+            availableVersion: sourceVersion,
+            downloadURL: sourceApp.downloadURL ?? sourceApp.versions?.[0]?.downloadURL,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+
+    res.json({ ok: true, data: updates });
   });
 
   // List installed apps

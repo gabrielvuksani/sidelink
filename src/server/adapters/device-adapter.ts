@@ -418,6 +418,36 @@ export async function installProfile(udid: string, profilePath: string): Promise
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /**
+ * Fetch battery and storage metrics for a paired device.
+ * Best-effort: returns nulls on failure to avoid blocking device discovery.
+ */
+async function fetchDeviceMetrics(udid: string): Promise<{
+  batteryLevel: number | null;
+  diskTotalBytes: number | null;
+  diskAvailableBytes: number | null;
+}> {
+  try {
+    const info = await getDeviceInfo(udid);
+    const batteryLevel = info['BatteryCurrentCapacity']
+      ? Number(info['BatteryCurrentCapacity'])
+      : null;
+    const diskTotalBytes = info['TotalDiskCapacity']
+      ? Number(info['TotalDiskCapacity'])
+      : null;
+    const diskAvailableBytes = info['TotalDataAvailable']
+      ? Number(info['TotalDataAvailable'])
+      : null;
+    return {
+      batteryLevel: batteryLevel !== null && !Number.isNaN(batteryLevel) ? batteryLevel : null,
+      diskTotalBytes: diskTotalBytes !== null && !Number.isNaN(diskTotalBytes) ? diskTotalBytes : null,
+      diskAvailableBytes: diskAvailableBytes !== null && !Number.isNaN(diskAvailableBytes) ? diskAvailableBytes : null,
+    };
+  } catch {
+    return { batteryLevel: null, diskTotalBytes: null, diskAvailableBytes: null };
+  }
+}
+
+/**
  * Parse JSON output from `usbmux list` into DeviceInfo[].
  * The output is an array of objects with keys like:
  *   ConnectionType, DeviceName, Identifier, ProductType, ProductVersion, etc.
@@ -448,6 +478,11 @@ async function parseDeviceList(stdout: string, transport: DeviceTransport): Prom
           return false;
         });
 
+        // Fetch battery/storage for paired devices (best-effort)
+        const metrics = paired
+          ? await fetchDeviceMetrics(udid)
+          : { batteryLevel: null, diskTotalBytes: null, diskAvailableBytes: null };
+
         const device: DeviceInfo = {
           udid,
           name,
@@ -458,6 +493,9 @@ async function parseDeviceList(stdout: string, transport: DeviceTransport): Prom
           transport,
           wifiAddress,
           paired,
+          batteryLevel: metrics.batteryLevel,
+          diskTotalBytes: metrics.diskTotalBytes,
+          diskAvailableBytes: metrics.diskAvailableBytes,
         };
         return device;
       }),

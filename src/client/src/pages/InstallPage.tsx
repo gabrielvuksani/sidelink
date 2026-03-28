@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { formatJobError } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
@@ -44,12 +44,15 @@ export default function InstallPage() {
     }
   }, []);
 
+  const hydratedJobIdsRef = useRef(new Set<string>());
+
   useEffect(() => {
     for (const job of jobs) {
-      if (jobLogs[job.id]) continue;
+      if (hydratedJobIdsRef.current.has(job.id)) continue;
+      hydratedJobIdsRef.current.add(job.id);
       void hydrateJobLogs(job.id);
     }
-  }, [jobs, jobLogs, hydrateJobLogs]);
+  }, [jobs, hydrateJobLogs]);
 
   useSSE({
     'job-update': (data) => {
@@ -71,9 +74,23 @@ export default function InstallPage() {
     },
   });
 
+  const [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('sl:dismissed-completed-jobs');
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+
   const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'waiting_2fa');
-  const completedJobs = jobs.filter(j => j.status !== 'running' && j.status !== 'waiting_2fa');
+  const completedJobs = jobs.filter(j => j.status !== 'running' && j.status !== 'waiting_2fa' && !dismissedJobIds.has(j.id));
   const waiting2FA = activeJobs.filter((job) => job.status === 'waiting_2fa').length;
+
+  const clearCompleted = () => {
+    const ids = new Set(dismissedJobIds);
+    for (const j of completedJobs) ids.add(j.id);
+    setDismissedJobIds(ids);
+    try { localStorage.setItem('sl:dismissed-completed-jobs', JSON.stringify([...ids])); } catch {}
+  };
 
   if (loading && jobs.length === 0) return <PageLoader message="Loading..." />;
 
@@ -118,7 +135,7 @@ export default function InstallPage() {
 
       {completedJobs.length > 0 && (
         <div>
-          <SectionHeading eyebrow="Archive" title="Recent install history" description="Completed and failed runs stay visible with their latest error summaries for quick support and retry decisions." />
+          <SectionHeading eyebrow="Archive" title="Recent install history" description="Completed and failed runs stay visible with their latest error summaries for quick support and retry decisions." action={<button onClick={clearCompleted} className="sl-btn-ghost sl-btn-sm">Clear Completed</button>} />
           <div className="sl-card divide-y divide-[var(--sl-border)]">
             {completedJobs.slice(0, 15).map((j, idx, arr) => {
               const isFailed = j.status === 'failed';
@@ -176,8 +193,17 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
   const steps = job.steps ?? [];
   const [twoFACode, setTwoFACode] = useState('');
   const [submitting2FA, setSubmitting2FA] = useState(false);
-  const [showLogs, setShowLogs] = useState(true);
+  const [showLogs, setShowLogs] = useState(false);
   const { toast } = useToast();
+
+  const handleCancel = async () => {
+    try {
+      await api.cancelJob(job.id);
+      toast('info', 'Job cancelled');
+    } catch (e: unknown) {
+      toast('error', (e as Error)?.message ?? 'Failed to cancel job');
+    }
+  };
 
   const handle2FASubmit = async () => {
     if (!twoFACode.trim()) return;
@@ -194,7 +220,7 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
   };
 
   return (
-    <div className="sl-card !border-indigo-500/15 !bg-indigo-500/[0.03] p-5">
+    <div className="sl-card sl-card-indigo p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 bg-[var(--sl-accent)] rounded-full animate-pulse" />
@@ -210,7 +236,13 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
             </>
           )}
         </div>
-        <StatusBadge status={job.status} />
+        <div className="flex items-center gap-2">
+          <button onClick={handleCancel} className="sl-btn-ghost sl-btn-sm text-[11px] flex items-center gap-1" title="Cancel this job">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            Cancel
+          </button>
+          <StatusBadge status={job.status} />
+        </div>
       </div>
 
       <PipelineStepper
@@ -222,7 +254,7 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
       />
 
       {job.status === 'waiting_2fa' && (
-        <div className="mt-4 sl-card !border-amber-500/40 !bg-amber-500/[0.06] p-5 ring-1 ring-amber-500/20">
+        <div className="mt-4 sl-card sl-card-amber-strong p-5 ring-1 ring-amber-500/20">
           <div className="flex items-center gap-2 mb-3">
             <svg className="w-5 h-5 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
             <p className="text-amber-300 text-[14px] font-semibold">Two-Factor Authentication Required</p>
@@ -237,9 +269,9 @@ function ActiveJobCard({ job, logs }: { job: InstallJob; logs: JobLogEntry[] }) 
               placeholder="000000"
               maxLength={6}
               autoFocus
-              className="sl-input flex-1 text-center text-xl font-mono tracking-[0.4em] !border-amber-500/30 focus:!border-amber-400 py-3"
+              className="sl-input flex-1 text-center text-xl font-mono tracking-[0.4em] border-amber-500/30 focus:border-amber-400 py-3"
             />
-            <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500 px-6 text-[13px]">
+            <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-secondary px-6 text-[13px]">
               {submitting2FA ? 'Verifying...' : 'Submit'}
             </button>
           </div>
@@ -279,7 +311,7 @@ function JobErrorDisplay({ error }: { error: string }) {
   const formatted = formatJobError(error);
 
   return (
-    <div className="mt-3 sl-card !border-red-500/15 !bg-red-500/[0.04] overflow-hidden">
+    <div className="mt-3 sl-card sl-card-red overflow-hidden">
       <div className="p-4">
         <div className="flex items-start gap-3">
           <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

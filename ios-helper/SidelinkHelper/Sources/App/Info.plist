@@ -41,8 +41,6 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>SideLink Helper uses the camera to scan pairing QR codes from your desktop app.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_sidelink._tcp</string>

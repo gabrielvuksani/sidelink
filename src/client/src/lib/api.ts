@@ -91,12 +91,29 @@ export interface AppleCertificateRecord {
   teamName?: string;
 }
 
+export interface AppUpdateInfo {
+  installedAppId: string;
+  appName: string;
+  bundleId: string;
+  installedVersion: string;
+  availableVersion: string;
+  downloadURL?: string;
+}
+
 export interface TrustedSourceRecord {
   id: string;
   name: string;
   url: string;
   iconURL?: string;
   description?: string;
+}
+
+export interface CommunitySourceRecord {
+  id: string;
+  name: string;
+  url: string;
+  description?: string;
+  category?: string;
 }
 
 export type AuthStateResetReason = 'session-expired' | 'password-changed';
@@ -286,45 +303,11 @@ async function requestRawJson<T = unknown>(
   body?: unknown,
   opts?: { suppressSessionExpiryHandling?: boolean },
 ): Promise<T> {
-  const init: RequestInit = {
-    method,
-    credentials: 'include',
-    cache: 'no-store',
-  };
-
-  const csrfHeaders: Record<string, string> = {};
-  if (isMutationMethod(method)) {
-    const csrf = getCsrfToken();
-    if (csrf) csrfHeaders['X-CSRF-Token'] = csrf;
-  }
-
-  if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json', ...csrfHeaders };
-    init.body = JSON.stringify(body);
-  } else if (Object.keys(csrfHeaders).length) {
-    init.headers = csrfHeaders;
-  }
-
-  const res = await fetch(`${BASE}${path}`, init);
-  const data = await res.json().catch(() => null) as ApiErrorShape | T | null;
-  const errorText = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
-    ? data.error
-    : `HTTP ${res.status}`;
-
-  if (
-    res.status === 401
-    && !path.startsWith('/auth/')
-    && !opts?.suppressSessionExpiryHandling
-    && isLikelySessionExpiryError(errorText)
-  ) {
-    onSessionExpired?.('session-expired');
-    throw createApiError(401, 'Session expired', data);
-  }
-
-  if (!res.ok) {
-    throw createApiError(res.status, errorText, data);
-  }
-  return data as T;
+  const res = await request<T>(method, path, body, {
+    suppressSessionExpiryHandling: opts?.suppressSessionExpiryHandling,
+    cacheTtlMs: 0,
+  });
+  return res.data as T;
 }
 
 export const api = {
@@ -368,6 +351,7 @@ export const api = {
   listDevices: (opts?: ReadRequestOptions) => request<DeviceInfo[]>('GET', '/devices', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/devices', ...opts }),
   refreshDevices: () => request<DeviceInfo[]>('POST', '/devices/refresh'),
   pairDevice: (udid: string) => request('POST', `/devices/${encodeURIComponent(udid)}/pair`),
+  getDeviceCapabilities: (udid: string) => request<{ hasLiveContainer: boolean; liveContainerBundleId: string | null; totalAppsInstalled: number }>('GET', `/devices/${encodeURIComponent(udid)}/capabilities`),
 
   // ── IPAs ────────────────────────────────────────────────────────────
   listIpas: (opts?: ReadRequestOptions) => request<IpaArtifact[]>('GET', '/ipas', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/ipas', ...opts }),
@@ -423,6 +407,7 @@ export const api = {
   getSourceManifest: (id: string) => request<SourceManifest>('GET', `/sources/${encodeURIComponent(id)}/manifest`),
   getCombinedSources: (opts?: ReadRequestOptions) => request<SourceManifest>('GET', '/sources/combined', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources/combined', ...opts }),
   listTrustedSources: (opts?: ReadRequestOptions) => request<TrustedSourceRecord[]>('GET', '/sources/trusted-sources', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/sources/trusted-sources', ...opts }),
+  listCommunitySources: (opts?: ReadRequestOptions) => request<CommunitySourceRecord[]>('GET', '/sources/community', undefined, { cacheTtlMs: 10_000, cacheKey: 'GET:/sources/community', ...opts }),
   getSelfHostedSource: async () => ({ ok: true, data: await requestRawJson<SourceManifest>('GET', '/sources/self-hosted') }),
   updateSelfHostedSource: (manifest: SourceManifest) => request('PUT', '/sources/self-hosted', manifest),
 
@@ -432,9 +417,11 @@ export const api = {
   listJobs: (opts?: ReadRequestOptions) => request<InstallJob[]>('GET', '/install/jobs', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/install/jobs', ...opts }),
   getJob: (id: string, opts?: ReadRequestOptions) => request<InstallJob>('GET', `/install/jobs/${encodeURIComponent(id)}`, undefined, { cacheTtlMs: 1_000, ...opts }),
   getJobLogs: (id: string, opts?: ReadRequestOptions) => request<JobLogEntry[]>('GET', `/install/jobs/${encodeURIComponent(id)}/logs`, undefined, { cacheTtlMs: 1_000, ...opts }),
+  cancelJob: (jobId: string) => request('POST', `/install/jobs/${encodeURIComponent(jobId)}/cancel`),
   submitJob2FA: (jobId: string, code: string) =>
     request('POST', `/install/jobs/${encodeURIComponent(jobId)}/2fa`, { code }),
   listInstalledApps: (opts?: ReadRequestOptions) => request<InstalledApp[]>('GET', '/install/apps', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/install/apps', ...opts }),
+  checkAppUpdates: (opts?: ReadRequestOptions) => request<AppUpdateInfo[]>('GET', '/install/apps/updates', undefined, { cacheTtlMs: 5_000, cacheKey: 'GET:/install/apps/updates', ...opts }),
   removeInstalledApp: (id: string) => request('DELETE', `/install/apps/${encodeURIComponent(id)}`),
   deactivateInstalledApp: (id: string) => request<InstalledApp>('POST', `/install/apps/${encodeURIComponent(id)}/deactivate`),
   reactivateInstalledApp: (id: string) => request<InstallJob>('POST', `/install/apps/${encodeURIComponent(id)}/reactivate`),
@@ -479,10 +466,17 @@ export const api = {
   createHelperPairingCode: () =>
     request<{ code: string; expiresAt: string; ttlMs: number; qrPayload?: string; backendUrl?: string; apiBasePath?: string | null; candidateAddresses?: string[]; serverName?: string; serverVersion?: string }>('POST', '/system/helper/pairing-code'),
 
+  exportConfig: () => request('GET', '/system/export-config'),
+  importConfig: (config: unknown) => request('POST', '/system/import-config', config),
+
   listAppleAppIds: (sync = false, opts?: ReadRequestOptions) => request<AppleAppIdRecord[]>('GET', `/apple/app-ids${sync ? '?sync=true' : ''}`, undefined, { cacheTtlMs: sync ? 0 : 2_500, cacheKey: sync ? undefined : 'GET:/apple/app-ids', ...opts }),
   listAppleAppIdUsage: (opts?: ReadRequestOptions) => request<AppleAppIdUsageRecord[]>('GET', '/apple/app-ids/usage', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/apple/app-ids/usage', ...opts }),
   deleteAppleAppId: (id: string) => request('DELETE', `/apple/app-ids/${encodeURIComponent(id)}`),
   listAppleCertificates: (opts?: ReadRequestOptions) => request<AppleCertificateRecord[]>('GET', '/apple/certificates', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/apple/certificates', ...opts }),
   rotateCertificate: (accountId: string) => request<{ newCertificate: { id: string; serialNumber: string; commonName: string; expiresAt: string; createdAt: string }; revokedCount: number }>('POST', `/apple/accounts/${encodeURIComponent(accountId)}/rotate-certificate`),
   health: (opts?: ReadRequestOptions) => request<{ status: string; uptime: number }>('GET', '/health', undefined, { cacheTtlMs: 2_500, cacheKey: 'GET:/health', ...opts }),
+
+  // ── Webhook ────────────────────────────────────────────────────────
+  getWebhookUrl: (opts?: ReadRequestOptions) => request<{ url: string }>('GET', '/system/webhook', undefined, { cacheTtlMs: 2_000, cacheKey: 'GET:/system/webhook', ...opts }),
+  setWebhookUrl: (url: string) => request('PUT', '/system/webhook', { url }),
 };

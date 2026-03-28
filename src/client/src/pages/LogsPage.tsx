@@ -5,6 +5,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh';
 import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { PageHeader, SearchInput, relativeTime } from '../components/Shared';
+import { CopyIcon, DownloadIcon } from '../components/Icons';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
 import type { LogEntry } from '../../../shared/types';
 import { UI_LIMITS } from '../../../shared/constants';
@@ -37,23 +38,6 @@ const levelStyle: Record<string, { text: string; bg: string; badge: string }> = 
 };
 
 const defaultLevelStyle = { text: 'text-[var(--sl-muted)]', bg: '', badge: 'bg-white/5 text-[var(--sl-muted)]' };
-
-/* ── tiny inline icons ──────────────────────────────────── */
-function CopyIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-    </svg>
-  );
-}
-
-function DownloadIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-    </svg>
-  );
-}
 
 export default function LogsPage() {
   const warmSnapshot = getUiSnapshot<LogEntry[]>('page:logs', 30_000);
@@ -225,7 +209,7 @@ export default function LogsPage() {
             value={textSearch}
             onChange={setTextSearch}
             placeholder="Search logs..."
-            className="!w-52"
+            className="w-52"
             debounceMs={150}
           />
 
@@ -233,7 +217,7 @@ export default function LogsPage() {
           {filtersActive && (
             <button
               onClick={clearFilters}
-              className="sl-btn-ghost !text-[12px] !px-2 !py-1.5 text-amber-400 hover:text-amber-300 flex items-center gap-1"
+              className="sl-btn-ghost sl-btn-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
             >
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -247,7 +231,7 @@ export default function LogsPage() {
           {/* auto-scroll toggle button */}
           <button
             onClick={() => setAutoScroll((v) => !v)}
-            className={`sl-btn-ghost !text-[12px] !px-2.5 !py-1.5 flex items-center gap-1.5 rounded-lg transition-all ${
+            className={`sl-btn-ghost sl-btn-xs flex items-center gap-1.5 rounded-lg transition-all ${
               autoScroll
                 ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
                 : 'text-[var(--sl-muted)]'
@@ -262,7 +246,7 @@ export default function LogsPage() {
           {/* export */}
           <button
             onClick={exportLogs}
-            className="sl-btn-ghost !text-[12px] !px-2.5 !py-1.5 flex items-center gap-1.5"
+            className="sl-btn-ghost sl-btn-xs flex items-center gap-1.5"
           >
             <DownloadIcon />
             Export
@@ -271,14 +255,14 @@ export default function LogsPage() {
           {/* copy all */}
           <button
             onClick={copyAllLogs}
-            className="sl-btn-ghost !text-[12px] !px-2.5 !py-1.5 flex items-center gap-1.5"
+            className="sl-btn-ghost sl-btn-xs flex items-center gap-1.5"
           >
             <CopyIcon />
             Copy
           </button>
 
           {/* clear logs */}
-          <button onClick={clearLogs} className="sl-btn-danger !text-[12px] !px-2.5 !py-1.5">
+          <button onClick={clearLogs} className="sl-btn-danger sl-btn-xs">
             Clear
           </button>
         </div>
@@ -302,7 +286,7 @@ export default function LogsPage() {
             return (
               <div
                 key={log.id}
-                className={`group py-0.5 flex items-start gap-2 hover:bg-white/[0.03] rounded px-1.5 min-w-[420px] ${style.bg}`}
+                className={`group py-0.5 flex items-start gap-2 hover:bg-white/[0.03] rounded px-1.5 min-w-0 ${style.bg}`}
               >
                 {/* timestamp */}
                 <span
@@ -325,14 +309,14 @@ export default function LogsPage() {
                 )}
 
                 {/* message */}
-                <span className={`break-all flex-1 ${style.text}`}>
+                <span className={`break-words flex-1 ${style.text}`}>
                   {log.message}
                 </span>
 
                 {/* copy single log button */}
                 <button
                   onClick={() => copyLogEntry(log)}
-                  className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5 rounded hover:bg-white/10"
+                  className="shrink-0 opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-white/10"
                   title="Copy log entry"
                 >
                   {copiedId === log.id ? (

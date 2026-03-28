@@ -1,27 +1,22 @@
 // ─── Setup Wizard ────────────────────────────────────────────────────
 // Multi-step guided onboarding: Account → Apple ID → Device → First App.
-// Replaces the old single-form SetupPage for a production-ready UX.
+// Orchestrator shell — step implementations live in ./setup/.
 
-import { useState, useEffect, useCallback, useRef, type ReactNode, type DragEvent } from 'react';
-import { api, type Apple2FAChallenge } from '../lib/api';
-import { getErrorMessage } from '../lib/errors';
-import { useToast } from '../components/Toast';
-import { Card } from '../components/Shared';
+import { useState, useEffect } from 'react';
 import { BrandIcon } from '../components/BrandIcon';
-import { HelperPairingPanel } from '../components/HelperPairingPanel';
 import { useElectron } from '../hooks/useElectron';
-import { isElectron, pickIpaFile } from '../lib/electron';
-import type { AppleAccount, DeviceInfo, IpaArtifact } from '../../../shared/types';
-import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
+import { STORAGE_KEYS } from '../../../shared/constants';
+
+import { WelcomeStep } from './setup/WelcomeStep';
+import { AccountStep } from './setup/AccountStep';
+import { AppleStep } from './setup/AppleStep';
+import { DeviceStep } from './setup/DeviceStep';
+import { UploadStep } from './setup/UploadStep';
+import { DoneStep } from './setup/DoneStep';
 
 // ── Step definitions ─────────────────────────────────────────────────
 
 type WizardStep = 'welcome' | 'account' | 'apple' | 'device' | 'upload' | 'done';
-
-type HelperDoctorSnapshot = {
-  appleAuthReady?: boolean;
-  appleAuthError?: string | null;
-};
 
 const STEP_ORDER: WizardStep[] = ['welcome', 'account', 'apple', 'device', 'upload', 'done'];
 
@@ -42,39 +37,6 @@ const STEP_BADGES: Record<WizardStep, string> = {
   upload: 'Library',
   done: 'Ready',
 };
-
-const STEP_OUTCOMES: Record<WizardStep, string> = {
-  welcome: 'Define what a trustworthy first run should prove before you enter the app.',
-  account: 'Create the only local admin credential this SideLink instance will trust.',
-  apple: 'Verify that packaged Apple auth is healthy enough to carry real signing work.',
-  device: 'Confirm the machine can actually see a target device before install time.',
-  upload: 'Seed the library with a real IPA so the control surface is not empty on arrival.',
-  done: 'Exit onboarding with a usable control surface instead of another placeholder state.',
-};
-
-const STEP_OPERATOR_NOTES: Record<WizardStep, string> = {
-  welcome: 'This flow should establish runtime trust quickly, not bury the product under setup chrome.',
-  account: 'If local auth is unclear here, the first-run experience still reads like a temporary admin tool.',
-  apple: 'If Apple auth breaks here, treat it as a packaged runtime defect worth fixing immediately.',
-  device: 'If devices do not appear here, installs will fail later for environmental reasons, not UI reasons.',
-  upload: 'A real IPA in the library should make the product feel operational before the dashboard opens.',
-  done: 'After this point, operators should tune details in the app, not loop through onboarding again.',
-};
-
-const WIZARD_SIGNALS = [
-  {
-    title: 'Local-first control',
-    detail: 'Accounts, devices, app installs, and helper pairing stay inside one desktop runtime.',
-  },
-  {
-    title: 'No default credentials',
-    detail: 'First launch requires you to create the admin account. There is no seeded username or password.',
-  },
-  {
-    title: 'Real environment checks matter',
-    detail: 'Apple auth and device discovery only feel fast when the packaged runtime and host USB stack are healthy.',
-  },
-];
 
 // ── Main Wizard ──────────────────────────────────────────────────────
 
@@ -114,12 +76,11 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
   return (
     <div className="relative flex min-h-screen overflow-hidden bg-[var(--sl-bg)]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(45,212,191,0.16),transparent_24%),radial-gradient(circle_at_82%_12%,rgba(251,146,60,0.14),transparent_22%),radial-gradient(circle_at_60%_80%,rgba(94,234,212,0.08),transparent_26%)]" />
 
       <aside className={`relative hidden w-[23rem] shrink-0 border-r border-white/6 bg-[linear-gradient(180deg,rgba(8,16,25,0.94),rgba(6,12,18,0.98))] px-7 py-8 lg:flex lg:flex-col ${macChromeInset ? 'lg:pt-16' : ''}`}>
         <div className="sl-card overflow-hidden p-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] shadow-[0_18px_40px_rgba(2,10,18,0.36)]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] shadow-lg">
               <BrandIcon className="h-8 w-8" />
             </div>
             <div>
@@ -128,7 +89,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             </div>
           </div>
 
-          <div className="mt-6 rounded-[22px] border border-white/8 bg-white/[0.03] p-5">
+          <div className="mt-6 rounded-3xl border border-white/8 bg-white/[0.03] p-5">
             <div className="flex items-end justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--sl-muted)]">Progress</p>
@@ -139,10 +100,10 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               </div>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/[0.05]">
-              <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--sl-accent),#7dd3fc,var(--sl-accent-2))] transition-all duration-300" style={{ width: `${progressPct}%` }} />
+              <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--sl-accent),var(--sl-info),var(--sl-accent-2))] transition-all duration-300" style={{ width: `${progressPct}%` }} />
             </div>
-            <p className="mt-4 text-[13px] leading-6 text-[#bfd0da]">
-              The setup flow should feel like the product, not a temporary admin form. Each step below pushes the runtime closer to a usable install path.
+            <p className="mt-4 text-[13px] leading-6 text-[var(--sl-muted)]">
+              Track your progress through each onboarding step.
             </p>
           </div>
         </div>
@@ -156,7 +117,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 key={s}
                 className={`rounded-2xl border px-4 py-3 transition-all duration-200 ${
                   isActive
-                    ? 'border-[rgba(45,212,191,0.34)] bg-[rgba(45,212,191,0.08)] shadow-[0_16px_40px_rgba(13,148,136,0.15)]'
+                    ? 'border-[rgba(45,212,191,0.34)] bg-[rgba(45,212,191,0.08)]'
                     : isDone
                       ? 'border-[rgba(74,222,128,0.22)] bg-[rgba(74,222,128,0.05)]'
                       : 'border-white/6 bg-white/[0.025]'
@@ -182,20 +143,8 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           })}
         </div>
 
-        <div className="mt-6 rounded-[24px] border border-white/6 bg-white/[0.03] p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--sl-muted)]">Design Signal</p>
-          <div className="mt-4 space-y-4">
-            {WIZARD_SIGNALS.map((signal) => (
-              <div key={signal.title}>
-                <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-accent)]">{signal.title}</p>
-                <p className="mt-1 text-[13px] leading-6 text-[#c3d5de]">{signal.detail}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <p className="mt-auto pt-6 text-[11px] leading-5 text-[var(--sl-muted)]/70">
-          Revisit Apple accounts, devices, helper pairing, and admin settings after onboarding. First run should establish trust quickly, not compete with the main product surface.
+          Revisit Apple accounts, devices, helper pairing, and admin settings after onboarding.
         </p>
       </aside>
 
@@ -214,7 +163,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             </div>
           </div>
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
-            <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--sl-accent),#7dd3fc,var(--sl-accent-2))] transition-all duration-300" style={{ width: `${progressPct}%` }} />
+            <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--sl-accent),var(--sl-info),var(--sl-accent-2))] transition-all duration-300" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
@@ -225,23 +174,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 <div className="border-b border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] px-6 py-6 sm:px-8">
                   <p className="sl-kicker">{STEP_BADGES[step]}</p>
                   <h2 className="mt-3 max-w-3xl text-[2rem] font-semibold leading-tight tracking-[-0.04em] text-[var(--sl-text)] sm:text-[2.35rem]">{meta.title}</h2>
-                  <p className="mt-3 max-w-2xl text-[14px] leading-7 text-[#bed0da] sm:text-[15px]">{meta.subtitle}</p>
-
-                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Step</p>
-                      <p className="mt-2 text-[15px] font-semibold text-[var(--sl-text)]">{stepIndex + 1} of {STEP_ORDER.length}</p>
-                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_BADGES[step]}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Outcome</p>
-                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_OUTCOMES[step]}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-4 py-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">Operator Note</p>
-                      <p className="mt-2 text-[12px] leading-6 text-[#c4d7e1]">{STEP_OPERATOR_NOTES[step]}</p>
-                    </div>
-                  </div>
+                  <p className="mt-3 max-w-2xl text-[14px] leading-7 text-[var(--sl-muted)] sm:text-[15px]">{meta.subtitle}</p>
                 </div>
 
                 <div className="px-6 py-6 sm:px-8 sm:py-8">
@@ -257,756 +190,6 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Field({
-  htmlFor,
-  label,
-  hint,
-  children,
-}: {
-  htmlFor?: string;
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <label htmlFor={htmlFor} className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-muted)]">
-          {label}
-        </label>
-        {hint && <span className="text-[11px] text-[var(--sl-muted)]/80">{hint}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function InlineNotice({
-  title,
-  children,
-  tone = 'default',
-}: {
-  title: string;
-  children: ReactNode;
-  tone?: 'default' | 'success' | 'warning' | 'danger';
-}) {
-  const toneClass = {
-    default: 'border-white/8 bg-white/[0.03] text-[#c5d7e0]',
-    success: 'border-emerald-400/18 bg-emerald-400/[0.08] text-emerald-100',
-    warning: 'border-amber-400/18 bg-amber-400/[0.07] text-amber-100',
-    danger: 'border-red-400/18 bg-red-400/[0.08] text-red-100',
-  }[tone];
-
-  return (
-    <div className={`rounded-2xl border px-4 py-4 ${toneClass}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{title}</p>
-      <div className="mt-2 text-[13px] leading-6">{children}</div>
-    </div>
-  );
-}
-
-// ── Shared step wrapper ──────────────────────────────────────────────
-
-function StepActions({
-  onBack,
-  onNext,
-  nextLabel = 'Continue',
-  nextDisabled = false,
-  loading = false,
-  showSkip = false,
-  onSkip,
-}: {
-  onBack?: () => void;
-  onNext: () => void;
-  nextLabel?: string;
-  nextDisabled?: boolean;
-  loading?: boolean;
-  showSkip?: boolean;
-  onSkip?: () => void;
-}) {
-  return (
-    <div className="mt-8 flex items-center justify-between gap-4 border-t border-white/6 pt-5">
-      <div>
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-full border border-white/8 bg-white/[0.03] px-4 py-2 text-sm text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-text)]"
-          >
-            &larr; Back
-          </button>
-        )}
-      </div>
-      <div className="flex items-center gap-3">
-        {showSkip && onSkip && (
-          <button
-            type="button"
-            onClick={onSkip}
-            className="text-sm font-medium text-[var(--sl-muted)] transition-colors hover:text-[var(--sl-text)]"
-          >
-            Skip for now
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={nextDisabled || loading}
-          className="sl-btn-primary flex items-center gap-2"
-        >
-          {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-          {nextLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Step 1: Welcome ──────────────────────────────────────────────────
-
-function WelcomeStep({ onNext }: { onNext: () => void }) {
-  const features = [
-    { title: 'Signing roster', desc: 'Apple sessions, team state, and 2FA pressure stay visible instead of buried in a modal.' },
-    { title: 'Device bay', desc: 'USB and network devices surface as transport state you can inspect and refresh on demand.' },
-    { title: 'Helper loop', desc: 'The iPhone helper belongs to the release surface, not to a forgotten build step.' },
-    { title: 'Release discipline', desc: 'Desktop packaging, helper export, and onboarding should expose problems early instead of shipping ambiguity.' },
-  ];
-
-  return (
-    <div>
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        {features.map(f => (
-          <Card key={f.title} className="p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--sl-accent)]">Signal</p>
-            <p className="mt-3 text-[15px] font-semibold text-[var(--sl-text)]">{f.title}</p>
-            <p className="mt-2 text-[13px] leading-6 text-[var(--sl-muted)]">{f.desc}</p>
-          </Card>
-        ))}
-      </div>
-
-      <InlineNotice title="What this setup should prove">
-        By the time you finish, you should know whether this machine can authenticate Apple sessions, discover devices, and carry a real install workflow. If it cannot, the issue is environmental and worth fixing immediately.
-      </InlineNotice>
-
-      <StepActions onNext={onNext} nextLabel="Get Started" />
-    </div>
-  );
-}
-
-// ── Step 2: Admin Account ────────────────────────────────────────────
-
-function AccountStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPwd, setConfirmPwd] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [touched, setTouched] = useState<{ username?: boolean; password?: boolean; confirm?: boolean }>({});
-  const { toast } = useToast();
-
-  const usernameValid = username.length >= 3;
-  const passwordValid = password.length >= 8;
-  const confirmValid = confirmPwd.length > 0 && confirmPwd === password;
-  const allValid = usernameValid && passwordValid && confirmValid;
-
-  const usernameError = touched.username && username.length > 0 && !usernameValid ? 'Username must be at least 3 characters' : '';
-  const passwordError = touched.password && password.length > 0 && !passwordValid ? 'Password must be at least 8 characters' : '';
-  const confirmError = touched.confirm && confirmPwd.length > 0 && !confirmValid ? 'Passwords do not match' : '';
-
-  const submit = async () => {
-    if (!allValid) return;
-    setLoading(true);
-    setError('');
-    try {
-      await api.setup(username, password);
-      toast('success', 'Admin account created');
-      onNext();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Setup failed'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div>
-      <InlineNotice title="Local access only">
-        This account is created on first run for this SideLink instance. There is no default admin password in development or in the packaged desktop app.
-      </InlineNotice>
-
-      <div className="mt-5 grid gap-4">
-        <Field htmlFor="wiz-user" label="Username" hint="Local admin">
-          <input
-            id="wiz-user"
-            type="text"
-            autoComplete="username"
-            aria-label="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            onBlur={() => setTouched(t => ({ ...t, username: true }))}
-            minLength={3}
-            placeholder="Choose an admin username"
-            className="sl-input w-full"
-          />
-          {usernameError && <p className="mt-1.5 text-[12px] text-red-400">{usernameError}</p>}
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field htmlFor="wiz-pwd" label="Password" hint="Minimum 8 chars">
-          <input
-            id="wiz-pwd"
-            type="password"
-            autoComplete="new-password"
-            aria-label="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onBlur={() => setTouched(t => ({ ...t, password: true }))}
-            minLength={8}
-            placeholder="At least 8 characters"
-            className="sl-input w-full"
-          />
-          {passwordError && <p className="mt-1.5 text-[12px] text-red-400">{passwordError}</p>}
-          </Field>
-          <Field htmlFor="wiz-confirm" label="Confirm Password">
-          <input
-            id="wiz-confirm"
-            type="password"
-            autoComplete="new-password"
-            aria-label="Confirm password"
-            value={confirmPwd}
-            onChange={e => setConfirmPwd(e.target.value)}
-            onBlur={() => setTouched(t => ({ ...t, confirm: true }))}
-            className="sl-input w-full"
-          />
-          {confirmError && <p className="mt-1.5 text-[12px] text-red-400">{confirmError}</p>}
-          </Field>
-        </div>
-      </div>
-      {error && (
-        <div className="mt-4"><InlineNotice title="Setup Error" tone="danger">{error}</InlineNotice></div>
-      )}
-      <StepActions
-        onBack={onBack}
-        onNext={submit}
-        nextLabel="Create Account"
-        nextDisabled={!allValid}
-        loading={loading}
-      />
-    </div>
-  );
-}
-
-// ── Step 3: Apple ID ─────────────────────────────────────────────────
-
-function AppleStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [phase, setPhase] = useState<'form' | '2fa' | 'success'>('form');
-  const [appleId, setAppleId] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
-  const [doctor, setDoctor] = useState<HelperDoctorSnapshot | null>(null);
-  const [doctorLoading, setDoctorLoading] = useState(true);
-  const [addedAccounts, setAddedAccounts] = useState<string[]>([]);
-  const [appleIdTouched, setAppleIdTouched] = useState(false);
-  const { toast } = useToast();
-
-  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const appleIdError = appleIdTouched && appleId.length > 0 && !isValidEmail(appleId) ? 'Enter a valid email address' : '';
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadDoctor = async () => {
-      setDoctorLoading(true);
-      try {
-        const res = await api.helperDoctor();
-        if (!cancelled) {
-          setDoctor(res.data ?? null);
-        }
-      } catch {
-        if (!cancelled) {
-          setDoctor(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setDoctorLoading(false);
-        }
-      }
-    };
-
-    void loadDoctor();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const packagedRuntimeBlocked = doctor?.appleAuthReady === false;
-
-  const signIn = async () => {
-    if (!isValidEmail(appleId)) { setError('Please enter a valid email address'); return; }
-    setError('');
-    setLoading(true);
-    try {
-      const res = await api.appleSignIn(appleId, password);
-      if (res.data && 'requires2FA' in res.data && res.data.requires2FA) {
-        setTwoFAInfo(res.data as Apple2FAChallenge);
-        setPhase('2fa');
-      } else {
-        toast('success', 'Apple ID connected');
-        setAddedAccounts(prev => [...prev, appleId]);
-        setPhase('success');
-      }
-    } catch (e: unknown) {
-      const body = (e as { data?: Apple2FAChallenge })?.data ?? (e as Apple2FAChallenge);
-      if (body?.requires2FA) {
-        setTwoFAInfo(body);
-        setPhase('2fa');
-      } else {
-        setError(getErrorMessage(e, 'Sign in failed'));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const submit2FA = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await api.submitApple2FA({ appleId, password, code });
-      toast('success', 'Apple ID verified');
-      setAddedAccounts(prev => [...prev, appleId]);
-      setPhase('success');
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, '2FA failed'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const addAnother = () => {
-    setAppleId('');
-    setPassword('');
-    setCode('');
-    setError('');
-    setTwoFAInfo(null);
-    setPhase('form');
-  };
-
-  if (phase === 'success') {
-    return (
-      <div>
-        <div className="mb-4">
-          <InlineNotice title={addedAccounts.length === 1 ? 'Signing Identity Connected' : `${addedAccounts.length} Signing Identities Connected`} tone="success">
-            <div className="space-y-1">
-              {addedAccounts.map((id) => (
-                <p key={id} className="font-medium text-emerald-50">{id}</p>
-              ))}
-              <p>{addedAccounts.length === 1 ? 'This Apple ID is' : 'These Apple IDs are'} now available to the signing pipeline.</p>
-            </div>
-          </InlineNotice>
-        </div>
-        <div className="sl-card !border-emerald-500/15 !bg-emerald-500/[0.04] p-6 text-center mb-4">
-          <svg aria-hidden="true" className="w-10 h-10 text-emerald-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-emerald-400 font-medium">{addedAccounts.length === 1 ? 'Apple ID Connected' : `${addedAccounts.length} Apple IDs Connected`}</p>
-          <p className="text-emerald-400/60 text-xs mt-1">Provisioning and install requests can now use {addedAccounts.length === 1 ? 'this identity' : 'these identities'}.</p>
-        </div>
-        <button
-          onClick={addAnother}
-          className="sl-btn-ghost w-full mb-4 flex items-center justify-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          Add Another Apple ID
-        </button>
-        <StepActions onBack={onBack} onNext={onNext} />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <InlineNotice title="Runtime Expectation" tone="default">
-        Apple sign-in depends on the packaged Python helper runtime. If this step is slow or fails consistently in the desktop build, treat that as a packaging/runtime defect, not just a bad password.
-      </InlineNotice>
-
-      {packagedRuntimeBlocked && (
-        <div className="mt-4">
-          <InlineNotice title="Packaged Runtime Blocker" tone="warning">
-            {doctor?.appleAuthError ?? 'The packaged Apple auth runtime is not healthy, so sign-in is expected to fail until that runtime issue is fixed.'}
-          </InlineNotice>
-        </div>
-      )}
-
-      {!packagedRuntimeBlocked && !doctorLoading && (
-        <div className="mt-4">
-          <InlineNotice title="Packaged Runtime" tone="success">
-            The local Apple auth helper runtime passed its readiness checks.
-          </InlineNotice>
-        </div>
-      )}
-
-      {phase === 'form' ? (
-        <div className="mt-5 space-y-4">
-          <Field htmlFor="wiz-apple-id" label="Apple ID" hint="Signing account">
-            <input
-              id="wiz-apple-id"
-              type="email"
-              autoComplete="email"
-              aria-label="Apple ID email"
-              placeholder="name@example.com"
-              pattern="[^\s@]+@[^\s@]+\.[^\s@]+"
-              value={appleId}
-              onChange={e => setAppleId(e.target.value)}
-              onBlur={() => setAppleIdTouched(true)}
-              className="sl-input w-full"
-            />
-            {appleIdError && <p className="mt-1.5 text-[12px] text-red-400">{appleIdError}</p>}
-          </Field>
-          <Field htmlFor="wiz-apple-pwd" label="Password">
-            <input
-              id="wiz-apple-pwd"
-              type="password"
-              autoComplete="off"
-              placeholder="Password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="sl-input w-full"
-            />
-          </Field>
-          <p className="text-xs text-[var(--sl-muted)] opacity-60">
-            Your credentials are encrypted at rest and only used for signing.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-5 space-y-4">
-          <p className="text-xs text-[var(--sl-muted)]">
-            Enter the 6-digit code from your trusted Apple device. If Apple exposes an SMS fallback for this account, you can trigger it below.
-          </p>
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="000000"
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            className="sl-input w-full text-center tracking-[0.5em] font-mono"
-            autoFocus
-          />
-          {twoFAInfo?.trustedPhoneNumbers && twoFAInfo.trustedPhoneNumbers.length > 0 && (
-            <div className="pt-2 border-t border-[var(--sl-border)]">
-              <p className="text-xs text-[var(--sl-muted)] mb-1">Or receive via SMS:</p>
-              {twoFAInfo.trustedPhoneNumbers.map(p => (
-                <button
-                  key={p.id}
-                  onClick={async () => {
-                    try {
-                      await api.requestAppleSMS(appleId, p.id);
-                      toast('info', 'SMS code sent');
-                    } catch (e: unknown) { setError(getErrorMessage(e, 'Failed to send SMS')); }
-                  }}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 mr-3 transition-colors"
-                >
-                  SMS to {p.numberWithDialCode}
-                </button>
-              ))}
-            </div>
-          )}
-          {(!twoFAInfo?.trustedPhoneNumbers || twoFAInfo.trustedPhoneNumbers.length === 0) && (
-            <p className="text-xs text-[var(--sl-muted)] opacity-80">
-              Apple is only offering trusted-device verification for this session.
-            </p>
-          )}
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-4"><InlineNotice title="Apple Sign-In Error" tone="danger">{error}</InlineNotice></div>
-      )}
-
-      <StepActions
-        onBack={phase === '2fa' ? () => setPhase('form') : onBack}
-        onNext={phase === '2fa' ? submit2FA : signIn}
-        nextLabel={phase === '2fa' ? 'Verify' : 'Sign In'}
-        nextDisabled={phase === '2fa' ? code.length !== 6 : !appleId || !password || !isValidEmail(appleId) || packagedRuntimeBlocked}
-        loading={loading}
-        showSkip
-        onSkip={onNext}
-      />
-    </div>
-  );
-}
-
-// ── Step 4: Device Connection ────────────────────────────────────────
-
-function DeviceStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [initialLoad, setInitialLoad] = useState(true);
-  const { toast } = useToast();
-
-  const scan = useCallback(async () => {
-    setScanning(true);
-    try {
-      const res = await api.refreshDevices();
-      setDevices(res.data ?? []);
-      if (!initialLoad && (res.data?.length ?? 0) > 0) {
-        toast('success', `Found ${res.data?.length} device(s)`);
-      }
-    } catch {
-      // Silently handle — user can retry
-    } finally {
-      setScanning(false);
-      setInitialLoad(false);
-    }
-  }, [initialLoad, toast]);
-
-  useEffect(() => { scan(); }, []);  // initial scan
-
-  return (
-    <div>
-      <InlineNotice title="Transport Reality Check" tone="warning">
-        If you see no devices here in the packaged macOS app, first verify the machine can talk to iOS hardware at all. Trust prompts, USB transport, and the local device stack need to work before installs will.
-      </InlineNotice>
-
-      {devices.length > 0 ? (
-        <div className="mt-5 space-y-3 mb-4">
-          {devices.map(d => (
-            <Card key={d.udid} className="p-3 flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                d.transport === 'usb' ? 'bg-emerald-950/50 text-emerald-400' : 'bg-cyan-950/50 text-cyan-400'
-              }`}>
-                <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-[var(--sl-text)] text-sm font-medium">{d.name || 'iOS Device'}</p>
-                <p className="text-[var(--sl-muted)] text-xs">
-                  {d.productType ?? 'Unknown'} · {d.transport === 'usb' ? 'USB' : 'WiFi'}
-                  {d.iosVersion ? ` · iOS ${d.iosVersion}` : ''}
-                </p>
-              </div>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-5 sl-card p-8 text-center mb-4">
-          {scanning ? (
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-[var(--sl-accent)] border-t-transparent rounded-full animate-spin" />
-              <p className="text-[var(--sl-muted)] text-sm">Scanning for devices...</p>
-            </div>
-          ) : (
-            <>
-              <svg aria-hidden="true" className="w-10 h-10 text-[var(--sl-muted)] mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
-              </svg>
-              <p className="text-[var(--sl-text)] text-sm mb-1">No devices found</p>
-              <p className="text-[var(--sl-muted)] text-xs">Connect an iOS device via USB or WiFi, then scan again.</p>
-            </>
-          )}
-        </div>
-      )}
-
-      {!scanning && (
-        <button
-          onClick={scan}
-          className="w-full text-sm sl-btn-ghost mb-2 flex items-center justify-center gap-2"
-        >
-          <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-          </svg>
-          Scan Again
-        </button>
-      )}
-
-      <StepActions
-        onBack={onBack}
-        onNext={onNext}
-        nextLabel={devices.length > 0 ? 'Continue' : 'Skip for now'}
-        showSkip={devices.length > 0}
-        onSkip={onNext}
-      />
-    </div>
-  );
-}
-
-// ── Step 5: Upload IPA ───────────────────────────────────────────────
-
-const MAX_FILE_SIZE = UI_LIMITS.maxIpaFileSizeBytes;
-
-function UploadStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [uploading, setUploading] = useState(false);
-  const [uploadPct, setUploadPct] = useState(0);
-  const [uploaded, setUploaded] = useState<IpaArtifact | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
-
-  const upload = async (file: File) => {
-    if (uploading) return;
-    if (file.size > MAX_FILE_SIZE) { toast('error', 'File too large — maximum 4 GB'); return; }
-    setUploading(true);
-    setUploadPct(0);
-    try {
-      const res = await api.uploadIpa(file, setUploadPct);
-      setUploaded(res.data ?? null);
-      toast('success', `Uploaded ${file.name}`);
-    } catch (e: unknown) {
-      toast('error', getErrorMessage(e, 'Upload failed'));
-    } finally {
-      setUploading(false);
-      setUploadPct(0);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  const handleFiles = (files: FileList | null) => {
-    if (!files?.length || uploading) return;
-    const f = files[0];
-    if (!f.name.endsWith('.ipa')) { toast('warning', 'Please select an .ipa file'); return; }
-    upload(f);
-  };
-
-  const handleElectronPick = async () => {
-    const path = await pickIpaFile();
-    if (path) {
-      // Electron native picker returns a path — we need to create a fetch for it
-      // For now, fall back to the HTML file input
-      fileRef.current?.click();
-    }
-  };
-
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    handleFiles(e.dataTransfer.files);
-  };
-
-  if (uploaded) {
-    return (
-      <div>
-        <div className="sl-card !border-emerald-500/15 !bg-emerald-500/[0.04] p-6 text-center mb-4">
-          <svg aria-hidden="true" className="w-10 h-10 text-emerald-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-emerald-400 font-medium">{uploaded.bundleName || uploaded.originalName}</p>
-          <p className="text-emerald-400/60 text-xs mt-1">
-            {uploaded.bundleId} · v{uploaded.bundleShortVersion}
-          </p>
-        </div>
-        <StepActions onBack={onBack} onNext={onNext} />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div
-        onDragOver={e => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        onClick={() => !uploading && (isElectron ? handleElectronPick() : fileRef.current?.click())}
-        className={`mt-2 border-2 border-dashed rounded-[28px] p-10 text-center transition-all mb-4 cursor-pointer ${
-          uploading ? 'border-indigo-700 bg-indigo-950/10 cursor-wait'
-          : dragging ? 'border-[var(--sl-accent)] bg-[rgba(45,212,191,0.08)]'
-          : 'border-[var(--sl-border)] hover:border-[var(--sl-border-hover)] bg-[var(--sl-surface)]'
-        }`}
-      >
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".ipa"
-          onChange={e => handleFiles(e.target.files)}
-          className="hidden"
-        />
-        {uploading ? (
-          <div>
-            <p className="text-indigo-400 text-sm mb-3">Uploading... {uploadPct}%</p>
-            <div className="w-48 mx-auto h-2 bg-[var(--sl-surface-raised)] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[var(--sl-accent)] rounded-full transition-all duration-200"
-                style={{ width: `${uploadPct}%` }}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <svg aria-hidden="true" className="w-10 h-10 text-[var(--sl-muted)] mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            <p className="text-[var(--sl-text)] text-sm">Drop an .ipa file here or click to browse</p>
-            <p className="text-[var(--sl-muted)] text-xs mt-1">Maximum 4 GB. Use this step to avoid landing on an empty dashboard.</p>
-          </>
-        )}
-      </div>
-
-      <InlineNotice title="Library Seed" tone="default">
-        Uploading one IPA here makes the product feel immediately real: the dashboard, install flow, and source management all have something concrete to work with.
-      </InlineNotice>
-
-      <StepActions
-        onBack={onBack}
-        onNext={onNext}
-        nextLabel="Skip for now"
-        showSkip={false}
-      />
-    </div>
-  );
-}
-
-// ── Step 6: Done ─────────────────────────────────────────────────────
-
-function DoneStep({ onFinish }: { onFinish: () => void }) {
-  const handleFinish = () => {
-    localStorage.removeItem(STORAGE_KEYS.wizardStep);
-    onFinish();
-  };
-  return (
-    <div>
-      <div className="sl-card !border-indigo-500/15 !bg-indigo-500/[0.03] p-8 text-center mb-6">
-        <div className="w-16 h-16 mx-auto rounded-full bg-[var(--sl-accent)]/20 flex items-center justify-center mb-4">
-          <svg aria-hidden="true" className="w-8 h-8 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <p className="text-[var(--sl-text)] text-lg font-semibold mb-2">Setup Complete</p>
-        <p className="text-[var(--sl-muted)] text-sm">
-          The desktop shell is now through first run. If Apple auth or devices still feel broken after this, the next stop should be diagnostics, not another onboarding loop.
-        </p>
-      </div>
-
-      <div className="mb-6">
-        <HelperPairingPanel
-          title="Finish mobile setup"
-          subtitle="Pair the iPhone helper now so you can browse sources, trigger installs, and refresh apps directly from your phone."
-          compact
-        />
-      </div>
-
-      <div className="mb-6 grid gap-3 sm:grid-cols-2">
-        <Card className="p-3 text-center">
-          <p className="text-xs text-[var(--sl-muted)]">What's Next</p>
-          <p className="text-sm text-[var(--sl-text)] mt-0.5">Go to Install page</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <p className="text-xs text-[var(--sl-muted)]">Need help?</p>
-          <p className="text-sm text-[var(--sl-text)] mt-0.5">Check Settings</p>
-        </Card>
-      </div>
-
-      <button
-        onClick={handleFinish}
-        className="w-full sl-btn-primary py-3"
-      >
-        Open Dashboard &rarr;
-      </button>
     </div>
   );
 }

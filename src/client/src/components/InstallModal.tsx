@@ -3,8 +3,9 @@ import type { ReactNode } from 'react';
 import { api, type AppleAppIdRecord, type AppleAppIdUsageRecord } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useToast } from './Toast';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useSSE } from '../hooks/useSSE';
-import { StatusBadge } from './Shared';
+import { StatusBadge, StepIcon } from './Shared';
 import type { AppleAccount, IpaArtifact, DeviceInfo, InstallJob, JobLogEntry, PipelineStep } from '../../../shared/types';
 import { STORAGE_KEYS, UI_LIMITS } from '../../../shared/constants';
 
@@ -156,7 +157,12 @@ function InstallModal({
   const [selectedAccount, setSelectedAccount] = useState(warmSelection?.accountId ?? '');
   const [selectedIpa, setSelectedIpa] = useState(warmSelection?.ipaId ?? preselect.ipaId ?? '');
   const [selectedDevice, setSelectedDevice] = useState(warmSelection?.deviceUdid ?? preselect.deviceUdid ?? '');
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(() => {
+    const initial = warmSelection?.deviceUdid ?? preselect.deviceUdid ?? '';
+    return initial ? new Set([initial]) : new Set();
+  });
   const [includeExtensions, setIncludeExtensions] = useState(false);
+  const [deviceCapabilities, setDeviceCapabilities] = useState<{ hasLiveContainer: boolean; liveContainerBundleId: string | null; totalAppsInstalled: number } | null>(null);
   const [installing, setInstalling] = useState(false);
   const [activeJob, setActiveJob] = useState<InstallJob | null>(null);
   const [error, setError] = useState('');
@@ -190,6 +196,11 @@ function InstallModal({
 
   useEffect(() => {
     selectedDeviceRef.current = selectedDevice;
+    // Keep multi-select set in sync with resolved single device
+    setSelectedDeviceIds((prev) => {
+      if (selectedDevice && prev.size === 0) return new Set([selectedDevice]);
+      return prev;
+    });
   }, [selectedDevice]);
 
   const applyInventory = useCallback((snapshot: InstallInventoryData) => {
@@ -297,6 +308,24 @@ function InstallModal({
     }
   }, [selectedDevice]);
 
+  // Fetch device capabilities when a single device is selected
+  useEffect(() => {
+    if (selectedDeviceIds.size !== 1) {
+      setDeviceCapabilities(null);
+      return;
+    }
+    const udid = Array.from(selectedDeviceIds)[0];
+    let cancelled = false;
+    api.getDeviceCapabilities(udid)
+      .then((res) => {
+        if (!cancelled && res.data) setDeviceCapabilities(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setDeviceCapabilities(null);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDeviceIds]);
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -336,13 +365,7 @@ function InstallModal({
     }
   }, []);
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
+  useBodyScrollLock(true);
 
   // SSE for job updates and live inventory refreshes
   useSSE({
@@ -384,14 +407,27 @@ function InstallModal({
     setInstalling(true);
     setActiveJob(null);
     setJobLogs([]);
+
+    const targetDeviceIds = selectedDeviceIds.size > 0
+      ? Array.from(selectedDeviceIds)
+      : selectedDevice ? [selectedDevice] : [];
+
     try {
-      const res = await api.startInstall({
-        accountId: selectedAccount,
-        ipaId: selectedIpa,
-        deviceUdid: selectedDevice,
-        includeExtensions,
-      });
-      setActiveJob(res.data ?? null);
+      // Fire one job per selected device
+      let firstJob: InstallJob | null = null;
+      for (const deviceUdid of targetDeviceIds) {
+        const res = await api.startInstall({
+          accountId: selectedAccount,
+          ipaId: selectedIpa,
+          deviceUdid,
+          includeExtensions,
+        });
+        if (!firstJob) firstJob = res.data ?? null;
+      }
+      setActiveJob(firstJob);
+      if (targetDeviceIds.length > 1) {
+        toast('info', `Queued install to ${targetDeviceIds.length} device(s)`);
+      }
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Install failed'));
     } finally {
@@ -413,9 +449,10 @@ function InstallModal({
     }
   };
 
-  const canInstall = selectedAccount && selectedIpa && selectedDevice && !installing && !activeJob;
+  const deviceCount = selectedDeviceIds.size;
+  const canInstall = selectedAccount && selectedIpa && deviceCount > 0 && !installing && !activeJob;
   const selectedIpaObj = ipas.find(i => i.id === selectedIpa);
-  const selectedDeviceObj = devices.find(d => d.udid === selectedDevice);
+  const selectedDeviceObj = deviceCount === 1 ? devices.find(d => selectedDeviceIds.has(d.udid)) : null;
   const selectedAccountObj = accounts.find((account) => account.id === selectedAccount);
   const selectedAccountUsage = appIdUsage.find((entry) => entry.accountId === selectedAccount);
   const selectedAccountAppIds = appIds
@@ -446,7 +483,7 @@ function InstallModal({
     devices.length === 0 ? 'Connect a device before starting an install.' : null,
     accounts.length === 0 ? 'Add and verify an active Apple ID before installing.' : null,
     !selectedIpa && ipas.length > 0 ? 'Select an IPA to install.' : null,
-    !selectedDevice && devices.length > 0 ? 'Select a target device.' : null,
+    deviceCount === 0 && devices.length > 0 ? 'Select a target device.' : null,
     !selectedAccount && accounts.length > 0 ? 'Select an Apple account.' : null,
     activeLimitReached ? 'This account is at the active App ID limit for the selected install.' : null,
     weeklyLimitReached ? 'This free account has reached its weekly App ID creation limit for the selected install.' : null,
@@ -480,14 +517,14 @@ function InstallModal({
               <button
                 onClick={() => { void reloadInventory(); }}
                 disabled={refreshingInventory}
-                className="sl-btn-ghost justify-center !px-3 !py-2 !text-[12px]"
+                className="sl-btn-ghost sl-btn-sm justify-center"
               >
                 {refreshingInventory ? 'Refreshing…' : 'Refresh data'}
               </button>
             )}
           <button
             onClick={() => { if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') onClose(); }}
-            className="sl-btn-ghost justify-center !px-3 !py-2 !text-[12px]"
+            className="sl-btn-ghost sl-btn-sm justify-center"
             disabled={!!activeJob && activeJob.status !== 'completed' && activeJob.status !== 'failed'}
             aria-label="Close"
           >
@@ -548,7 +585,7 @@ function InstallModal({
                     autoFocus
                     className="sl-input flex-1 text-center text-lg font-mono tracking-[0.3em]"
                   />
-                  <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-primary !bg-amber-600 hover:!bg-amber-500">
+                  <button onClick={handle2FASubmit} disabled={twoFACode.length < 6 || submitting2FA} className="sl-btn-secondary">
                     {submitting2FA ? 'Verifying...' : 'Submit'}
                   </button>
                 </div>
@@ -557,7 +594,7 @@ function InstallModal({
 
             {/* Error */}
             {activeJob.error && activeJob.status !== 'waiting_2fa' && (
-              <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3">
+              <div className="sl-card sl-card-red p-3">
                 <p className="text-red-400 text-[13px]">{activeJob.error}</p>
               </div>
             )}
@@ -659,37 +696,83 @@ function InstallModal({
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Target Device</label>
+                  <label className="text-[11px] font-semibold text-[var(--sl-muted)] uppercase tracking-wider block mb-2">Target Device{devices.length > 1 ? 's' : ''}</label>
                   {devices.length === 0 ? (
                     <p className="text-xs text-amber-400">No devices connected</p>
                   ) : (
                     <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                      {devices.map(d => (
-                        <button
-                          key={d.udid}
-                          onClick={() => setSelectedDevice(d.udid)}
-                          className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all ${
-                            selectedDevice === d.udid
-                              ? 'bg-indigo-500/[0.12] ring-1 ring-indigo-500/30'
-                              : 'bg-[var(--sl-surface-soft)] hover:bg-[var(--sl-surface-raised)]'
-                          }`}
-                        >
-                          <div className="w-9 h-9 rounded-lg bg-[var(--sl-surface-soft)] flex items-center justify-center">
-                            <svg className="w-4 h-4 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] text-[var(--sl-text)] truncate">{d.name || 'iOS Device'}</p>
-                            <p className="text-[11px] text-[var(--sl-muted)]">
-                              {d.transport === 'usb' ? 'USB' : 'WiFi'}
-                              {d.iosVersion ? ` · iOS ${d.iosVersion}` : ''}
-                              {d.productType ? ` · ${d.productType}` : ''}
-                            </p>
-                          </div>
-                          {selectedDevice === d.udid && (
-                            <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
-                          )}
-                        </button>
-                      ))}
+                      {devices.length > 1 && (
+                        <label className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg cursor-pointer hover:bg-[var(--sl-surface-soft)] transition-all">
+                          <input
+                            type="checkbox"
+                            checked={selectedDeviceIds.size === devices.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedDeviceIds(new Set(devices.map(d => d.udid)));
+                                setSelectedDevice(devices[0].udid);
+                              } else {
+                                setSelectedDeviceIds(new Set());
+                                setSelectedDevice('');
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-[var(--sl-border)] text-indigo-500 accent-indigo-500"
+                          />
+                          <span className="text-[12px] font-medium text-[var(--sl-muted)]">Select All ({devices.length})</span>
+                        </label>
+                      )}
+                      {devices.map(d => {
+                        const isSelected = selectedDeviceIds.has(d.udid);
+                        return (
+                          <label
+                            key={d.udid}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-indigo-500/[0.12] ring-1 ring-indigo-500/30'
+                                : 'bg-[var(--sl-surface-soft)] hover:bg-[var(--sl-surface-raised)]'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedDeviceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(d.udid)) {
+                                    next.delete(d.udid);
+                                  } else {
+                                    next.add(d.udid);
+                                  }
+                                  // Keep single-device state in sync for compatibility
+                                  if (next.size === 1) setSelectedDevice(Array.from(next)[0]);
+                                  else if (next.size === 0) setSelectedDevice('');
+                                  return next;
+                                });
+                              }}
+                              className="w-4 h-4 rounded border-[var(--sl-border)] text-indigo-500 accent-indigo-500 shrink-0"
+                            />
+                            <div className="w-9 h-9 rounded-lg bg-[var(--sl-surface-soft)] flex items-center justify-center">
+                              <svg className="w-4 h-4 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] text-[var(--sl-text)] truncate">{d.name || 'iOS Device'}</p>
+                              <p className="text-[11px] text-[var(--sl-muted)]">
+                                {d.transport === 'usb' ? 'USB' : 'WiFi'}
+                                {d.iosVersion ? ` · iOS ${d.iosVersion}` : ''}
+                                {d.productType ? ` · ${d.productType}` : ''}
+                              </p>
+                            </div>
+                            {isSelected && (
+                              <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" /></svg>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {deviceCapabilities?.hasLiveContainer && (
+                    <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2 text-[12px]">
+                      <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <span className="text-emerald-300">LiveContainer detected — apps installed here can bypass the 3-app limit</span>
                     </div>
                   )}
                 </div>
@@ -824,13 +907,13 @@ function InstallModal({
                 )}
 
                 {error && (
-                  <div className="sl-card !border-red-500/15 !bg-red-500/[0.04] p-3">
+                  <div className="sl-card sl-card-red p-3">
                     <p className="text-red-400 text-[13px]">{error}</p>
                   </div>
                 )}
 
                 {readinessIssues.length > 0 && !error && (
-                  <div className="sl-card !border-amber-500/20 !bg-amber-500/[0.06] p-3">
+                  <div className="sl-card sl-card-amber-strong p-3">
                     <ul className="space-y-1 text-amber-300 text-[12px]">
                       {readinessIssues.map((issue) => (
                         <li key={issue}>• {issue}</li>
@@ -840,7 +923,7 @@ function InstallModal({
                 )}
 
                 {freeLimitReached && (
-                  <div className="sl-card !border-amber-500/20 !bg-amber-500/[0.06] p-3">
+                  <div className="sl-card sl-card-amber-strong p-3">
                     <p className="text-amber-300 text-[12px]">
                       {activeLimitReached
                         ? 'This install needs new App IDs, but the selected account is already at its active App ID limit. Reuse an existing identifier, delete stale App IDs, or switch accounts.'
@@ -851,10 +934,14 @@ function InstallModal({
 
                 <div className="rounded-[24px] border border-[var(--sl-border)] bg-[linear-gradient(135deg,rgba(45,212,191,0.08),rgba(10,18,27,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-5">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sl-muted)]">Install summary</p>
-                  {selectedIpaObj && selectedDeviceObj ? (
+                  {selectedIpaObj && deviceCount > 0 ? (
                     <>
                       <p className="mt-3 text-[13px] leading-6 text-[var(--sl-muted)]">
-                        Install <span className="font-semibold text-[var(--sl-text)]">{selectedIpaObj.bundleName ?? selectedIpaObj.originalName}</span> on <span className="font-semibold text-[var(--sl-text)]">{selectedDeviceObj.name || 'iOS Device'}</span>.
+                        Install <span className="font-semibold text-[var(--sl-text)]">{selectedIpaObj.bundleName ?? selectedIpaObj.originalName}</span> on {deviceCount === 1 && selectedDeviceObj ? (
+                          <span className="font-semibold text-[var(--sl-text)]">{selectedDeviceObj.name || 'iOS Device'}</span>
+                        ) : (
+                          <span className="font-semibold text-[var(--sl-text)]">{deviceCount} device{deviceCount > 1 ? 's' : ''}</span>
+                        )}.
                       </p>
                       {selectedAccountObj ? (
                         <div className="mt-3 rounded-2xl border border-white/10 bg-black/15 px-3 py-3 text-[12px] leading-6 text-[var(--sl-muted)]">
@@ -885,7 +972,7 @@ function InstallModal({
                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         Starting...
                       </span>
-                    ) : 'Install App'}
+                    ) : deviceCount > 1 ? `Install to ${deviceCount} device(s)` : 'Install App'}
                   </button>
                 </div>
               </div>
@@ -896,12 +983,4 @@ function InstallModal({
       </div>
     </div>
   );
-}
-
-function StepIcon({ status }: { status: string }) {
-  if (status === 'completed') return <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  if (status === 'running') return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 bg-[var(--sl-accent)] rounded-full animate-pulse" /></span>;
-  if (status === 'waiting_2fa') return <svg className="w-4 h-4 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>;
-  if (status === 'failed') return <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-  return <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 border border-[var(--sl-muted)] rounded-full" /></span>;
 }
