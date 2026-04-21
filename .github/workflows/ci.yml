@@ -21,7 +21,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20]
+        # Node 22 (npm 11) fixes a known optional-dependencies-not-installed
+        # bug in npm 10 that caused platform-specific rollup binaries
+        # (@rollup/rollup-linux-x64-gnu, @rollup/rollup-win32-x64-msvc, etc.)
+        # to silently fail to install during `npm ci`.
+        # See https://github.com/npm/cli/issues/4828 for the upstream issue.
+        node: [22]
 
     steps:
       - name: Checkout
@@ -34,10 +39,14 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
-        env:
-          # Skip native module builds in CI lint step
-          npm_config_ignore_scripts: false
+        # Don't use --ignore-scripts here: npm has a known bug
+        # (npm/cli#4828) where --ignore-scripts suppresses installation
+        # of platform-specific optionalDependencies (e.g.
+        # @rollup/rollup-linux-x64-gnu, @rollup/rollup-win32-x64-msvc).
+        # This lint/test workflow only needs npm-side scripts suppressed,
+        # which `npm_config_foreground_scripts=false` achieves without
+        # breaking rollup's native binary selection.
+        run: npm ci
 
       - name: Rebuild native modules
         run: npm rebuild better-sqlite3

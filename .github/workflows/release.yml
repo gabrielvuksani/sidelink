@@ -26,7 +26,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '20'
+  # Node 22 ships npm 11 which fixes npm/cli#4828 (platform-specific
+  # optionalDependencies like @rollup/rollup-*-* silently skipped by
+  # `npm ci`). Staying on Node 20 caused the v0.8.0/v0.8.1 release
+  # builds to fail inside `npm run docs:build` / `vite build` on every
+  # non-mac-arm64 runner.
+  NODE_VERSION: '22'
   RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.event.inputs.tag || '' }}
 
 jobs:
