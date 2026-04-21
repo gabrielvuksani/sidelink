@@ -38,15 +38,16 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Upgrade npm to 11
-        # Node 22's bundled npm is still 10.x, which has two blocking
-        # bugs for this lockfile:
-        #   1. Missing parallel peer-dep trees on `npm ci` (complains
-        #      about @types/react@18.x even though React 19 is direct dep)
-        #   2. Platform-specific optionalDependencies silently skipped
-        #      (npm/cli#4828) — breaks rollup's native binary selection
-        # npm 11 fixes both. Pin explicitly rather than inheriting Node's.
-        run: npm install -g npm@11
+      - name: Activate npm 11 via corepack
+        # Node 22's bundled npm is 10.x which has two blocking bugs for
+        # this lockfile: it demands a react@18 peer-dep tree missing
+        # from a native-npm-11 lock, and silently skips platform-specific
+        # optionalDependencies (npm/cli#4828). Upgrade via corepack so
+        # we don't trigger npm-10's own postinstall lifecycle.
+        run: |
+          corepack enable
+          corepack prepare npm@11.3.0 --activate
+          npm --version
 
       - name: Install dependencies
         run: npm ci

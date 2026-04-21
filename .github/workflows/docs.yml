@@ -32,10 +32,14 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Upgrade npm to 11
-        # Node 22's bundled npm 10 trips on this lockfile's platform-
-        # specific optionalDependencies (npm/cli#4828). npm 11 fixes it.
-        run: npm install -g npm@11
+      - name: Activate npm 11 via corepack
+        # Node 22 ships npm 10 which trips on this lockfile's platform-
+        # specific optionalDependencies (npm/cli#4828). corepack swaps
+        # the shim without running npm 10's postinstall.
+        run: |
+          corepack enable
+          corepack prepare npm@11.3.0 --activate
+          npm --version
 
       - name: Install dependencies
         run: npm ci

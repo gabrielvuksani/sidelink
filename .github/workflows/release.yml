@@ -155,11 +155,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Upgrade npm to 11
-        # Node 22 still ships npm 10, which fails on this lockfile's
-        # platform-specific optionalDependencies (npm/cli#4828). npm 11
-        # fixes it. Pin explicitly so the release build is reproducible.
-        run: npm install -g npm@11
+      - name: Activate npm 11 via corepack
+        # Node 22 ships npm 10 which trips on this lockfile's platform-
+        # specific optionalDependencies (npm/cli#4828). corepack swaps
+        # the shim without running npm 10's postinstall.
+        run: |
+          corepack enable
+          corepack prepare npm@11.3.0 --activate
+          npm --version
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
