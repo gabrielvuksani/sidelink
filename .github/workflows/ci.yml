@@ -38,19 +38,13 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Activate npm 11 via corepack
-        # Node 22's bundled npm is 10.x which has two blocking bugs for
-        # this lockfile: it demands a react@18 peer-dep tree missing
-        # from a native-npm-11 lock, and silently skips platform-specific
-        # optionalDependencies (npm/cli#4828). Upgrade via corepack so
-        # we don't trigger npm-10's own postinstall lifecycle.
-        run: |
-          corepack enable
-          corepack prepare npm@11.3.0 --activate
-          npm --version
-
       - name: Install dependencies
-        run: npm ci
+        # Node 22 still ships npm 10 which demands a react@18 peer-dep
+        # tree absent from our npm-11-generated lock file. `npx -y npm@11`
+        # downloads npm 11 on the fly without disturbing the Node-bundled
+        # shim — more reliable than `npm install -g` or corepack activate,
+        # both of which had their own failure modes on GitHub runners.
+        run: npx -y npm@11 ci
 
       - name: Rebuild native modules
         run: npm rebuild better-sqlite3
