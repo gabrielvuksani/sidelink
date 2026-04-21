@@ -1,9 +1,10 @@
 # Changelog
 
-## [0.8.1] - 2026-04-21
+## [0.8.2] - 2026-04-21
 
 ### CI / release hotfix
-- Resync `package-lock.json` with `package.json` so GitHub Actions' `npm ci` stops failing on the v0.8.0 tag build. No runtime code changed between 0.8.0 and 0.8.1 — this release exists solely to give all four platforms (mac-arm64, mac-x64, win, linux) a workflow-built DMG/installer. The manually-built `SideLink-0.8.0-arm64.dmg` attached to the v0.8.0 GitHub release remains valid for arm64 users; anyone else should grab v0.8.1 assets.
+- Regenerate `package-lock.json` with npm 10 (matching CI's toolchain). vitepress ships `@docsearch/react` which pins `react < 19`, so npm 10 installs a parallel `react@18` tree under `@docsearch/js/node_modules/`. The lock file generated under npm 11 omitted this parallel tree, causing CI's `npm ci` to fail with "Missing: react@18.3.1 from lock file" on both the 0.8.0 and 0.8.1 tag builds. Both `npm@10 ci --dry-run` and `npm@11 ci --dry-run` now pass.
+- No runtime code changed between 0.8.0 and 0.8.2. This release exists solely to give all four platforms (mac-arm64, mac-x64, win, linux) a workflow-built DMG/installer. The manually-built `SideLink-0.8.0-arm64.dmg` attached to the v0.8.0 GitHub release remains valid for arm64 users; anyone else should grab v0.8.2 assets.
 
 ## [0.8.0] - 2026-04-21
 
