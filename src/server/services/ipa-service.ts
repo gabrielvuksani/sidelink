@@ -23,19 +23,58 @@ export class IpaService {
     originalName: string,
   ): Promise<IpaArtifact> {
     const stat = await fs.stat(filePath);
-    const zip = new AdmZip(filePath);
-    const entries = zip.getEntries();
+    if (stat.size === 0) {
+      throw new Error('Invalid IPA: uploaded file is empty');
+    }
 
-    // Find the main .app bundle Info.plist
-    const appEntry = entries.find(e =>
-      /^Payload\/[^/]+\.app\/Info\.plist$/.test(e.entryName) && !e.isDirectory,
+    let zip: AdmZip;
+    try {
+      zip = new AdmZip(filePath);
+    } catch (err) {
+      throw new Error(
+        `Invalid IPA: not a valid zip archive (${(err as Error).message}). ` +
+        `IPAs are renamed zip files — verify the upload is not corrupted.`,
+      );
+    }
+
+    const entries = zip.getEntries();
+    if (entries.length === 0) {
+      throw new Error('Invalid IPA: zip archive is empty');
+    }
+
+    // Case-insensitive match so we accept IPAs packaged on case-sensitive hosts.
+    const infoPlistRe = /^Payload\/[^/]+\.app\/Info\.plist$/i;
+    const appEntry = entries.find((e) =>
+      infoPlistRe.test(e.entryName) && !e.isDirectory,
     );
 
     if (!appEntry) {
-      throw new Error('Invalid IPA: no Info.plist found in Payload/*.app/');
+      const topLevel = new Set<string>();
+      for (const e of entries) {
+        const firstSeg = e.entryName.split(/[\\/]/, 1)[0];
+        if (firstSeg) topLevel.add(firstSeg);
+      }
+      const sample = entries.slice(0, 20).map((e) => e.entryName).join(', ');
+      const moreNote = entries.length > 20 ? ` (+${entries.length - 20} more)` : '';
+      throw new Error(
+        'Invalid IPA: no Info.plist found matching Payload/*.app/. ' +
+        `Top-level entries: [${[...topLevel].join(', ') || '(none)'}]. ` +
+        `First entries: [${sample}]${moreNote}. ` +
+        'Expected structure: Payload/<AppName>.app/Info.plist. ' +
+        'Common causes: zipped Xcode archive (.xcarchive), a zipped .app bundle ' +
+        'without the Payload wrapper, or a corrupted download.',
+      );
     }
 
-    const infoPlist = parsePlistBuffer(appEntry.getData());
+    let infoPlist: Record<string, unknown>;
+    try {
+      infoPlist = parsePlistBuffer(appEntry.getData());
+    } catch (err) {
+      throw new Error(
+        `Invalid IPA: could not parse Info.plist (${(err as Error).message}). ` +
+        `Entry: ${appEntry.entryName}, size: ${appEntry.header.size} bytes.`,
+      );
+    }
 
     // Extract embedded provisioning profile entitlements
     let entitlements: Record<string, unknown> = {};

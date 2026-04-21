@@ -1,38 +1,67 @@
 import Foundation
 
-final class SSEClient: NSObject, URLSessionDataDelegate {
+/// Server-Sent-Events client that serialises all mutable state on a single
+/// private dispatch queue so the URLSession delegate callbacks — which run off
+/// the main actor — never race with `connect()` / `disconnect()` calls from a
+/// `@MainActor` view model. Swift 6 strict concurrency flagged the earlier
+/// version because `buffer`, `session`, and `task` were mutated by both the
+/// delegate queue and whoever called `connect`/`disconnect`.
+///
+/// Callbacks are typed `@Sendable`: they usually hop back to the main actor on
+/// the receiving side (e.g. `Task { @MainActor in … }`), but the closure
+/// capture itself must be safe to cross isolation boundaries.
+final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let maxBufferBytes = 64 * 1024
+
+    // All access to these properties is serialised on `stateQueue`.
+    private let stateQueue = DispatchQueue(label: "com.sidelink.ioshelper.sse", qos: .utility)
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var buffer = ""
 
-    var onEvent: ((String, String) -> Void)?
-    var onFailure: ((Error) -> Void)?
+    var onEvent: (@Sendable (String, String) -> Void)?
+    var onFailure: (@Sendable (Error) -> Void)?
 
     func connect(url: URL, headers: [String: String] = [:]) {
-        disconnect()
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            self.disconnectLocked()
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = .infinity
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 60
+            config.timeoutIntervalForResource = .infinity
 
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1
+            // Route URLSession delegate callbacks onto the same serial queue so
+            // that didReceive / didCompleteWithError can read/write `self.buffer`
+            // without an additional lock.
+            let queue = OperationQueue()
+            queue.underlyingQueue = self.stateQueue
+            queue.maxConcurrentOperationCount = 1
 
-        session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
+            let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
+            self.session = session
 
-        var request = URLRequest(url: url)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        for (key, value) in headers {
-            request.setValue(value, forHTTPHeaderField: key)
+            var request = URLRequest(url: url)
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            for (key, value) in headers {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+
+            let task = session.dataTask(with: request)
+            self.task = task
+            task.resume()
         }
-
-        task = session?.dataTask(with: request)
-        task?.resume()
     }
 
     func disconnect() {
+        stateQueue.async { [weak self] in
+            self?.disconnectLocked()
+        }
+    }
+
+    /// Caller must hold `stateQueue` (i.e. be running on it).
+    private func disconnectLocked() {
         task?.cancel()
         task = nil
         session?.invalidateAndCancel()
@@ -41,6 +70,7 @@ final class SSEClient: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // Delegate queue is `stateQueue`, so direct access is safe here.
         guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else {
             return
         }

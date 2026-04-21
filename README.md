@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-	<strong>v0.3.1</strong> turns helper pairing and on-device management into a first-class product surface: code-first pairing across desktop and iPhone, up-front permissions with live status, a fuller Installed tab, and a cleaner native helper UI throughout.
+	<strong>v0.8.0</strong> turns helper pairing and on-device management into a first-class product surface: code-first pairing across desktop and iPhone, up-front permissions with live status, a fuller Installed tab, and a cleaner native helper UI throughout.
 </p>
 
 ## Why SideLink
@@ -34,13 +34,13 @@ SideLink is built as one system:
 - an iPhone helper that can pair, browse feeds, install apps, submit 2FA, and monitor refresh health
 - AltStore-compatible source support with a shipped official feed and release-hosted helper IPA
 
-## What v0.3.1 Delivers
+## What v0.8.0 Delivers
 
 - A code-first helper pairing flow across desktop and iPhone, with QR still available as a fallback instead of the primary path.
 - Up-front helper permission requests with live readiness state for notifications, camera, local network, and background refresh.
 - A more capable iPhone Installed tab that exposes App ID quota pressure, hidden consumers, unmanaged apps, and per-app refresh state.
 - Stronger helper onboarding, pairing, and settings screens that share one polished status-card language instead of feeling like disconnected utilities.
-- A release and operator story updated for `v0.3.1` across the README, changelog, release notes, and command examples.
+- A release and operator story updated for `v0.8.0` across the README, changelog, release notes, and command examples.
 
 ## Why It Feels Different
 
@@ -278,7 +278,7 @@ npm run docs:preview
 Dry-run the release script first:
 
 ```bash
-bash scripts/release.sh v0.3.1 --dry-run
+bash scripts/release.sh v0.8.0 --dry-run
 ```
 
 The release flow expects a helper IPA to exist first. On macOS, generate it with:
@@ -292,7 +292,7 @@ The release script will copy `tmp/helper/SidelinkHelper.ipa` into `helper/Sideli
 Then create the real release:
 
 ```bash
-bash scripts/release.sh v0.3.1
+bash scripts/release.sh v0.8.0
 git push origin main --tags
 ```
 
@@ -304,18 +304,18 @@ Published semver tags are treated as immutable release records.
 2. On macOS, run `npm run helper:export` if the helper IPA needs to be refreshed.
 3. Run `npm run desktop:package`.
 4. Run `npm run desktop:smoke`.
-5. Run `bash scripts/release.sh v0.3.1`.
+5. Run `bash scripts/release.sh v0.8.0`.
 6. Push `main` and tags so GitHub Actions can publish artifacts and docs.
 
 ## Release Notes Summary
 
-The `v0.3.1` release is the point where the helper stops feeling like a secondary companion and starts behaving like a deliberate part of the product surface:
+The `v0.8.0` release is the point where the helper stops feeling like a secondary companion and starts behaving like a deliberate part of the product surface:
 
 - manual pairing codes are the primary path on both desktop and iPhone
 - permission state is visible and actionable from the first helper launch
 - Installed on iPhone exposes quota, refresh, and unmanaged-app context instead of hiding it
 - helper pairing and settings surfaces use a clearer native status language
-- the current release docs and commands match the shipped `v0.3.1` surface
+- the current release docs and commands match the shipped `v0.8.0` surface
 
 ## Repository Layout
 

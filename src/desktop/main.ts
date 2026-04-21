@@ -215,9 +215,11 @@ async function startBackend(): Promise<string> {
   const { recoverStalledJobs } = await import('../server/pipeline');
 
   // Generate an internal token for in-process API calls (tray polling, etc.)
-  // This is recognized by the auth middleware as a valid session.
+  // This is recognized by the auth middleware as a valid session. It is kept
+  // in the module-local `internalToken` variable only — never placed into
+  // process.env, since child processes (python helpers, native tools) inherit
+  // that map and could read an authenticated token for the local HTTP server.
   internalToken = crypto.randomBytes(32).toString('hex');
-  process.env.SIDELINK_INTERNAL_TOKEN = internalToken;
 
   const ctx = await createAppContextAsync({ dataDir: process.env.SIDELINK_DATA_DIR });
   shutdownFn = ctx.shutdown;
@@ -229,7 +231,7 @@ async function startBackend(): Promise<string> {
   ctx.devices.startPolling(15_000);
   ctx.scheduler.start();
 
-  const expressApp = createApp(ctx);
+  const expressApp = createApp(ctx, { internalToken });
 
   const url = await new Promise<string>((resolve, reject) => {
     server = expressApp.listen(safePort, HOST, () => {

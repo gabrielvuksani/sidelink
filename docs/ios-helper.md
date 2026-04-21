@@ -52,7 +52,7 @@ If a permission was denied earlier, the helper points users back to iOS Settings
 | Installed | Review managed installs, refresh state, hidden quota pressure, and imported IPAs |
 | Settings | Pair or repair, inspect helper status, manage permissions, and view connected server details |
 
-## Installed Tab Improvements In `v0.3.1`
+## Installed Tab Improvements In `v0.8.0`
 
 The helper Installed tab now shows more than a basic install list.
 

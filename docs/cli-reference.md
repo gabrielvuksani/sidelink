@@ -63,11 +63,11 @@ Use the source commands whenever you add or update a public IPA such as `Cortex.
 
 | Command | Description |
 |---|---|
-| `bash scripts/release.sh v0.1.0 --dry-run` | Validate the release command path without committing or tagging |
-| `bash scripts/release.sh v0.3.1 --dry-run` | Validate the current release command path without committing or tagging |
-| `bash scripts/release.sh v0.3.1` | Update package version, create the release commit, and tag `v0.3.1` |
+| `bash scripts/release.sh v0.8.0 --dry-run` | Validate the release command path without committing or tagging |
+| `bash scripts/release.sh v0.8.0 --dry-run` | Validate the current release command path without committing or tagging |
+| `bash scripts/release.sh v0.8.0` | Update package version, create the release commit, and tag `v0.8.0` |
 
-## Recommended v0.3.1 Release Sequence
+## Recommended v0.8.0 Release Sequence
 
 1. `npm run verify`
 2. `npm run helper:export`
@@ -75,7 +75,7 @@ Use the source commands whenever you add or update a public IPA such as `Cortex.
 4. Run `npm run source:generate` if source metadata changed outside `verify`
 5. Run `npm run desktop:package`
 6. Run `npm run desktop:smoke`
-7. Run `bash scripts/release.sh v0.3.1`
+7. Run `bash scripts/release.sh v0.8.0`
 
 The GitHub release workflow then uploads:
 

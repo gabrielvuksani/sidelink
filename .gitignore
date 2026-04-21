@@ -9,6 +9,9 @@ tmp/helper/*
 ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj/
 tmp/
 .DS_Store
+# AppleDouble metadata sidecars produced when the repo lives on FAT/ExFAT.
+# These never belong in git — the pre-commit hook also strips any that sneak in.
+._*
 .venv/
 __pycache__/
 *.py[cod]

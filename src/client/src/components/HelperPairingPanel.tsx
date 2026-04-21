@@ -96,7 +96,16 @@ export function HelperPairingPanel({
   };
 
   useEffect(() => {
-    void refreshPairing({ silent: !!warmSnapshot });
+    // Only rotate the server-side pairing code when we don't already have a
+    // fresh snapshot cached. Every mount used to call
+    // `api.createHelperPairingCode()`, which rotates the server's pairing code
+    // and therefore invalidated a QR/code the user was still trying to enter.
+    // When a warm snapshot is present the expiry sweep below triggers a
+    // refresh at the right time instead.
+    if (!warmSnapshot) {
+      void refreshPairing({ silent: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

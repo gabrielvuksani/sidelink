@@ -43,6 +43,7 @@ export class SchedulerService {
   ) {
     this.config = this.loadConfig();
     this.loadRefreshErrors();
+    this.loadRetryBackoff();
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────
@@ -202,8 +203,9 @@ export class SchedulerService {
           );
           const nextRetryAtMs = nowMs + retryDelayMinutes * 60_000;
           this.retryBackoff.set(state.installedAppId, { attempt: nextAttempt, nextRetryAtMs });
+          this.persistRetryBackoff();
 
-          this.logs.debug(LOG_CODES.REFRESH_SCHEDULED, 
+          this.logs.debug(LOG_CODES.REFRESH_SCHEDULED,
             `Skipping ${state.appName} — device not connected`, {
             bundleId: state.bundleId,
             deviceUdid: state.deviceUdid,
@@ -214,7 +216,9 @@ export class SchedulerService {
           continue;
         }
 
-        this.retryBackoff.delete(state.installedAppId);
+        if (this.retryBackoff.delete(state.installedAppId)) {
+          this.persistRetryBackoff();
+        }
 
         const app = this.db.getInstalledApp(state.installedAppId);
         if (app) {
@@ -235,11 +239,42 @@ export class SchedulerService {
 
   // ─── Webhook ───────────────────────────────────────────────────
 
+  /**
+   * POST an event payload to the user-configured webhook.
+   *
+   * Defence-in-depth SSRF guard: even though the PUT /system/webhook
+   * route validates the URL at write time, we re-validate at call time.
+   * A DB write that bypasses the route (migrations, manual SQL, etc.)
+   * cannot cause us to fetch an internal / loopback / RFC1918 host.
+   */
   private async fireWebhook(event: string, data: Record<string, unknown>): Promise<void> {
-    const url = this.db.getSetting('webhook_url');
-    if (!url) return;
+    const raw = this.db.getSetting('webhook_url');
+    if (!raw) return;
+
+    let parsed: URL;
     try {
-      await fetch(url, {
+      parsed = new URL(raw);
+    } catch {
+      this.logs.warn(
+        LOG_CODES.REFRESH_SCHEDULED,
+        'Webhook URL stored in settings is not a valid URL; ignoring',
+      );
+      return;
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return;
+    }
+    if (parsed.username || parsed.password) {
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isLocalNetworkHost } = require('../utils/network') as typeof import('../utils/network');
+    if (isLocalNetworkHost(parsed.hostname)) {
+      return;
+    }
+
+    try {
+      await fetch(parsed.href, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event, data, timestamp: new Date().toISOString() }),
@@ -325,6 +360,36 @@ export class SchedulerService {
       const obj = JSON.parse(raw) as Record<string, { message: string; at: string }>;
       for (const [key, value] of Object.entries(obj)) {
         this.refreshErrors.set(key, value);
+      }
+    } catch {
+      // Ignore corrupt data
+    }
+  }
+
+  /**
+   * Persist the retry backoff map so that a process restart doesn't make the
+   * scheduler forget devices that were disconnected and immediately retry the
+   * Apple auth path (which would pre-consume the free-account weekly App-ID
+   * quota). Entries that have already expired are dropped on load.
+   */
+  private persistRetryBackoff(): void {
+    const obj = Object.fromEntries(this.retryBackoff);
+    this.db.setSetting('scheduler_retry_backoff', JSON.stringify(obj));
+  }
+
+  private loadRetryBackoff(): void {
+    const raw = this.db.getSetting('scheduler_retry_backoff');
+    if (!raw) return;
+    try {
+      const obj = JSON.parse(raw) as Record<string, RetryBackoffState>;
+      const nowMs = Date.now();
+      for (const [key, value] of Object.entries(obj)) {
+        if (!value || typeof value.attempt !== 'number' || typeof value.nextRetryAtMs !== 'number') {
+          continue;
+        }
+        if (value.nextRetryAtMs > nowMs) {
+          this.retryBackoff.set(key, value);
+        }
       }
     } catch {
       // Ignore corrupt data

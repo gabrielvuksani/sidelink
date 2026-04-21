@@ -426,20 +426,24 @@ extension HelperViewModel {
     func beginPollingInstallJob(jobId: String) {
         activeJobPollingTask?.cancel()
         activeJobPollingTask = Task { [weak self] in
-            guard let self else { return }
+            // Re-weaken `self` per iteration so a dismissed view model can be
+            // deallocated mid-poll rather than kept alive by the strong
+            // capture the old `guard let self` created.
             let startedAt = Date()
             while !Task.isCancelled {
+                guard let self else { return }
                 if Date().timeIntervalSince(startedAt) > Self.installPollingTimeout {
-                    await MainActor.run {
-                        self.activeJobPollingTask = nil
+                    await MainActor.run { [weak self] in
+                        self?.activeJobPollingTask = nil
                     }
-                    break
+                    return
                 }
                 do {
                     let job = try await self.api.getInstallJob(baseURL: self.backendURL, token: self.helperToken, jobId: jobId)
                     let logs = await self.refreshActiveInstallLogs(jobId: job.id)
 
-                    let resolved = await MainActor.run {
+                    let resolved = await MainActor.run { [weak self] () -> InstallJobDetailDTO? in
+                        guard let self else { return nil }
                         let snapshot = self.applyInstallSnapshot(job, logs: logs)
                         if self.installConsoleTitle.isEmpty {
                             self.installConsoleTitle = self.inferredInstallName(for: snapshot)
@@ -450,17 +454,18 @@ extension HelperViewModel {
                         return snapshot
                     }
 
+                    guard let resolved else { return }
                     if resolved.status == "completed" || resolved.status == "failed" {
-                        await MainActor.run {
-                            self.activeJobPollingTask = nil
+                        await MainActor.run { [weak self] in
+                            self?.activeJobPollingTask = nil
                         }
-                        break
+                        return
                     }
                 } catch {
-                    await MainActor.run {
-                        self.activeJobPollingTask = nil
+                    await MainActor.run { [weak self] in
+                        self?.activeJobPollingTask = nil
                     }
-                    break
+                    return
                 }
 
                 try? await Task.sleep(nanoseconds: 1_500_000_000)

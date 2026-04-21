@@ -153,14 +153,41 @@ export function systemRoutes(ctx: AppContext): Router {
 
   router.put('/webhook', (req, res) => {
     const { url } = req.body ?? {};
-    if (url !== undefined && url !== null) {
-      const trimmed = String(url).trim();
-      if (trimmed) {
-        ctx.db.setSetting('webhook_url', trimmed);
-      } else {
-        ctx.db.setSetting('webhook_url', '');
-      }
+    if (url === undefined || url === null) {
+      return res.json({ ok: true });
     }
+    const trimmed = String(url).trim();
+    if (trimmed === '') {
+      ctx.db.setSetting('webhook_url', '');
+      return res.json({ ok: true });
+    }
+
+    // SSRF guard: validate URL parse, require http/https, and refuse
+    // any non-public-internet host. Without this check an authenticated
+    // user could configure http://169.254.169.254/... (AWS IMDS) or
+    // http://127.0.0.1:4010/... (self) and the scheduler would then
+    // issue server-side authenticated POSTs to those targets.
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Webhook URL is not a valid URL' });
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return res.status(400).json({ ok: false, error: 'Webhook URL must use http or https' });
+    }
+    if (parsed.username || parsed.password) {
+      return res.status(400).json({ ok: false, error: 'Webhook URL must not embed credentials' });
+    }
+    // isLocalNetworkHost is defined in utils/network; imported lazily
+    // to avoid a circular-import risk when the route file is loaded at
+    // startup. Covers loopback, RFC1918, 169.254/16 link-local, and .local.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isLocalNetworkHost } = require('../utils/network') as typeof import('../utils/network');
+    if (isLocalNetworkHost(parsed.hostname)) {
+      return res.status(400).json({ ok: false, error: 'Webhook URL must point at a public host, not a local/private address' });
+    }
+    ctx.db.setSetting('webhook_url', parsed.href);
     res.json({ ok: true });
   });
 

@@ -252,7 +252,13 @@ function checkUsbStack() {
   return false;
 }
 
-/** macOS: libimobiledevice via Homebrew */
+/** macOS: libimobiledevice via Homebrew.
+ *
+ * Runs via `npm install` postinstall, so it must not surprise users by
+ * running `brew install` without consent. By default we only check + print
+ * manual instructions; auto-install is opt-in via SIDELINK_AUTO_INSTALL=1
+ * (used by CI and by our packaged-installer flow).
+ */
 function checkUsbStackMac() {
   if (which('idevice_id') || which('ideviceinfo')) {
     ok('libimobiledevice');
@@ -265,7 +271,15 @@ function checkUsbStackMac() {
     return false;
   }
 
-  info('Installing libimobiledevice...');
+  const autoInstall = process.env.SIDELINK_AUTO_INSTALL === '1';
+  if (!autoInstall) {
+    warn('libimobiledevice is missing.');
+    info('Run: brew install libimobiledevice');
+    info('Or set SIDELINK_AUTO_INSTALL=1 to auto-install during this preflight.');
+    return false;
+  }
+
+  info('SIDELINK_AUTO_INSTALL=1 set; installing libimobiledevice...');
   const r = run('brew', ['install', 'libimobiledevice'], { timeout: 300000 });
   if (r.status === 0) {
     ok('libimobiledevice installed');

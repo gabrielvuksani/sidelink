@@ -170,8 +170,25 @@ final class HelperViewModel: ObservableObject {
     }
 
     deinit {
+        // `deinit` runs off the main actor. Accessing @MainActor-isolated state
+        // here is unsafe under Swift 6 strict concurrency. Only touch the
+        // nonisolated subsystems; callers should invoke `invalidate()` from
+        // the view's `.onDisappear` to deterministically release VM state.
+        sseClient.disconnect()
+        discovery.stop()
+    }
+
+    /// Call from the root view's lifecycle (e.g. `.onDisappear`) to cancel all
+    /// in-flight tasks and tear down long-lived subscriptions before the
+    /// ObservableObject is actually deallocated. This used to live in `deinit`
+    /// but that required `@MainActor`-isolated state access from a nonisolated
+    /// context, which produces Swift 6 strict-concurrency warnings.
+    @MainActor
+    func invalidate() {
         activeJobPollingTask?.cancel()
+        activeJobPollingTask = nil
         sseReconnectTask?.cancel()
+        sseReconnectTask = nil
         sseClient.disconnect()
         discovery.stop()
     }

@@ -133,8 +133,13 @@ export function useDesktopHealth(options: UseDesktopHealthOptions = {}) {
       setUiSnapshot(snapshotKey, nextData);
       setError(null);
 
-      // Also update the shared poller state so new subscribers get fresh data
-      for (const [, poller] of activePollers) {
+      // Broadcast only to pollers for the snapshotKey we just fetched, so a
+      // DashboardPage poll doesn't overwrite state on an unrelated DevicesPage
+      // poller. The `pollerKey` format is `${snapshotKey}::${autoRefreshMs}`
+      // — we compare the prefix up to and including `::`.
+      const scopedPrefix = `${snapshotKey}::`;
+      for (const [key, poller] of activePollers) {
+        if (!key.startsWith(scopedPrefix)) continue;
         poller.state = { data: nextData, error: null, loading: false };
         for (const listener of poller.listeners) {
           listener(poller.state);

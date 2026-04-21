@@ -17,6 +17,26 @@ const PREFERRED_PORT = parseInt(process.env.SIDELINK_PORT ?? process.env.PORT ??
 const HOST = process.env.SIDELINK_HOST ?? process.env.HOST ?? '0.0.0.0';
 const MAX_PORT_ATTEMPTS = 20;
 
+// Ensure SIDELINK_APP_VERSION is always populated so auth-service migrations
+// key off the correct app version. Prefer a value already set by a caller
+// (Electron main process), then npm_package_version, then the package.json
+// resolved at runtime — which works in dev but not in webpack/esbuild bundles
+// where package.json is stripped from the graph.
+if (!process.env.SIDELINK_APP_VERSION) {
+  if (process.env.npm_package_version) {
+    process.env.SIDELINK_APP_VERSION = process.env.npm_package_version;
+  } else {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pkg = require('../../package.json') as { version?: string };
+      if (pkg?.version) process.env.SIDELINK_APP_VERSION = pkg.version;
+    } catch {
+      // Bundled build: caller must set SIDELINK_APP_VERSION explicitly.
+      console.warn('[server] SIDELINK_APP_VERSION unset and package.json unresolved; auth migrations will skip version tracking.');
+    }
+  }
+}
+
 if (Number.isNaN(PREFERRED_PORT) || PREFERRED_PORT < 1 || PREFERRED_PORT > 65535) {
   console.error(`Invalid port: ${process.env.SIDELINK_PORT ?? process.env.PORT}`);
   process.exit(1);

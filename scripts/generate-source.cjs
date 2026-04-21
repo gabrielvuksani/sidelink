@@ -186,14 +186,39 @@ function buildVersionEntry(meta, filename, overrides, fileStat) {
   };
 }
 
-function buildAppShell(meta, overrides) {
+/**
+ * Reject companion-JSON URLs that don't use https:. An untrusted companion
+ * JSON could otherwise inject `javascript:`, `data:`, or attacker-controlled
+ * `http://` URLs into the published source feed that are then loaded by the
+ * AltStore/SideLink clients consuming the manifest. Returns the URL when
+ * safe, or throws with a clear message so the generate step fails loudly.
+ */
+function assertHttpsUrl(value, field, filename) {
+  if (value === undefined || value === null || value === '') return value;
+  const str = String(value);
+  try {
+    const parsed = new URL(str);
+    if (parsed.protocol !== 'https:') {
+      throw new Error(`${filename}: '${field}' must use https:// (got ${parsed.protocol})`);
+    }
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new Error(`${filename}: '${field}' is not a valid URL: ${str}`);
+    }
+    throw err;
+  }
+  return str;
+}
+
+function buildAppShell(meta, overrides, filename) {
+  const iconURL = assertHttpsUrl(overrides.iconURL, 'iconURL', filename) || DEFAULT_ICON;
   const entry = {
     name: overrides.name || meta.name,
     bundleIdentifier: meta.bundleId,
     developerName: overrides.developerName || 'Unknown',
     subtitle: overrides.subtitle || '',
     localizedDescription: overrides.localizedDescription || '',
-    iconURL: overrides.iconURL || DEFAULT_ICON,
+    iconURL,
     tintColor: overrides.tintColor || '#1f9fbf',
     versions: [],
   };
@@ -207,7 +232,7 @@ function buildAppShell(meta, overrides) {
 
 function upsertAppEntry(appsByBundle, meta, filename, overrides, fileStat, featuredApps) {
   const nextVersion = buildVersionEntry(meta, filename, overrides, fileStat);
-  const nextShell = buildAppShell(meta, overrides);
+  const nextShell = buildAppShell(meta, overrides, filename);
   const existing = appsByBundle.get(meta.bundleId);
 
   if (!existing) {

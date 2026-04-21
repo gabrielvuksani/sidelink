@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+# ─── SideLink pre-commit ────────────────────────────────────────────
+# Refuses to commit macOS AppleDouble (._*) metadata files. They appear
+# when copying between HFS+/APFS and FAT/ExFAT volumes and trivially
+# bloat git history. This hook removes any staged AppleDouble files
+# before the commit runs rather than hard-failing, since they're
+# always safe to drop.
+
+set -eu
+
+staged_apple_double=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)\._[^/]*$' || true)
+
+if [ -n "$staged_apple_double" ]; then
+  echo "pre-commit: removing AppleDouble metadata from commit:"
+  echo "$staged_apple_double" | sed 's/^/  - /'
+  echo "$staged_apple_double" | while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    git rm -f --cached -- "$file" >/dev/null 2>&1 || true
+    [ -f "$file" ] && rm -f -- "$file"
+  done
+fi
+
+exit 0

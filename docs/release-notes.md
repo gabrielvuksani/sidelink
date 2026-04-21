@@ -2,6 +2,48 @@
 
 This page tracks the user-visible release surface and the release-engineering changes that matter when you publish SideLink.
 
+## v0.8.0
+
+### Highlights
+
+- Closed the remaining 8 CRITICAL and ~20 HIGH findings from the 0.7 deep-dive audit across server, iOS helper, React client, scripts, and docs.
+- Added an AltStore-compatible source consumer: any third-party `{name, identifier, sourceURL, apps[]}` JSON feed can now be imported and combined with the official SideLink source.
+- Hardened the iOS deep-link source-import flow so `sidelink://source?url=…` requires https, blocks private network hosts, strips control characters, and presents the resolved origin in bold on the confirmation sheet.
+- Re-architected the Electron internal auth token so it lives only in the main-process memory and is never written to `process.env`, preventing spawned Python helpers from reading an authenticated token for the local HTTP server.
+- Expanded `docs/api-reference.md` to cover every registered route (including the previously undocumented ~30 endpoints) and documented `bundleIdStrategy` / `customDisplayName` on the install body schema.
+
+### Security & Correctness
+
+| Area | Change | Why it matters |
+| --- | --- | --- |
+| iOS deep-link import | Requires https, rejects private hosts, sanitises control characters, displays origin in bold on the confirmation sheet | A Safari redirect can no longer silently import an attacker-controlled source |
+| iOS `AnyCodable` | Unknown JSON shape throws instead of coercing to `NSNull` | A malformed server manifest can no longer hide entitlements from the helper UI |
+| iOS image decode | Base64 icons are bounded to 1 MiB and decoded through `SidelinkImageDecoder`; `SidelinkAsyncImage` rejects non-https URLs | Memory-exhaustion by oversized or attacker-scheme images is no longer possible |
+| Server `device-registrar` | Per-(accountId, udid) in-process mutex + idempotent DB upsert | Two concurrent pipelines for the same device no longer race the Apple portal |
+| Server `/install/apps/:id DELETE` | Now performs best-effort on-device uninstall and signed-IPA cleanup before deleting the row; `?force=1` skips device uninstall | Removing an app from the dashboard actually uninstalls it from the device |
+| Server `internalToken` | Never written to `process.env`; passed explicitly to `createApp(ctx, { internalToken })` | Spawned Python / system tools can't inherit a valid session token |
+| Server source-fetch SSRF | DNS resolution on fetch; rejects hostnames that resolve to private IPs | A malicious source URL can no longer smuggle in a LAN fetch via DNS rebinding |
+| Server scheduler | `retryBackoff` map persisted alongside `refreshErrors` | Process restart no longer produces an immediate Apple-auth retry storm |
+| Server `auth.setupAdmin` | Wrapped in a transaction; returns `409` on duplicate instead of `500` | Concurrent setup-wizard tabs produce a deterministic conflict |
+| Server migrations | `ADD COLUMN` now tolerates "duplicate column" errors | Reused dev databases that already have the columns no longer crash on startup |
+| Server version detection | Dropped `require(package.json)`; prefer `SIDELINK_APP_VERSION` and `npm_package_version` | Packaged/asar builds no longer silently skip the auth version-change migration |
+| Server update-check | Uses `semver.gt` on coerced versions | `"1.10.0"` is correctly newer than `"1.9.0"` |
+| Server source dedup | Highest semver wins per bundleId | Newer versions published in a later-ordered source no longer get masked |
+| React | `HelperPairingPanel` only rotates the pairing code when no warm snapshot exists | Route toggling no longer invalidates a code the user is still entering |
+| React | `useDesktopHealth` broadcasts only to pollers matching the snapshot key | Unrelated dashboards no longer receive each others' state |
+| React | `InstallModal` SSE handler reads `activeJobRef` instead of the render closure | The first job update delivered immediately after `install()` is no longer dropped |
+| React | Apple password is mirrored to a ref and cleared from state the instant the credential step succeeds | 2FA challenge step no longer retains the plaintext password in React state |
+| React | Source manifest images pass through `safeHttpsUrl()` and render with `referrerPolicy="no-referrer"` + `crossOrigin="anonymous"` | Attacker-controlled source manifest URLs can't load non-https or leak the referrer |
+| React | `SelfHostedEditor.parseManifestText` validates shape instead of blind-casting | Pasted malformed JSON yields a clean validation error, not a runtime throw |
+| React | `TimeAgo` / `useTimeSince` share a single `setInterval` ticker | Per-card timers no longer multiply with dashboard row count |
+| CI / scripts | `postinstall` brew install is gated behind `SIDELINK_AUTO_INSTALL=1`; `gsa-auth-helper.py` stderr no longer prints raw tracebacks; `generate-source.cjs` enforces https on companion iconURLs; `release.sh` anchors the tag check to `refs/tags/$TAG$`; `python-bundle/requirements.txt` pinning aligned with preflight | Surprise-install, credential leakage, feed poisoning, and release-blocking false positives are all gone |
+| Docs | `api-reference.md` enumerates every live route; all v0.3.1 references updated; `bundleIdStrategy` documented | Users following the docs can actually use the API surface |
+
+### New Features
+
+- **AltStore source feed consumer** — adding a third-party source URL now fetches and normalises any `{name, identifier, sourceURL, apps[]}` manifest. Sources combine with the official feed in the browse tabs and are deduplicated by `bundleIdentifier` picking the highest semver.
+- **Install payload options** — `POST /install` now accepts `bundleIdStrategy` (`"deterministic"` or `"randomized"`) and `customDisplayName`. `randomized` rewrites the bundle ID so duplicate installs don't collide on one device; `customDisplayName` replaces `CFBundleDisplayName` so the duplicates are distinguishable on the home screen.
+
 ## v0.3.1
 
 ### Highlights

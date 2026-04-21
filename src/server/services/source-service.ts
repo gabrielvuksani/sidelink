@@ -1,4 +1,6 @@
 import { v4 as uuid } from 'uuid';
+import dns from 'node:dns/promises';
+import semver from 'semver';
 import type { SourceApp, SourceManifest, UserSource, UserSourceWithManifest } from '../../shared/types';
 import type { Database } from '../state/database';
 import { AppError } from '../utils/errors';
@@ -104,7 +106,15 @@ export class SourceService {
     for (const source of sources) {
       const apps = source.cachedManifest?.apps ?? [];
       for (const app of apps) {
-        if (!appsByBundle.has(app.bundleIdentifier)) {
+        const existing = appsByBundle.get(app.bundleIdentifier);
+        if (!existing) {
+          appsByBundle.set(app.bundleIdentifier, app);
+          continue;
+        }
+        // Prefer the entry with the highest semver so first-wins doesn't mask a
+        // newer version published in a later-ordered source. Coerce tolerantly
+        // so manifests like "1.4.2-beta" or "2025.04" still compare.
+        if (compareAppVersions(app, existing) > 0) {
           appsByBundle.set(app.bundleIdentifier, app);
         }
       }
@@ -170,6 +180,15 @@ export class SourceService {
   }
 
   private async fetchManifest(url: string): Promise<SourceManifest> {
+    // Resolve the hostname once and verify the resulting IPs are not private
+    // for https sources. normalizeSourceUrl already rejects http → public, but
+    // an attacker-controlled https hostname could still resolve to a private
+    // IP (DNS rebinding / inside-the-LAN redirect). Reject before fetching.
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:') {
+      await assertHostResolvesToPublicAddress(parsed.hostname);
+    }
+
     const payload = await fetchJsonWithLimit<unknown>(url, {
       contextLabel: 'Source manifest',
       timeoutMs: 20_000,
@@ -181,6 +200,48 @@ export class SourceService {
       },
     });
     return validateManifestShape(payload);
+  }
+}
+
+function topVersionOf(app: SourceApp): string | null {
+  if (app.version) return app.version;
+  const first = app.versions?.[0]?.version;
+  return first ?? null;
+}
+
+function compareAppVersions(a: SourceApp, b: SourceApp): number {
+  const av = topVersionOf(a);
+  const bv = topVersionOf(b);
+  if (!av && !bv) return 0;
+  if (!av) return -1;
+  if (!bv) return 1;
+
+  const coercedA = semver.coerce(av);
+  const coercedB = semver.coerce(bv);
+  if (coercedA && coercedB) {
+    return semver.compare(coercedA, coercedB);
+  }
+  return av.localeCompare(bv);
+}
+
+async function assertHostResolvesToPublicAddress(hostname: string): Promise<void> {
+  // Literal IPs are caught by the loopback/private check directly.
+  if (isLocalNetworkHost(hostname)) {
+    throw new AppError('SOURCE_PRIVATE_HOST', 'Source manifest host resolves to a private address', 400);
+  }
+
+  let records: { address: string; family: number }[];
+  try {
+    records = await dns.lookup(hostname, { all: true });
+  } catch {
+    // DNS failure surfaces later as a REMOTE_REQUEST_FAILED; don't double-fail.
+    return;
+  }
+
+  for (const record of records) {
+    if (isLocalNetworkHost(record.address)) {
+      throw new AppError('SOURCE_PRIVATE_HOST', 'Source manifest host resolves to a private address', 400);
+    }
   }
 }
 
