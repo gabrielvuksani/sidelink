@@ -38,14 +38,17 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      - name: Upgrade npm to 11
+        # Node 22's bundled npm is still 10.x, which has two blocking
+        # bugs for this lockfile:
+        #   1. Missing parallel peer-dep trees on `npm ci` (complains
+        #      about @types/react@18.x even though React 19 is direct dep)
+        #   2. Platform-specific optionalDependencies silently skipped
+        #      (npm/cli#4828) — breaks rollup's native binary selection
+        # npm 11 fixes both. Pin explicitly rather than inheriting Node's.
+        run: npm install -g npm@11
+
       - name: Install dependencies
-        # Don't use --ignore-scripts here: npm has a known bug
-        # (npm/cli#4828) where --ignore-scripts suppresses installation
-        # of platform-specific optionalDependencies (e.g.
-        # @rollup/rollup-linux-x64-gnu, @rollup/rollup-win32-x64-msvc).
-        # This lint/test workflow only needs npm-side scripts suppressed,
-        # which `npm_config_foreground_scripts=false` achieves without
-        # breaking rollup's native binary selection.
         run: npm ci
 
       - name: Rebuild native modules

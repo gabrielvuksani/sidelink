@@ -155,6 +155,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Upgrade npm to 11
+        # Node 22 still ships npm 10, which fails on this lockfile's
+        # platform-specific optionalDependencies (npm/cli#4828). npm 11
+        # fixes it. Pin explicitly so the release build is reproducible.
+        run: npm install -g npm@11
+
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
