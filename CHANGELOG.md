@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.1] - 2026-04-21
+
+### CI / release hotfix
+- Resync `package-lock.json` with `package.json` so GitHub Actions' `npm ci` stops failing on the v0.8.0 tag build. No runtime code changed between 0.8.0 and 0.8.1 — this release exists solely to give all four platforms (mac-arm64, mac-x64, win, linux) a workflow-built DMG/installer. The manually-built `SideLink-0.8.0-arm64.dmg` attached to the v0.8.0 GitHub release remains valid for arm64 users; anyone else should grab v0.8.1 assets.
+
 ## [0.8.0] - 2026-04-21
 
 ### Security — critical
