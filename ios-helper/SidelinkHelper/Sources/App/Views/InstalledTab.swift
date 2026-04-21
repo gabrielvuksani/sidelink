@@ -912,9 +912,7 @@ struct InstalledTab: View {
 
     private func libraryRow(_ ipa: IpaArtifactDTO) -> some View {
         HStack(spacing: 12) {
-            if let iconData = ipa.iconData,
-               let data = Data(base64Encoded: iconData),
-               let uiImage = UIImage(data: data) {
+            if let uiImage = SidelinkImageDecoder.decodeBoundedBase64(ipa.iconData) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .appIconStyle(size: 44)

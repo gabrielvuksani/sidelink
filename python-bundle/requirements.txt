@@ -1,6 +1,12 @@
-anisette
-srp
-pbkdf2
-requests
-cryptography
-pymobiledevice3
+# SideLink python runtime dependencies.
+# Versions are kept in sync with scripts/system-deps-preflight.cjs so dev and
+# packaged builds install the same set. Exact pins (==) are used where
+# the upstream has shipped ABI-breaking changes in recent minor versions;
+# soft floors (>=) are used where the API is stable.
+anisette>=1.2.0
+srp==1.0.21
+pbkdf2>=1.3
+requests==2.32.3
+cryptography==44.0.3
+truststore>=0.10.0
+pymobiledevice3>=4.0.0

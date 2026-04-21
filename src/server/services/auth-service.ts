@@ -69,33 +69,16 @@ export class AuthService {
   }
 
   private getAppMajorMinor(): string | null {
-    // Try multiple sources in priority order
-
-    // 1. SIDELINK_APP_VERSION env var (set by Electron main process)
-    const envVersion = process.env.SIDELINK_APP_VERSION;
-    if (envVersion) {
-      const parts = envVersion.split('.');
-      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
-    }
-
-    // 2. npm_package_version (available when run via npm scripts)
-    const npmVersion = process.env.npm_package_version;
-    if (npmVersion) {
-      const parts = npmVersion.split('.');
-      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
-    }
-
-    // 3. require package.json (works in dev, may fail in packaged app)
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pkg = require('../../../package.json') as { version?: string };
-      const parts = (pkg.version ?? '').split('.');
-      if (parts.length >= 2) return `${parts[0]}.${parts[1]}`;
-    } catch {
-      // Expected to fail in packaged/asar builds
-    }
-
-    return null;
+    // Prefer SIDELINK_APP_VERSION (Electron writes it before startup) and fall
+    // back to npm_package_version for tests / `npm run` paths. We intentionally
+    // avoid require('package.json') because webpack/esbuild bundling strips it
+    // from packaged builds, which caused silent auth migrations to skip in
+    // prior releases.
+    const envVersion = process.env.SIDELINK_APP_VERSION ?? process.env.npm_package_version;
+    if (!envVersion) return null;
+    const parts = envVersion.split('.');
+    if (parts.length < 2) return null;
+    return `${parts[0]}.${parts[1]}`;
   }
 
   // ─── Password Management ────────────────────────────────────────
@@ -136,17 +119,36 @@ export class AuthService {
    * Create the initial admin user. Only works if no admin exists.
    */
   async setupAdmin(username: string, password: string): Promise<UserSession> {
-    if (this.isSetupComplete()) {
-      throw new AuthError('Admin user already exists');
-    }
     if (password.length < 8) {
-      throw new AuthError('Password must be at least 8 characters');
+      throw new AuthError('Password must be at least 8 characters', 400);
     }
     const hash = await this.hashPassword(password);
     const userId = randomBytes(8).toString('hex');
-    this.db.prepare(
-      'INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(userId, username, hash, 'admin', new Date().toISOString());
+
+    // Wrap the check-then-insert in a transaction so concurrent setupAdmin
+    // requests from duplicate setup-wizard tabs produce a deterministic 409
+    // instead of one request succeeding and the other crashing on the users-
+    // username unique index with a raw SqliteError.
+    try {
+      this.db.runInTransaction(() => {
+        const existing = this.db.prepare<[], { count: number }>(
+          'SELECT COUNT(*) as count FROM users WHERE role = ?',
+        ).get('admin');
+        if ((existing?.count ?? 0) > 0) {
+          throw new AuthError('Admin user already exists', 409);
+        }
+        this.db.prepare(
+          'INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
+        ).run(userId, username, hash, 'admin', new Date().toISOString());
+      });
+    } catch (err) {
+      if (err instanceof AuthError) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (/UNIQUE constraint failed/i.test(message)) {
+        throw new AuthError('Admin user already exists', 409);
+      }
+      throw err;
+    }
 
     this.logs.info(LOG_CODES.ADMIN_LOGIN, 'Admin user created', { username });
     return this.createSession(userId);

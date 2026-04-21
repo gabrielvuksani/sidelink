@@ -165,6 +165,13 @@ function InstallModal({
   const [deviceCapabilities, setDeviceCapabilities] = useState<{ hasLiveContainer: boolean; liveContainerBundleId: string | null; totalAppsInstalled: number } | null>(null);
   const [installing, setInstalling] = useState(false);
   const [activeJob, setActiveJob] = useState<InstallJob | null>(null);
+  // Mirror activeJob into a ref so the SSE handler — which is registered
+  // once and closes over the initial render — always sees the latest value,
+  // not the `null` captured when the modal first opened. Without this,
+  // the first `job-update` event delivered immediately after `install()` was
+  // dropped because `activeJob` in the closure was still `null`.
+  const activeJobRef = useRef<InstallJob | null>(null);
+  useEffect(() => { activeJobRef.current = activeJob; }, [activeJob]);
   const [error, setError] = useState('');
   const [twoFACode, setTwoFACode] = useState('');
   const [submitting2FA, setSubmitting2FA] = useState(false);
@@ -367,13 +374,17 @@ function InstallModal({
 
   useBodyScrollLock(true);
 
-  // SSE for job updates and live inventory refreshes
+  // SSE for job updates and live inventory refreshes. Handlers read from
+  // activeJobRef instead of the activeJob render value so the first event
+  // delivered immediately after `install()` isn't dropped because of a stale
+  // closure over the pre-install `null`.
   useSSE({
     'device-update': () => { scheduleInventoryReload({ silent: true }); },
     'app-update': () => { scheduleInventoryReload({ silent: true }); },
     'job-update': (data) => {
       const job = data as InstallJob;
-      if (activeJob && job?.id === activeJob.id) {
+      const currentJob = activeJobRef.current;
+      if (currentJob && job?.id === currentJob.id) {
         setActiveJob(job);
         if (job.status === 'completed') {
           toast('success', 'App installed successfully!');
@@ -387,7 +398,8 @@ function InstallModal({
     },
     'job-log': (data) => {
       const entry = data as JobLogEntry;
-      if (!activeJob || entry.jobId !== activeJob.id) return;
+      const currentJob = activeJobRef.current;
+      if (!currentJob || entry.jobId !== currentJob.id) return;
       setJobLogs((prev) => [...prev, entry].slice(-UI_LIMITS.maxJobLogEntries));
     },
   });

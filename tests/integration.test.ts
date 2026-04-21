@@ -111,7 +111,11 @@ describe('Auth routes', () => {
         username: 'hacker',
         password: 'SomePass123!',
       });
-      expect(res.status).toBe(401);
+      // 409 is the correct semantic — admin already exists is a conflict on
+      // state, not an authentication failure. Prior 401 was a bug (the caller
+      // was not authenticated, but the reason for refusing is the duplicate
+      // admin, and setup is a pre-auth endpoint anyway).
+      expect(res.status).toBe(409);
     });
   });
 

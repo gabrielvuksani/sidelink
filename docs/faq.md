@@ -30,7 +30,7 @@ Helper pairs to a running SideLink server. Desktop is recommended for easiest se
 
 ## Why is the desktop release flow stricter now?
 
-Because a successful build is not enough. Starting with the `v0.2.x` release hardening and carried forward through `v0.3.1`, SideLink validates packaged startup, bundled Apple runtime health, helper build integrity, and packaged helper behavior before publish so a clean CI build is not mistaken for a usable desktop release.
+Because a successful build is not enough. Starting with the `v0.2.x` release hardening and carried forward through `v0.8.0`, SideLink validates packaged startup, bundled Apple runtime health, helper build integrity, and packaged helper behavior before publish so a clean CI build is not mistaken for a usable desktop release.
 
 ## Where do the docs publish?
 

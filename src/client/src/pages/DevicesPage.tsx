@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { getErrorMessage } from '../lib/errors';
 import { useSSE } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
+import { useSharedTick } from '../hooks/useSharedTick';
 import { useToast } from '../components/Toast';
 import { PageHeader, EmptyState, SectionHeading, Collapsible } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
@@ -199,12 +200,9 @@ function TroubleshootTip({ title, detail }: { title: string; detail: string }) {
 }
 
 function useTimeSince(timestampMs: number): string {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 5_000);
-    return () => clearInterval(id);
-  }, []);
-
+  // Use the shared ticker so every devices row doesn't spawn its own
+  // setInterval. 5s granularity matches the previous cadence.
+  useSharedTick(5_000);
   const seconds = Math.floor((Date.now() - timestampMs) / 1000);
   if (seconds < 5) return 'Just now';
   if (seconds < 60) return `${seconds}s ago`;

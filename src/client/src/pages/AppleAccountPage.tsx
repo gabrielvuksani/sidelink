@@ -567,15 +567,26 @@ function SignInForm({ onDone }: { onDone: () => void }) {
   const [twoFAInfo, setTwoFAInfo] = useState<Apple2FAChallenge | null>(null);
   const { toast } = useToast();
 
+  // Keep the password captured in a ref after the credential step so the
+  // React state form can be emptied immediately. Displayed state (`password`)
+  // is cleared as soon as the credential step succeeds so it doesn't survive
+  // in the DOM/devtools through the 2FA challenge; the ref remains only long
+  // enough to complete the 2FA verify, then is zeroed.
+  const passwordRef = useRef<string>('');
+
   const signIn = async () => {
     setError('');
     setLoading(true);
     try {
       const res = await api.appleSignIn(appleId, password);
+      passwordRef.current = password;
       if (res.data && 'requires2FA' in res.data && res.data.requires2FA) {
         setTwoFAInfo(res.data as Apple2FAChallenge);
+        setPassword('');
         setStep('2fa');
       } else {
+        setPassword('');
+        passwordRef.current = '';
         toast('success', 'Apple ID signed in successfully');
         onDone();
       }
@@ -583,6 +594,7 @@ function SignInForm({ onDone }: { onDone: () => void }) {
       const body = (e as { data?: Apple2FAChallenge })?.data ?? (e as Apple2FAChallenge);
       if (body?.requires2FA) {
         setTwoFAInfo(body);
+        setPassword('');
         setStep('2fa');
       } else {
         setError(getErrorMessage(e, 'Sign in failed'));
@@ -596,7 +608,8 @@ function SignInForm({ onDone }: { onDone: () => void }) {
     setError('');
     setLoading(true);
     try {
-      await api.submitApple2FA({ appleId, password, code });
+      await api.submitApple2FA({ appleId, password: passwordRef.current, code });
+      passwordRef.current = '';
       toast('success', 'Apple ID verified successfully');
       onDone();
     } catch (e: unknown) {

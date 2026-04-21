@@ -47,7 +47,7 @@ Use this page when launch, pairing, sign-in, source, install, packaging, or help
 
 ## Downloaded DMG App Crashes On Launch
 
-- Confirm the release was built after the packaged-runtime hardening carried through `v0.3.1`.
+- Confirm the release was built after the packaged-runtime hardening carried through `v0.8.0`.
 - Check that the release workflow completed the packaged smoke test.
 - Reproduce locally with `npm run desktop:package` followed by `npm run desktop:smoke`.
 - If Apple auth or device discovery fails only in the packaged app, check desktop diagnostics for bundled helper runtime health before assuming the app itself is corrupt.

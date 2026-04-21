@@ -150,6 +150,13 @@ struct IpaExtensionDTO: Decodable, Identifiable {
 }
 
 /// Type-erased Codable wrapper for mixed JSON values (entitlements).
+///
+/// An earlier version coerced unrecognised shapes silently to `NSNull`, which
+/// meant a malformed (or intentionally adversarial) server manifest could hide
+/// dangerous entitlements from the UI: the decode would succeed with a `NULL`
+/// in place of the actual value and the user would never see the entitlement
+/// listed. Now an unknown shape throws a `DataCorrupted` error so the caller
+/// can surface a clear "manifest is malformed" warning instead.
 struct AnyCodable: Decodable {
     let value: Any
 
@@ -170,7 +177,10 @@ struct AnyCodable: Decodable {
         } else if let dict = try? container.decode([String: AnyCodable].self) {
             value = dict.mapValues(\.value)
         } else {
-            value = NSNull()
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "AnyCodable encountered an unsupported JSON shape. Refusing to coerce to null — a malformed manifest must not hide entitlements from the user."
+            )
         }
     }
 }

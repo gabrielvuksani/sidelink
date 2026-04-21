@@ -2,6 +2,10 @@
 
 Use this page if you want the public SideLink source feed, direct IPA downloads, or a clear explanation of how app assets reach users.
 
+SideLink is an AltStore-compatible source consumer: adding any `{name, identifier, sourceURL, apps[]}` JSON feed (AltStore, SideStore, Feather, Quark, or your own) imports that source into the browse tabs alongside the official feed. Duplicate bundle IDs across sources are collapsed to the highest semver at read time so a newer version in a later-added source doesn't get masked by an older entry.
+
+Trusted feeds ship pre-populated in the Sources tab for one-tap install — see `src/server/data/trusted-sources.json`.
+
 ## What This Source Is
 
 The official SideLink source is an AltStore-compatible JSON feed published from this repository and backed by GitHub Release assets.

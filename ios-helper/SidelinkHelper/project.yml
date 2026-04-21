@@ -4,7 +4,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.0
-    IPHONEOS_DEPLOYMENT_TARGET: 16.0
+    # iOS 17.0: code uses the two-parameter SwiftUI `.onChange(of:initial:_:)`
+    # signature (SidelinkHelperApp.swift:16, SidelinkApp.swift:71) and other
+    # iOS 17-only SwiftUI APIs. Dropping back to 16 would require a bulk
+    # rewrite of onChange callsites across the app.
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
 configs:
   Debug: debug
   Release: release
@@ -12,7 +16,7 @@ targets:
   SidelinkHelper:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: Sources/App
     settings:

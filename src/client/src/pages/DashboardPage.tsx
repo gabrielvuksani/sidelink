@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useSSE, SSEIndicator } from '../hooks/useSSE';
 import { usePageRefresh } from '../hooks/usePageRefresh';
+import { useSharedTick } from '../hooks/useSharedTick';
 import { useInstallModal } from '../components/InstallModal';
 import { StatusBadge, PageHeader, EmptyState } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
@@ -537,14 +538,10 @@ function OverviewWidgetShell({
 }
 
 function TimeAgo({ timestamp }: { timestamp: number }) {
-  const [secondsAgo, setSecondsAgo] = useState(0);
-  useEffect(() => {
-    setSecondsAgo(Math.floor((Date.now() - timestamp) / 1000));
-    const interval = window.setInterval(() => {
-      setSecondsAgo(Math.floor((Date.now() - timestamp) / 1000));
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [timestamp]);
+  // Use the shared 1-second tick so every per-card TimeAgo doesn't spin up
+  // its own setInterval. The function reads Date.now() on each re-render.
+  useSharedTick(1_000);
+  const secondsAgo = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
 
   if (secondsAgo < 5) return <>just now</>;
   if (secondsAgo < 60) return <>{secondsAgo}s ago</>;

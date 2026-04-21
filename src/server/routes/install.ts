@@ -6,11 +6,13 @@
 // DELETE /api/install/apps/:id — remove installed app record
 
 import { Router } from 'express';
+import fs from 'node:fs/promises';
 import type { AppContext } from '../context';
 import { getJob, listJobs, submitJobTwoFA, cancelJob } from '../pipeline';
 import { validators } from '../utils/validators';
 import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
 import { notifyInstalledAppsChanged } from '../services/installed-app-events';
+import semver from 'semver';
 
 export function installRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -95,29 +97,39 @@ export function installRoutes(ctx: AppContext): Router {
     res.json({ ok: true });
   });
 
-  // Check for available updates from sources
+  // Check for available updates from sources. A source version is only offered as
+  // an update when it is strictly greater than the installed version using
+  // semver-aware comparison — prior string compare treated "1.10" < "1.9".
   router.get('/apps/updates', (_req, res) => {
     const installed = ctx.db.listInstalledApps();
     const sources = ctx.sources.combined();
 
     const updates = installed
-      .filter(app => app.status === 'active')
-      .map(app => {
-        const sourceApp = sources.apps.find(s => s.bundleIdentifier === app.originalBundleId);
+      .filter((app) => app.status === 'active')
+      .map((app) => {
+        const sourceApp = sources.apps.find((s) => s.bundleIdentifier === app.originalBundleId);
         if (!sourceApp) return null;
         const sourceVersion = sourceApp.version ?? sourceApp.versions?.[0]?.version;
         const installedVersion = app.appVersion;
-        if (sourceVersion && installedVersion && sourceVersion !== installedVersion) {
-          return {
-            installedAppId: app.id,
-            appName: app.appName,
-            bundleId: app.originalBundleId,
-            installedVersion,
-            availableVersion: sourceVersion,
-            downloadURL: sourceApp.downloadURL ?? sourceApp.versions?.[0]?.downloadURL,
-          };
-        }
-        return null;
+        if (!sourceVersion || !installedVersion) return null;
+
+        const coercedSource = semver.coerce(sourceVersion);
+        const coercedInstalled = semver.coerce(installedVersion);
+        // If either version fails to coerce into a valid semver, fall back to a
+        // strict string mismatch so we don't silently hide an update.
+        const isNewer = coercedSource && coercedInstalled
+          ? semver.gt(coercedSource, coercedInstalled)
+          : sourceVersion !== installedVersion;
+
+        if (!isNewer) return null;
+        return {
+          installedAppId: app.id,
+          appName: app.appName,
+          bundleId: app.originalBundleId,
+          installedVersion,
+          availableVersion: sourceVersion,
+          downloadURL: sourceApp.downloadURL ?? sourceApp.versions?.[0]?.downloadURL,
+        };
       })
       .filter(Boolean);
 
@@ -133,11 +145,47 @@ export function installRoutes(ctx: AppContext): Router {
     res.json({ ok: true, data: apps });
   });
 
-  // Delete installed app record
-  router.delete('/apps/:id', (req, res) => {
-    ctx.db.deleteInstalledApp(req.params.id);
-    notifyInstalledAppsChanged(ctx.db.listInstalledApps());
-    res.json({ ok: true });
+  // Delete installed app record + perform device uninstall and signed-IPA cleanup.
+  // Best-effort: if the device is unreachable we still delete the local record so
+  // the user can retry later, but we log the failure. `?force=1` skips device
+  // uninstall entirely (useful when the device is no longer available at all).
+  router.delete('/apps/:id', async (req, res, next) => {
+    try {
+      const id = req.params.id;
+      const app = ctx.db.getInstalledApp(id);
+      if (!app) {
+        return res.status(404).json({ ok: false, error: 'Installed app not found' });
+      }
+
+      const force = req.query.force === '1' || req.query.force === 'true';
+      const errors: string[] = [];
+
+      if (!force) {
+        try {
+          await ctx.devices.uninstallApp(app.deviceUdid, app.bundleId);
+        } catch (err) {
+          errors.push(`device uninstall failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      const signedPath = app.signedIpaPath;
+      if (signedPath) {
+        try {
+          await fs.unlink(signedPath);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!message.includes('ENOENT')) {
+            errors.push(`signed IPA cleanup failed: ${message}`);
+          }
+        }
+      }
+
+      ctx.db.deleteInstalledApp(id);
+      notifyInstalledAppsChanged(ctx.db.listInstalledApps());
+      res.json({ ok: true, data: errors.length ? { warnings: errors } : null });
+    } catch (err) {
+      next(err);
+    }
   });
 
   router.post('/apps/:id/deactivate', async (req, res, next) => {

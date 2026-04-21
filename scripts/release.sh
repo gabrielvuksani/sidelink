@@ -146,7 +146,11 @@ else
     echo "Error: Tag $TAG already exists locally."
     exit 1
   fi
-  if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+  # Anchor the tag match: `grep -q "$TAG"` alone treated v0.7 as a prefix of
+  # v0.70.0 and falsely blocked legitimate releases (and allowed an attacker-
+  # created `v0.7-malicious` to block real v0.7). The remote-ref path is the
+  # canonical reference for published tags.
+  if git ls-remote --tags origin "refs/tags/$TAG" | grep -Eq "\srefs/tags/${TAG}\$"; then
     echo "Error: Tag $TAG already exists on origin. Published release tags are immutable."
     echo "  Create a new semver tag instead of moving an existing release tag."
     exit 1

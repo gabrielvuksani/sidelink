@@ -458,9 +458,11 @@ def fetch_app_tokens(adsid: str, idms_token: str, sk_b64: str, c_b64: str, anise
             return {"error": True, "error_code": -4, "error_message": f"No Xcode auth token in decrypted data. Available apps: {list(tokens.keys())}"}
         return {"error": False, "token": token}
     except Exception as e:
-        # Include raw decrypted hex for debugging
-        import traceback, sys
-        traceback.print_exc(file=sys.stderr)
+        # Do NOT print the full traceback to stderr: it can include decoded
+        # session-key bytes via frame locals. Route diagnostics to the logger
+        # (DEBUG level) and return a sanitised error to the Node caller.
+        import logging
+        logging.debug("Token decryption failed", exc_info=True)
         return {"error": True, "error_code": -5, "error_message": f"Token decryption failed: {str(e)}"}
 
 

@@ -142,8 +142,8 @@ export class ValidationError extends AppError {
 // ─── Auth ───────────────────────────────────────────────────────────
 
 export class AuthError extends AppError {
-  constructor(message: string = 'Authentication required') {
-    super('AUTH_REQUIRED', message, 401);
+  constructor(message: string = 'Authentication required', statusCode = 401) {
+    super('AUTH_REQUIRED', message, statusCode);
     this.name = 'AuthError';
   }
 }

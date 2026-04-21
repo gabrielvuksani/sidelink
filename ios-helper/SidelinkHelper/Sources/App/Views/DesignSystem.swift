@@ -676,13 +676,41 @@ extension ButtonStyle where Self == SidelinkButtonStyle {
     static func sidelink(tint: Color) -> SidelinkButtonStyle { SidelinkButtonStyle(tint: tint) }
 }
 
+// MARK: - Safe base64 image decoder
+/// Cap the amount of memory a server-delivered icon may consume. Deliberately
+/// conservative: IPA icons in the wild are under 100 KB; a legitimately large
+/// marketing artwork might approach 500 KB. Anything beyond 1 MiB is rejected
+/// so a hostile or corrupt source manifest can't exhaust the iOS helper's
+/// memory budget by shipping a 50 MB PNG. Decode happens off the main thread
+/// on the caller's side via the `Task.detached(priority: .utility)` wrapper.
+enum SidelinkImageDecoder {
+    static let maxIconBytes = 1 * 1024 * 1024 // 1 MiB
+
+    static func decodeBoundedBase64(_ base64: String?) -> UIImage? {
+        guard let base64, !base64.isEmpty else { return nil }
+        // Byte-length guard BEFORE allocating the decoded buffer: a base64 string
+        // of length N decodes to ~ N * 3/4 bytes, so cap the input string at
+        // `maxIconBytes * 4/3` to bound peak memory even in the attack case.
+        let maxEncoded = (maxIconBytes * 4) / 3 + 16
+        if base64.utf8.count > maxEncoded { return nil }
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        if data.count > maxIconBytes { return nil }
+        return UIImage(data: data)
+    }
+
+    static func safeBoundedData(_ data: Data?) -> Data? {
+        guard let data, data.count <= maxIconBytes else { return nil }
+        return data
+    }
+}
+
 // MARK: - Async Image with Placeholder
 struct SidelinkAsyncImage: View {
     let url: String?
     var size: CGFloat = 60
 
     var body: some View {
-        if let urlStr = url, let url = URL(string: urlStr) {
+        if let urlStr = url, isAcceptableURL(urlStr), let url = URL(string: urlStr) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -699,6 +727,17 @@ struct SidelinkAsyncImage: View {
         } else {
             placeholderIcon
         }
+    }
+
+    /// Reject non-https, data:, javascript:, file:, and other schemes that a
+    /// malicious source manifest might inject. AsyncImage itself will happily
+    /// load http:// URLs if ATS permits, and data: URLs with arbitrary payload.
+    private func isAcceptableURL(_ string: String) -> Bool {
+        guard let parsed = URL(string: string),
+              let scheme = parsed.scheme?.lowercased(),
+              scheme == "https"
+        else { return false }
+        return parsed.host?.isEmpty == false
     }
 
     private var placeholderIcon: some View {

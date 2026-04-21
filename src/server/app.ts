@@ -17,8 +17,20 @@ import { redact } from './utils/redaction';
 import { authRateLimit, generalRateLimit, csrfProtection, helperPairRateLimit } from './utils/security';
 import { resolveHelperBackendContext } from './utils/network';
 
-export function createApp(ctx: AppContext): express.Express {
+export interface CreateAppOptions {
+  /**
+   * In-memory token for trusted in-process callers (Electron tray polling, deep-link
+   * handlers, etc.). Never expose this via env vars — it must only live in memory of
+   * the process that owns the Electron lifecycle.
+   */
+  internalToken?: string;
+}
+
+export function createApp(ctx: AppContext, options: CreateAppOptions = {}): express.Express {
   const app = express();
+  const internalToken = options.internalToken;
+  const internalTokenBuffer = internalToken ? Buffer.from(internalToken) : null;
+
   const requireSession: express.RequestHandler = (req, res, next) => {
     if (!ctx.auth.isSetupComplete()) {
       const safePreSetupPaths = ['/api/health'];
@@ -31,10 +43,12 @@ export function createApp(ctx: AppContext): express.Express {
       return res.status(401).json({ ok: false, error: 'Authentication required' });
     }
 
-    const internalToken = process.env.SIDELINK_INTERNAL_TOKEN;
-    if (internalToken && token.length === internalToken.length && timingSafeEqual(Buffer.from(token), Buffer.from(internalToken))) {
-      req.userId = '__internal__';
-      return next();
+    if (internalTokenBuffer && token.length === internalTokenBuffer.length) {
+      const tokenBuf = Buffer.from(token);
+      if (tokenBuf.length === internalTokenBuffer.length && timingSafeEqual(tokenBuf, internalTokenBuffer)) {
+        req.userId = '__internal__';
+        return next();
+      }
     }
 
     const session = ctx.auth.validateSession(token);

@@ -12,7 +12,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import multer from 'multer';
 import type { AppContext } from '../context';
-import { getHelperPairingState, getHelperToken } from '../services/helper-pairing-service';
+import { getHelperPairingState, verifyHelperToken } from '../services/helper-pairing-service';
 import { onPipelineJobLog, onPipelineUpdate, submitJobTwoFA, cancelJob } from '../pipeline';
 import { UI_LIMITS } from '../../shared/constants';
 import { Apple2FARequiredError } from '../utils/errors';
@@ -55,12 +55,11 @@ export function helperRoutes(ctx: AppContext): Router {
   });
 
   // ── Auth middleware for helper token ────────────────────────────
+  // The stored value is a SHA-256 hash; we re-hash the inbound token
+  // and compare hashes via timingSafeEqual.
   router.use((req, res, next) => {
     const token = req.headers['x-sidelink-helper-token'] as string | undefined;
-    const expected = getHelperToken(ctx);
-    if (!expected || !token ||
-        expected.length !== token.length ||
-        !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token))) {
+    if (!verifyHelperToken(ctx, token)) {
       return res.status(401).json({ ok: false, error: 'Invalid or missing helper token' });
     }
     next();

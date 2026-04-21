@@ -1,16 +1,37 @@
 [
   {
-    "id": "altstore-classic",
-    "name": "AltStore Classic",
-    "url": "https://cdn.altstore.io/file/altstore/apps.json",
-    "iconURL": "https://altstore.io/images/icon.png",
-    "description": "The canonical AltStore community source."
-  },
-  {
     "id": "sidelink-official",
     "name": "SideLink Official",
     "url": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/docs/source/source.json",
     "iconURL": "https://raw.githubusercontent.com/gabrielvuksani/sidelink/main/build/icons/icon-1024.png",
     "description": "The default source shipped with SideLink."
+  },
+  {
+    "id": "altstore-classic",
+    "name": "AltStore Classic",
+    "url": "https://cdn.altstore.io/file/altstore/apps.json",
+    "iconURL": "https://altstore.io/images/icon.png",
+    "description": "The canonical AltStore community source — the feed every AltStore-compatible client has historically consumed."
+  },
+  {
+    "id": "altstore-official",
+    "name": "AltStore Official",
+    "url": "https://apps.altstore.io",
+    "iconURL": "https://altstore.io/images/icon.png",
+    "description": "Curated first-party AltStore feed maintained by the AltStore team."
+  },
+  {
+    "id": "sidestore-community",
+    "name": "SideStore Community",
+    "url": "https://community-apps.sidestore.io/sidecommunity.json",
+    "iconURL": "https://sidestore.io/apple-icon-144x144.png",
+    "description": "Community-driven SideStore app feed, broadly compatible with AltStore clients."
+  },
+  {
+    "id": "quark-builder",
+    "name": "Quark Builder",
+    "url": "https://quarksources.github.io/quarksource.json",
+    "iconURL": "https://github.com/quarksources.png",
+    "description": "Curated third-party AltStore source index."
   }
 ]

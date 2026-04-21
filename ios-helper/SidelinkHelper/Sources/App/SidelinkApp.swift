@@ -48,15 +48,25 @@ struct SidelinkAppRootView: View {
                 return
             }
 
-            guard let sourceURL = components.queryItems?.first(where: { $0.name.lowercased() == "url" })?.value,
-                  !sourceURL.isEmpty
+            guard let rawSourceURL = components.queryItems?.first(where: { $0.name.lowercased() == "url" })?.value,
+                  !rawSourceURL.isEmpty
             else {
                 model.toastMessage = "Invalid source deep link"
                 return
             }
 
+            // Deep-link-delivered source URLs are attacker-influenced (any Safari
+            // page can redirect into sidelink://source?url=…). Require https,
+            // strip percent-encoded control characters, and reject private
+            // network hosts so a tap in Safari can't silently import a manifest
+            // from an LAN attacker's unsigned server.
+            guard let sanitizedURL = sanitizeDeepLinkSourceURL(rawSourceURL) else {
+                model.toastMessage = "That source URL isn't safe to import."
+                return
+            }
+
             selectedTab = .sources
-            pendingSourceImport = PendingSourceImport(url: sourceURL)
+            pendingSourceImport = PendingSourceImport(url: sanitizedURL)
         }
         .task {
             await model.refreshAll()
@@ -78,6 +88,12 @@ struct SidelinkAppRootView: View {
                     }
                 }
             }
+        }
+        .onDisappear {
+            // Deterministically cancel long-lived tasks (install polling, SSE
+            // reconnect timers) so the view model actually tears down instead
+            // of leaving the @MainActor-isolated state for `deinit` to touch.
+            model.invalidate()
         }
         .tint(.slAccent)
         .fullScreenCover(isPresented: Binding(
@@ -323,20 +339,84 @@ private struct PendingSourceImport: Identifiable {
     let url: String
 }
 
+/// Returns a validated https URL string or nil if the deep-link payload is
+/// unsafe. Rejects non-https schemes, control-character injections, private
+/// network hosts, and embedded credentials. Normalises the string by dropping
+/// userinfo and re-serialising via URLComponents so downstream code can trust
+/// the scheme+host parse.
+private func sanitizeDeepLinkSourceURL(_ raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return nil }
+
+    // Reject control characters that could hide the real destination in
+    // the confirmation UI (e.g. bidi marks, NULs, backspace).
+    for scalar in trimmed.unicodeScalars {
+        let value = scalar.value
+        if value < 0x20 || value == 0x7F || (0x200B...0x200F).contains(value) || (0x202A...0x202E).contains(value) || (0x2066...0x2069).contains(value) {
+            return nil
+        }
+    }
+
+    guard var components = URLComponents(string: trimmed) else { return nil }
+    guard let scheme = components.scheme?.lowercased(), scheme == "https" else { return nil }
+    guard let host = components.host, !host.isEmpty else { return nil }
+    if components.user != nil || components.password != nil { return nil }
+
+    // Block common private / loopback address literals. Name resolution to a
+    // private IP is still caught server-side by the SSRF guard.
+    let lowerHost = host.lowercased()
+    if lowerHost == "localhost" || lowerHost.hasSuffix(".local") || lowerHost == "::1" || lowerHost.hasPrefix("127.") {
+        return nil
+    }
+    let octets = lowerHost.split(separator: ".").compactMap { UInt8($0) }
+    if octets.count == 4 {
+        let a = octets[0], b = octets[1]
+        if a == 10 { return nil }
+        if a == 192 && b == 168 { return nil }
+        if a == 172 && (16...31).contains(b) { return nil }
+        if a == 169 && b == 254 { return nil }
+    }
+
+    components.user = nil
+    components.password = nil
+    components.fragment = nil
+    return components.url?.absoluteString
+}
+
 private struct ImportSourceSheet: View {
     let sourceURL: String
     let onCancel: () -> Void
     let onImport: () -> Void
 
+    private var originDisplay: String {
+        if let parsed = URL(string: sourceURL), let host = parsed.host {
+            if let port = parsed.port {
+                return "\(parsed.scheme ?? "https")://\(host):\(port)"
+            }
+            return "\(parsed.scheme ?? "https")://\(host)"
+        }
+        return sourceURL
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Import Source") {
-                    Text("Use this source in SideLink?")
+                Section {
+                    Text("Import source from")
                         .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(originDisplay)
+                        .font(.title3.weight(.bold))
+                        .textSelection(.enabled)
                     Text(sourceURL)
                         .font(.footnote.monospaced())
                         .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Confirm import")
+                } footer: {
+                    Text("This source was delivered by a link. Verify the origin matches a site you trust before continuing.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 

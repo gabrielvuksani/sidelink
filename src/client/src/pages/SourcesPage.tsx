@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmModal';
 import { EmptyState, PageHeader, SearchInput, SectionHeading } from '../components/Shared';
 import { getUiSnapshot, setUiSnapshot } from '../lib/ui-snapshot-cache';
+import { safeHttpsUrl, untrustedImgProps } from '../lib/safe-url';
 import type { SourceApp, SourceManifest, SourceScreenshot, UserSource } from '../../../shared/types';
 import {
   SelfHostedEditor,
@@ -315,8 +316,8 @@ export default function SourcesPage() {
             return (
               <div key={source.id} className="sl-card-soft flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-3 min-w-0">
-                  {source.iconURL ? (
-                    <img src={source.iconURL} alt="" className="w-9 h-9 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  {safeHttpsUrl(source.iconURL) ? (
+                    <img {...untrustedImgProps} src={safeHttpsUrl(source.iconURL) ?? undefined} alt="" className="w-9 h-9 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   ) : (
                     <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--sl-accent)]/10 shrink-0">
                       <svg className="w-4 h-4 text-[var(--sl-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
@@ -437,8 +438,8 @@ export default function SourcesPage() {
                       aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${app.name} details`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        {app.iconURL ? (
-                          <img src={app.iconURL} alt="" className="w-10 h-10 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        {safeHttpsUrl(app.iconURL) ? (
+                          <img {...untrustedImgProps} src={safeHttpsUrl(app.iconURL) ?? undefined} alt="" className="w-10 h-10 rounded-xl shrink-0 bg-[var(--sl-surface-soft)]" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         ) : (
                           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--sl-surface-soft)] shrink-0">
                             <svg className="w-4 h-4 text-[var(--sl-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
@@ -696,9 +697,10 @@ function SourceAppDetail({ app, busy, onImport, downloadUrl }: {
       <div className="flex flex-col gap-4 md:flex-row">
         {/* Left column: icon and metadata */}
         <div className="flex flex-col items-center gap-3 md:w-48 shrink-0">
-          {app.iconURL ? (
+          {safeHttpsUrl(app.iconURL) ? (
             <img
-              src={app.iconURL}
+              {...untrustedImgProps}
+              src={safeHttpsUrl(app.iconURL) ?? undefined}
               alt={`${app.name} icon`}
               className="w-20 h-20 rounded-2xl bg-[var(--sl-surface-soft)]"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

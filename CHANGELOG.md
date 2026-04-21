@@ -1,5 +1,100 @@
 # Changelog
 
+## [0.8.0] - 2026-04-21
+
+### Security — critical
+- **iOS deep-link source import hardened**: `sidelink://source?url=…` now requires `https://`, strips Unicode control / bidi / NUL characters before display, rejects embedded userinfo, rejects loopback and RFC1918 literal hosts, and displays the resolved origin in bold on the confirmation sheet. A malicious Safari redirect can no longer silently import an attacker-controlled source.
+- **iOS `AnyCodable` now throws on unknown shapes** instead of coercing to `NSNull`. A malformed or adversarial server manifest can no longer hide dangerous entitlements behind a silent "-" display.
+- **iOS image decode cap**: `SidelinkImageDecoder.decodeBoundedBase64` enforces a 1 MiB ceiling on server-delivered icons, and `SidelinkAsyncImage` rejects non-https URLs. Memory exhaustion via oversized or attacker-scheme icons is no longer possible.
+- **Server `SIDELINK_INTERNAL_TOKEN` removed from `process.env`**: the Electron main-process internal token is now passed explicitly as `createApp(ctx, { internalToken })` and lives only in the main-process closure. Spawned Python / system tool child processes can no longer inherit an authenticated token for the local HTTP server.
+- **Server source-manifest SSRF guard**: adding or refreshing a source now DNS-resolves the https hostname and rejects any result that is loopback or RFC1918, closing the DNS-rebind / split-horizon smuggling vector.
+- **Server device-registrar TOCTOU mutex**: a per-`(accountId, udid)` in-process mutex plus an idempotent DB upsert serialises concurrent pipelines for the same device so two installs can't both call `listDevices` / `registerDevice` and race the portal.
+- **React `InstallModal` SSE `activeJobRef`**: the job-update handler now reads from a ref rather than the initial render closure, so the first update delivered immediately after `install()` is no longer dropped.
+- **React Apple password no longer retained through 2FA in state**: credentials are captured to a ref and cleared from `useState` the instant the credential step succeeds.
+- **React source-manifest images pass through `safeHttpsUrl()`** and render with `referrerPolicy="no-referrer"` + `crossOrigin="anonymous"` + `loading="lazy"`, so an attacker-controlled manifest can't leak the referrer or trigger non-https loads.
+- **Scripts: `gsa-auth-helper.py` traceback scrubbed** from stderr on token-decrypt failure; diagnostics now route through `logging.debug` so the raw stack (which could include decoded session-key bytes) is no longer printed.
+- **Scripts: `generate-source.cjs` protocol allowlist** — companion-JSON `iconURL` entries that aren't `https://` now fail the build loudly instead of being published into the source feed.
+
+### Security — high
+- `DELETE /api/install/apps/:id` now performs a best-effort on-device uninstall and removes the signed-IPA artifact before deleting the DB row. `?force=1` skips the device call for unreachable devices.
+- `POST /auth/setup` is wrapped in an IMMEDIATE transaction and now returns `409` on duplicate admin (was `500` under concurrent setup-wizard tabs).
+- Server `auth-service` no longer falls back to `require('../../../package.json')`; version detection uses `SIDELINK_APP_VERSION` or `npm_package_version` only. Packaged builds no longer silently skip the auth version-change migration because webpack stripped `package.json` from the module graph.
+- `install.ts` update check uses `semver.coerce` + `semver.gt` rather than string compare, so `"1.10.0"` is correctly newer than `"1.9.0"`.
+- Source aggregation (`combined()`) now picks the highest semver per `bundleIdentifier` instead of first-wins — a newer version shipped in a later-ordered source is no longer masked.
+- `SchedulerService` persists `retryBackoff` alongside `refreshErrors`; a process restart no longer forgets device-disconnect backoff state and produces an immediate Apple-auth retry storm.
+- `Database.runIdempotentMigrationSql` tolerates "duplicate column" errors on ADD COLUMN so reused dev databases that already have the columns don't crash on bootstrap.
+- `postinstall` brew install is gated behind `SIDELINK_AUTO_INSTALL=1`; by default it prints the manual install line and exits clean.
+- `release.sh` anchors the tag check (`refs/tags/$TAG$`) so `v0.7` no longer spuriously matches `v0.70.0`.
+- `python-bundle/requirements.txt` pinning is aligned with `scripts/system-deps-preflight.cjs` — `srp==1.0.21`, `requests==2.32.3`, `cryptography==44.0.3`, rest are soft floors.
+
+### iOS helper — Swift 6 concurrency and lifecycle
+- **`SSEClient` rewritten**: all mutable state (`session`, `task`, `buffer`) is now serialised on a private `DispatchQueue` whose `OperationQueue` also backs the URLSession delegate callbacks. The class is `@unchecked Sendable` and callback properties are `@Sendable`-typed.
+- **`HelperViewModel.deinit` no longer touches `@MainActor` state**: an explicit `invalidate()` method is called from the root view's `.onDisappear` to cancel install polling and SSE reconnect, with `deinit` left to handle only nonisolated subsystems.
+- **`beginPollingInstallJob` re-weakens `self` per iteration** so a dismissed view model can be deallocated mid-poll rather than kept alive for up to 20 minutes by the strong capture.
+
+### React client — correctness
+- `HelperPairingPanel` only rotates the server-side pairing code on first mount when no warm snapshot exists. Route toggling no longer invalidates a QR / code the user is still entering.
+- `useDesktopHealth.refresh` broadcasts results only to pollers that share the current `snapshotKey` prefix. Unrelated panels no longer receive each others' state.
+- `SelfHostedEditor.parseManifestText` validates the shape of pasted JSON (name + apps[] of correctly-typed entries) instead of blindly casting to `SourceManifest`.
+- `TimeAgo` (Dashboard) and `useTimeSince` (Devices) share a single `useSharedTick` driver so per-card `setInterval`s no longer multiply with dashboard row count.
+
+### Features
+- **AltStore-compatible source consumer expanded**: the trusted-sources seed list now ships AltStore Classic, AltStore Official, SideStore Community, and Quark Builder alongside the SideLink Official source. Any `{name, identifier, sourceURL, apps[]}` JSON feed can be added directly; duplicate bundle IDs across sources collapse to the highest semver at read time.
+- **`POST /install` accepts `bundleIdStrategy`** (`"deterministic"` / `"randomized"`, default randomized) and `customDisplayName`. Randomized rewrites the bundle ID so multiple installs of the same IPA coexist on one device; custom display name replaces `CFBundleDisplayName` on the signed output so duplicates are distinguishable on the home screen.
+
+### Documentation
+- `docs/api-reference.md` expanded to cover every registered route — `/install/jobs/:id/cancel`, `/install/apps/updates`, `/install/apps/:id/deactivate|reactivate`, `/apple/app-ids`, `/apple/certificates`, `/apple/accounts/:id/rotate-certificate`, `/auth/reset`, `/ipas/import-path`, `/system/webhook`, and the full `/helper/*` surface were all missing.
+- `bundleIdStrategy` + `customDisplayName` documented on the install body schema.
+- All `v0.3.1` references across README / docs bumped to `v0.8.0`.
+- `docs/official-source.md` explains the AltStore-compatible consumer story.
+
+### Tests
+- 190/190 passing after updating `integration.test.ts` to assert `409` (not `401`) on duplicate-admin setup — the previous expectation was the bug.
+
+## [0.7.0] - 2026-04-21
+
+### Security — critical
+- **Keychain fingerprint sentinel**: master-key identity is hashed to `<dataDir>/.master-key.fp` and verified on every start. Silent-fallback drift (the root cause of "Unsupported state or unable to authenticate data" pipeline failures) is now caught at startup with a clear remediation.
+- **Keytar retry + 15s timeout** (was 5s), logs routed through LogService.
+- **Helper pairing token hashed in DB**: `helper_token_sha256` replaces the prior plaintext `helper_token` setting. Middleware re-hashes the inbound header and compares with `timingSafeEqual`. Legacy plaintext tokens auto-migrate on first boot.
+- **Webhook SSRF guard**: PUT `/system/webhook` now rejects non-http(s) protocols, embedded credentials, loopback/RFC1918/link-local/`.local` hosts. `fireWebhook` re-validates at call time (defence-in-depth against direct DB writes).
+- **Signing temp files overwritten before unlink** (`secureUnlink`): key/cert/PKCS12 PEMs get a two-pass random+zero wipe before removal on both success and failure paths.
+- **Signing workDir cleaned on both success and failure**.
+- **iOS helper: HTTPS/loopback required for Apple credential endpoints** (`requireSecureTransport`). Bearer-token header sanitised against CR/LF/ctrl-char injection. Multipart filename sanitised + moved to `Data(.utf8)` away from force-unwraps.
+- **iOS helper: password no longer re-transmitted on 2FA submit**. Desktop caches it in the pending-session map for the 10-min TTL.
+- **iOS helper: legacy `UserDefaults` `helperToken` fully removed after migration to Keychain** (not just emptied).
+- **iOS helper: UDP discovery origin validation** — packets from non-local IPs are dropped before JSON decode.
+- **iOS helper: pair-payload size capped at 4 KB** before decode.
+- **iOS helper: SSEClient serialises all mutable state through a dedicated queue and is marked `@unchecked Sendable`** — removes the racy `disconnect()` path.
+- **Apple auth: GSA Python helper stderr redacted** before logging (strips tracebacks, drops lines containing password/key material).
+- **Apple auth: 2FA submission attempts capped at 5** per pending context; prevents Apple-side account lockout from stuck UI.
+- **Apple auth: WWDR issuer verification** in `derToPem` before accepting a cert from the portal.
+- **Apple auth: Apple resultCodes mapped to typed errors** (`APPLE_SESSION_EXPIRED`, `APPLE_AUTH_INVALID_CREDENTIALS`, `APPLE_CERT_REVOKED`, `APPLE_FREE_APP_ID_LIMIT`). Request retry no longer falls through to `undefined` on exhaustion.
+- **Signing: removed `signingTime` from CMS** — non-reproducible and vulnerable to host clock skew. Not required by iOS.
+- **Signing: stale temp keychains only deleted if mtime > 15 min** — fixes race where concurrent sign jobs clobbered each other.
+- **Mach-O FAT parser: arch offset/size bounds validated**, BigInt guarded against JS safe-integer range.
+- **Electron: `sandbox: true`**, explicit `webSecurity/nodeIntegrationInWorker/etc`, `will-navigate` + `setWindowOpenHandler` guards, `HOST=127.0.0.1` default (was `0.0.0.0`), deep-link action allowlist, IPC origin checks, shell-path allowlist (replacing the trivially-bypassable `..` blocklist), `window-state.json` schema validation.
+- **Auto-updater: feed URL pinned in code** to `github:gabrielvuksani/sidelink` (overrides whatever `app-update.yml` contains).
+- **React: SSE `event: close` frame + 5s reconnect cooldown**; EventSource re-check on fast unmount; fetch timeout via `AbortSignal.any`; `invalidateResponseCache` exposed + called on logout; outer `ErrorBoundary` now covers setup/login/auth shells; `lazyWithRetry` reloads once on stale-chunk failure.
+- **Per-request correlation IDs**: `X-Request-Id` in + out, attached to 500-error logs and error-response bodies.
+- **Security headers added**: Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy, Pragma on /api.
+- **Home-directory allowlist on `/api/ipas/import-path`** (replacing forbidden-prefix blocklist vulnerable to symlink/casing tricks).
+- **GitHub Actions**: workflow-level `permissions: read`, per-job `contents: write` only on release; Node 22 added to CI matrix; `timeout-minutes` everywhere; SHA256SUMS generated per build + verified in release; `softprops/action-gh-release` pinned to SHA; `workflow_dispatch` tag input validated against semver.
+- **npm audit: 11 vulnerabilities → 0 production** (dev-only vitepress chain remains at 3 moderate, no upstream fix).
+- **Python venv preflight**: sweeps `~pkg` orphan directories that caused "Ignoring invalid distribution" warnings; upgrades pip/setuptools/wheel before installs.
+
+### Fixed
+- **Device polling: 3-poll disconnect debouncing**. Transient WiFi hiccups no longer produce CONNECT/DISCONNECT log spam.
+- **IPA upload: diagnostic error on invalid archive** — lists top-level entries + first 20 names so users can see what they actually uploaded.
+- **tsx-watch shutdown**: timers unref'd across scheduler-service, device-service, discovery, SSE keepalive, keychain timeouts; `stopDiscovery` + `closeAllSSE` ordered before `server.close()`; SIGHUP handled; force-exit 3s.
+- **Electron upgrade 36 → ^39.8.1** (closes 12 CVEs including use-after-free and command-injection).
+- **Context: accidental `await` removed** from synchronous `createKeychainEncryptionProvider()`.
+
+### Added
+- iOS helper build target raised to iOS 17.0 (matches SwiftUI APIs already in use).
+- `.githooks/pre-commit` hook strips staged AppleDouble (`._*`) files automatically.
+- 11 new tests: keychain fingerprint verification, device disconnect debouncing, IPA diagnostic errors.
+
 ## [0.6.0] - 2026-03-22
 
 ### Security

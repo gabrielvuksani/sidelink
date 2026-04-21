@@ -391,9 +391,7 @@ struct BrowseTab: View {
 
     @ViewBuilder
     private func appIcon(for ipa: IpaArtifactDTO, size: CGFloat) -> some View {
-        if let iconData = ipa.iconData,
-           let data = Data(base64Encoded: iconData),
-           let uiImage = UIImage(data: data) {
+        if let uiImage = SidelinkImageDecoder.decodeBoundedBase64(ipa.iconData) {
             Image(uiImage: uiImage)
                 .resizable()
                 .appIconStyle(size: size)
@@ -633,9 +631,7 @@ struct SearchTab: View {
 
     private func ipaResultRow(_ ipa: IpaArtifactDTO) -> some View {
         HStack(spacing: 14) {
-            if let iconData = ipa.iconData,
-               let data = Data(base64Encoded: iconData),
-               let uiImage = UIImage(data: data) {
+            if let uiImage = SidelinkImageDecoder.decodeBoundedBase64(ipa.iconData) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .appIconStyle(size: 52)

@@ -53,7 +53,7 @@ Choose the shortest path that matches what you are trying to do.
 - The exact steps to run SideLink locally or use a published release
 - How the desktop app, web control center, backend, and iPhone helper fit together
 - How to add the official source feed and download published IPAs
-- Release-safe packaging, validation, and publishing guidance for `v0.3.1`
+- Release-safe packaging, validation, and publishing guidance for `v0.8.0`
 - Troubleshooting for Apple sign-in, device discovery, helper pairing, source installs, and packaging
 
 ## Quick Links

@@ -65,12 +65,39 @@ export function emptySelfHostedManifest(): SourceManifest {
   };
 }
 
+/**
+ * Parse JSON text and validate it is shaped like a SourceManifest. A blind
+ * `as SourceManifest` cast used to let malformed JSON through, which crashed
+ * downstream calls like `current.apps.some(...)` when `apps` turned out to
+ * be `undefined` or a string. Now we narrow via a shape guard and return
+ * null on any mismatch so the caller can show a clean validation error.
+ */
 export function parseManifestText(raw: string): SourceManifest | null {
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as SourceManifest;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (!isSourceManifestShape(parsed)) return null;
+  return parsed as SourceManifest;
+}
+
+function isSourceManifestShape(value: unknown): value is SourceManifest {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.name !== 'string' || candidate.name.length === 0) return false;
+  if (!Array.isArray(candidate.apps)) return false;
+  for (const app of candidate.apps) {
+    if (!app || typeof app !== 'object') return false;
+    const appShape = app as Record<string, unknown>;
+    if (typeof appShape.name !== 'string' || appShape.name.length === 0) return false;
+    if (typeof appShape.bundleIdentifier !== 'string' || appShape.bundleIdentifier.length === 0) return false;
+    const hasVersions = Array.isArray(appShape.versions) && appShape.versions.length > 0;
+    const hasLegacyDownload = typeof appShape.downloadURL === 'string' && appShape.downloadURL.length > 0;
+    if (!hasVersions && !hasLegacyDownload) return false;
+  }
+  return true;
 }
 
 export function manifestToFormState(manifest: SourceManifest): SelfHostedFormState {

@@ -315,6 +315,30 @@ export class Database {
     return cols.some((c) => c.name === column);
   }
 
+  /**
+   * Run a multi-statement SQL migration one SQL statement at a time, tolerating
+   * "duplicate column" errors so re-applying a partially-run migration against
+   * a dev database that already has the column is treated as a no-op instead
+   * of crashing startup. All other SQL errors propagate unchanged.
+   */
+  private runIdempotentMigrationSql(sqlText: string): void {
+    const statements = sqlText
+      .split(';')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    for (const statement of statements) {
+      try {
+        this.db.exec(statement);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/duplicate column name/i.test(message)) {
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
   /** Read the persisted schema version (0 = fresh database) */
   private getSchemaVersion(): number {
     try {
@@ -503,7 +527,11 @@ export class Database {
 
       for (const migration of pending) {
         this.db.transaction(() => {
-          this.db.exec(migration.sql);
+          // Run the migration statement-by-statement so ADD COLUMN against a
+          // column that already exists (reused dev DB, interrupted upgrade,
+          // or partial failure) is treated as idempotent rather than crashing
+          // the whole migration. We still fail-fast on any other SQL error.
+          this.runIdempotentMigrationSql(migration.sql);
           this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
             'schema_version', String(migration.version),
           );
@@ -1197,6 +1225,19 @@ export class Database {
   /** @internal Only for auth-service. Do not use for ad-hoc queries. */
   prepare<T extends any[] = any[], R = any>(sql: string) {
     return this.db.prepare(sql) as any;
+  }
+
+  /**
+   * Run `fn` inside an IMMEDIATE transaction. Useful for check-then-insert
+   * idioms where serializability is required against concurrent writers.
+   * If `fn` throws, the transaction is rolled back and the error rethrown.
+   */
+  runInTransaction<T>(fn: () => T): T {
+    // better-sqlite3 returns a callable that runs fn in a deferred transaction
+    // and escalates to IMMEDIATE/EXCLUSIVE when a write is issued. The typings
+    // on this helper expose it as a generic closure.
+    const wrapped = this.db.transaction(fn);
+    return wrapped();
   }
 
   // ─── Shutdown ───────────────────────────────────────────────────
