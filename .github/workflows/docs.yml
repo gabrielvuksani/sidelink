@@ -29,7 +29,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22 (npm 11) to avoid npm 10's platform-optional-deps
+          # resolution bug (npm/cli#4828) that blocks rollup's native
+          # binaries from installing cleanly during `npm ci`.
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
