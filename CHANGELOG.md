@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.3] - 2026-04-21
+
+### CI / release hotfix (pt. 3)
+- Upgrade all GitHub Actions workflows (`ci.yml`, `docs.yml`, `release.yml`) from Node 20 (npm 10) to Node 22 (npm 11). Root cause of the v0.8.0 / v0.8.1 / v0.8.2 release failures: npm 10 has two bugs that hit us simultaneously — it wants a parallel `react@18` tree materialised for `@docsearch/react`'s `react<19` peer pin (absent from a native-npm-11 lock), and it silently skips platform-specific `optionalDependencies` (rollup, tailwindcss-oxide, esbuild binaries) during `npm ci`, which breaks `vite build` on Linux and Windows runners (npm/cli#4828). No lock file shape satisfies both bugs simultaneously; the clean fix is to move CI off npm 10.
+- `.nvmrc` now reads `22` to match.
+- Regenerate `package-lock.json` under npm 11 so all 96 platform-specific entries are materialised. `npm ci --dry-run` now passes cleanly.
+- Drop `--ignore-scripts` from `ci.yml`'s install step — it wasn't solving a real problem and muddied diagnostics.
+
+No runtime code changed between 0.8.0 / 0.8.1 / 0.8.2 / 0.8.3.
+
 ## [0.8.2] - 2026-04-21
 
 ### CI / release hotfix

@@ -29,11 +29,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Node 22 (npm 11) to avoid npm 10's platform-optional-deps
-          # resolution bug (npm/cli#4828) that blocks rollup's native
-          # binaries from installing cleanly during `npm ci`.
           node-version: 22
           cache: npm
+
+      - name: Upgrade npm to 11
+        # Node 22's bundled npm 10 trips on this lockfile's platform-
+        # specific optionalDependencies (npm/cli#4828). npm 11 fixes it.
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
