@@ -12,7 +12,34 @@ import { getJob, listJobs, submitJobTwoFA, cancelJob } from '../pipeline';
 import { validators } from '../utils/validators';
 import { deactivateInstalledApp, reactivateInstalledApp, startValidatedInstall } from '../services/shared-backend';
 import { notifyInstalledAppsChanged } from '../services/installed-app-events';
-import semver from 'semver';
+
+/**
+ * Minimal semver comparator so we can avoid pulling `@types/semver` (which
+ * would otherwise force a fresh package-lock.json regeneration that strips
+ * the nested react@18 tree vitepress's `@docsearch/react` depends on).
+ * Returns positive when `a > b`, negative when `a < b`, 0 on equal.
+ * Non-numeric pre-release/build identifiers fall back to lexical compare.
+ */
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => v.replace(/^v/i, '').split(/[.+-]/).map((part) => {
+    const n = Number.parseInt(part, 10);
+    return Number.isFinite(n) ? n : part;
+  });
+  const as = parse(a);
+  const bs = parse(b);
+  const len = Math.max(as.length, bs.length);
+  for (let i = 0; i < len; i++) {
+    const av = as[i] ?? 0;
+    const bv = bs[i] ?? 0;
+    if (typeof av === 'number' && typeof bv === 'number') {
+      if (av !== bv) return av - bv;
+    } else {
+      const cmp = String(av).localeCompare(String(bv));
+      if (cmp !== 0) return cmp;
+    }
+  }
+  return 0;
+}
 
 export function installRoutes(ctx: AppContext): Router {
   const router = Router();
@@ -113,14 +140,10 @@ export function installRoutes(ctx: AppContext): Router {
         const installedVersion = app.appVersion;
         if (!sourceVersion || !installedVersion) return null;
 
-        const coercedSource = semver.coerce(sourceVersion);
-        const coercedInstalled = semver.coerce(installedVersion);
-        // If either version fails to coerce into a valid semver, fall back to a
+        // Semver-aware compare so "1.10.0" > "1.9.0" (plain string compare
+        // treated "1.10" < "1.9"). Non-parseable versions fall back to a
         // strict string mismatch so we don't silently hide an update.
-        const isNewer = coercedSource && coercedInstalled
-          ? semver.gt(coercedSource, coercedInstalled)
-          : sourceVersion !== installedVersion;
-
+        const isNewer = compareSemver(sourceVersion, installedVersion) > 0;
         if (!isNewer) return null;
         return {
           installedAppId: app.id,

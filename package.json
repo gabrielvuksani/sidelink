@@ -1,6 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {
@@ -24,6 +24,13 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "@docsearch/react": {
+      "react": "$react",
+      "react-dom": "$react-dom",
+      "@types/react": "$@types/react"
+    }
   },
   "main": "dist/desktop/main.js",
   "scripts": {
@@ -102,7 +109,6 @@
     "@types/plist": "^3.0.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/semver": "^7.7.1",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.1.4",

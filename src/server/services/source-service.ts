@@ -1,6 +1,5 @@
 import { v4 as uuid } from 'uuid';
 import dns from 'node:dns/promises';
-import semver from 'semver';
 import type { SourceApp, SourceManifest, UserSource, UserSourceWithManifest } from '../../shared/types';
 import type { Database } from '../state/database';
 import { AppError } from '../utils/errors';
@@ -215,13 +214,34 @@ function compareAppVersions(a: SourceApp, b: SourceApp): number {
   if (!av && !bv) return 0;
   if (!av) return -1;
   if (!bv) return 1;
+  return compareSemver(av, bv);
+}
 
-  const coercedA = semver.coerce(av);
-  const coercedB = semver.coerce(bv);
-  if (coercedA && coercedB) {
-    return semver.compare(coercedA, coercedB);
+/**
+ * Minimal semver comparator. Returns positive when `a > b`, negative
+ * when `a < b`, 0 on equal. Non-numeric pre-release identifiers fall
+ * back to lexical compare. Deliberately avoids pulling in the `semver`
+ * npm package so we don't force a fresh package-lock.json regeneration.
+ */
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => v.replace(/^v/i, '').split(/[.+-]/).map((part) => {
+    const n = Number.parseInt(part, 10);
+    return Number.isFinite(n) ? n : part;
+  });
+  const as = parse(a);
+  const bs = parse(b);
+  const len = Math.max(as.length, bs.length);
+  for (let i = 0; i < len; i++) {
+    const av = as[i] ?? 0;
+    const bv = bs[i] ?? 0;
+    if (typeof av === 'number' && typeof bv === 'number') {
+      if (av !== bv) return av - bv;
+    } else {
+      const cmp = String(av).localeCompare(String(bv));
+      if (cmp !== 0) return cmp;
+    }
   }
-  return av.localeCompare(bv);
+  return 0;
 }
 
 async function assertHostResolvesToPublicAddress(hostname: string): Promise<void> {
