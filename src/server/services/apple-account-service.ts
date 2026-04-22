@@ -48,6 +48,20 @@ interface CachedSession {
 
 const sessionCache = new Map<string, CachedSession>();
 
+/**
+ * Per-account in-flight re-auth guard. If a caller starts re-auth while
+ * another call for the same accountId is still waiting on GSA or 2FA,
+ * the second caller waits for the first promise instead of kicking off
+ * a fresh GSA round-trip — which would generate a second 2FA push and
+ * invalidate the user's first verification code on Apple's side.
+ *
+ * The user's dev log showed this spiral: the dashboard and the iOS
+ * helper both auto-refresh, each POST /apple/accounts/:id/reauth, and
+ * Apple responded with HTTP 401 because the first verification code had
+ * already been consumed by the time the second request tried to use it.
+ */
+const inflightReauth = new Map<string, Promise<AppleAccount>>();
+
 /** Sessions are considered fresh for the configured auth session TTL. */
 const SESSION_FRESHNESS_MS = DEFAULTS.authSessionTtlHours * 60 * 60 * 1000;
 
@@ -332,6 +346,22 @@ export class AppleAccountService {
    * Throws Apple2FARequiredError if 2FA is needed (caller should prompt the user).
    */
   async reauthenticate(accountId: string): Promise<AppleAccount> {
+    // Coalesce concurrent re-auth calls for the same account so the
+    // dashboard and iOS helper auto-refreshing at the same time do not
+    // each trigger a fresh GSA round-trip and a fresh 2FA push.
+    const pending = inflightReauth.get(accountId);
+    if (pending) return pending;
+
+    const task = this.performReauthenticate(accountId);
+    inflightReauth.set(accountId, task);
+    try {
+      return await task;
+    } finally {
+      inflightReauth.delete(accountId);
+    }
+  }
+
+  private async performReauthenticate(accountId: string): Promise<AppleAccount> {
     const account = this.db.getAppleAccount(accountId);
     if (!account) {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');

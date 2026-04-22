@@ -612,6 +612,49 @@ async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
   }
 }
 
+/**
+ * Wall-clock budget for each pipeline step. Steps `authenticate` and
+ * `provision` use long budgets because they can legitimately call
+ * `pauseForTwoFactor` which itself blocks up to 10 minutes waiting for
+ * the user. All other steps are network or local I/O bound and should
+ * never legitimately take more than ~3 min.
+ *
+ * When a step exceeds its budget the pipeline fails with a clear
+ * "step X timed out after Ys" message — no more silent hangs where the
+ * dev terminal just sits on `JOB_STARTED` forever because an Apple
+ * portal fetch is stuck on a network read.
+ */
+const STEP_TIMEOUT_MS: Record<PipelineStepName, number> = {
+  validate: 30_000,
+  authenticate: 15 * 60_000, // includes 2FA wait (10 min) + GSA round-trip
+  provision: 15 * 60_000,    // includes 2FA wait (10 min) + Apple portal IO
+  sign: 3 * 60_000,
+  install: 3 * 60_000,
+  register: 30_000,
+};
+
+function withStepTimeout<T>(
+  stepName: PipelineStepName,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const budget = STEP_TIMEOUT_MS[stepName];
+  if (!budget) return fn();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new PipelineError(
+        'STEP_TIMEOUT',
+        `Step "${stepName}" timed out after ${Math.round(budget / 1000)}s ` +
+        '— likely stuck on an Apple portal call, keychain prompt, or device response.',
+      ));
+    }, budget);
+    timer.unref();
+    fn().then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 async function runStep(
   db: Database,
   job: InstallJob,
@@ -633,15 +676,27 @@ async function runStep(
   db.updateJob(job);
   notifyListeners(job);
   logJobLine(job, 'info', `Starting step: ${stepName}`, stepName);
+  // Also emit at the top-level so the dev terminal shows step progress
+  // instead of a silent gap between JOB_STARTED and JOB_FAILED/JOB_COMPLETED.
+  console.log(`[INFO] [JOB_STEP] ${job.id.slice(0, 8)} → ${stepName}`);
 
+  const startMs = Date.now();
   try {
-    await fn();
+    // Wall-clock budget per step — no more silent hangs.
+    // Important: authenticate + provision may call pauseForTwoFactor which
+    // has its own 10-minute timer. We detect those paths by letting
+    // fn() itself throw Apple2FARequiredError / return normally; the
+    // outer timeout still fires if the GSA/portal network call itself
+    // hangs before 2FA is requested.
+    await withStepTimeout(stepName, fn);
     step.status = 'completed';
     step.completedAt = new Date().toISOString();
     job.updatedAt = step.completedAt;
     db.updateJob(job);
     notifyListeners(job);
+    const elapsed = Date.now() - startMs;
     logJobLine(job, 'info', `Completed step: ${stepName}`, stepName);
+    console.log(`[INFO] [JOB_STEP] ${job.id.slice(0, 8)} ✓ ${stepName} (${elapsed}ms)`);
   } catch (error) {
     step.status = 'failed';
     step.error = error instanceof Error ? error.message : String(error);

@@ -97,9 +97,15 @@ export class CertificateManager {
     // 3. Revoke only SideLink-managed certs when we need to make room.
     // Never revoke unrelated portal certs automatically because that can
     // break Xcode, AltStore, or other tools using the same Apple team.
-    const knownCerts = this.db.listCertificates(accountId);
-    const knownByPortalId = new Set(knownCerts.map((cert) => cert.portalCertificateId));
-    const knownBySerial = new Set(knownCerts.map((cert) => cert.serialNumber));
+    //
+    // `listCertificateOwnership` returns raw metadata WITHOUT decrypting,
+    // so quarantined rows (stale-encryption, invisible to `listCertificates`)
+    // still count as SideLink-owned. Otherwise a single undecryptable row
+    // made every portal cert appear "unmanaged" and blocked the user with
+    // `ProvisioningError: Apple already has development certificates...`.
+    const ownership = this.db.listCertificateOwnership(accountId);
+    const knownByPortalId = new Set(ownership.map((cert) => cert.portalCertificateId));
+    const knownBySerial = new Set(ownership.map((cert) => cert.serialNumber));
     const sidelinkManagedPortalCerts = devCerts.filter((cert) =>
       knownByPortalId.has(cert.certificateId) || knownBySerial.has(cert.serialNumber),
     );
@@ -114,14 +120,36 @@ export class CertificateManager {
       } catch (e) {
         // Revocation may fail (cert already gone, etc.) — continue.
       }
-      const local = knownCerts.find((entry) =>
+      const local = ownership.find((entry) =>
         entry.portalCertificateId === cert.certificateId || entry.serialNumber === cert.serialNumber,
       );
-      if (local && !local.revokedAt) {
-        this.db.saveCertificate({
-          ...local,
-          revokedAt: new Date().toISOString(),
-        });
+      if (!local) continue;
+
+      // If the local row was quarantined (stale encryption, undecryptable
+      // private key), hard-delete it after successful portal revocation.
+      // Leaving it around as "revoked" would keep the ownership fingerprint
+      // alive on every subsequent run but with no recoverable private key —
+      // pure dead weight that can confuse downstream reconciliation.
+      let isQuarantined = false;
+      try {
+        const decodable = this.db.getCertificateById(local.id);
+        isQuarantined = decodable === null;
+      } catch {
+        isQuarantined = true;
+      }
+      if (isQuarantined) {
+        this.db.hardDeleteCertificate(local.id);
+        continue;
+      }
+
+      if (!local.revokedAt) {
+        const existing = this.db.getCertificateById(local.id);
+        if (existing) {
+          this.db.saveCertificate({
+            ...existing,
+            revokedAt: new Date().toISOString(),
+          });
+        }
       }
     }
 
