@@ -175,9 +175,15 @@ export async function createAppContextAsync(opts: BootstrapOptions = {}): Promis
     const secret = opts.encryptionSecret ?? deriveEncryptionKey();
     encryption = createEncryptionProvider(secret);
   } else {
-    // Initialize OS keychain and create provider
-    await initKeychain();
-    encryption = await createKeychainEncryptionProvider();
+    // Initialize OS keychain and create provider. `dataDir` enables the
+    // master-key fingerprint sentinel which aborts startup (with a clear
+    // remediation message) if the keychain now returns a different key
+    // than the one that encrypted the data on disk. Without this, a
+    // silent keychain drift produces "Unsupported state or unable to
+    // authenticate data" errors mid-pipeline that are very hard to
+    // diagnose in situ.
+    await initKeychain(dataDir);
+    encryption = createKeychainEncryptionProvider();
   }
 
   return wireServices(dataDir, uploadDir, encryption);

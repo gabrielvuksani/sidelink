@@ -369,7 +369,15 @@ export function systemRoutes(ctx: AppContext): Router {
 
 export const activeSSEResponses = new Set<import('express').Response>();
 
-/** Gracefully close all SSE connections (call on server shutdown). */
+/** Gracefully close all SSE connections (call on server shutdown).
+ *
+ * Writing a close frame and calling `res.end()` is not enough to guarantee
+ * the underlying TCP socket is closed promptly — Node sometimes holds the
+ * FIN until the next write tick, which means `server.close()` keeps waiting
+ * for drain and tsx watch force-kills the process before our 8-second
+ * shutdown watchdog can fire. `req.socket.destroy()` makes the close
+ * synchronous.
+ */
 export function closeAllSSE(): void {
   for (const res of activeSSEResponses) {
     try { res.write('event: close\ndata: "server-shutdown"\n\n'); } catch (err) {
@@ -378,6 +386,11 @@ export function closeAllSSE(): void {
     try { res.end(); } catch (err) {
       console.warn('[sse] Error ending response:', err);
     }
+    try {
+      // Best-effort: force the underlying socket closed so server.close()
+      // can complete. Safe against already-destroyed sockets.
+      (res as { req?: { socket?: { destroy?: () => void } } }).req?.socket?.destroy?.();
+    } catch { /* socket already gone */ }
   }
   activeSSEResponses.clear();
 }
@@ -435,10 +448,14 @@ export function sseRoutes(ctx: AppContext): Router {
       send('log', entry);
     });
 
-    // Keep-alive
+    // Keep-alive. `.unref()` so the timer does not keep the event loop
+    // alive once the HTTP server is closed; otherwise `server.close()`
+    // waits forever for drain and tsx watch force-kills the process
+    // before our own 8-second shutdown timeout can fire.
     const keepalive = setInterval(() => {
       res.write(':keepalive\n\n');
     }, 30_000);
+    keepalive.unref();
 
     // Cleanup on disconnect
     req.on('close', () => {

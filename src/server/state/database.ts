@@ -6,6 +6,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { v4 as uuid } from 'uuid';
+import { safeDecrypt } from '../utils/safe-decrypt';
 import type {
   AppleAccount,
   CertificateRecord,
@@ -670,6 +671,12 @@ export class Database {
   }
 
   private mapCertRow(row: any): CertificateRecord {
+    // Use safeDecrypt so a GCM auth-tag mismatch surfaces as a clear
+    // "Failed to decrypt certificate id=... field=privateKeyPem" error
+    // instead of the opaque node:crypto "Unsupported state or unable to
+    // authenticate data". The fingerprint sentinel in keychain.ts should
+    // prevent this class of error at startup — but a stale row that
+    // pre-dates fingerprint tracking can still trip it at read time.
     return {
       id: row.id,
       accountId: row.account_id,
@@ -677,7 +684,11 @@ export class Database {
       serialNumber: row.serial_number,
       commonName: row.common_name,
       certificatePem: row.certificate_pem,
-      privateKeyPem: this.encryption.decrypt(row.private_key_pem_enc),
+      privateKeyPem: safeDecrypt(this.encryption, row.private_key_pem_enc, {
+        kind: 'certificate',
+        id: row.id,
+        field: 'privateKeyPem',
+      }),
       portalCertificateId: row.portal_certificate_id,
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,
