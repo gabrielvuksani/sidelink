@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.5] - 2026-04-22
+
+### Runtime bug fix: auto-quarantine stale-encryption cert rows
+
+The v0.8.4 fingerprint sentinel correctly protects *new* writes, but it can't rescue data already on disk that was encrypted under an older key (e.g. because a previous keytar timeout silently fell back to the machine-derived key). A stale cert row would then survive startup — the fingerprint matches the *current* key, but the row can't be decrypted — and the first install attempt would crash with `DecryptContextError: Failed to decrypt certificate ...`.
+
+Fix: `Database.getActiveCertificate` / `listCertificates` / `getCertificateById` now catch decrypt errors per-row, mark the offending row `revoked_at = now()` in place, and continue. `getActiveCertificate` falls through to the next unrevoked candidate, or returns `null`. A `null` here triggers the cert-manager's fresh-CSR path on the next pipeline run, which transparently recovers the install.
+
+The row is deliberately **revoked rather than deleted** so the `portal_certificate_id` stays available — the cert manager will later list Apple's portal certs and revoke the orphan there too, preventing silent App-ID quota exhaustion.
+
+Verified against the real user-reported broken DB: `revoked_at: null → '2026-04-22T02:41:03.614Z'` on first call, clear `[database] Quarantined undecryptable certificate id=...` log, `getActiveCertificate` returns null → fresh CSR triggered.
+
 ## [0.8.4] - 2026-04-21
 
 ### Runtime bug fixes — the three issues the v0.8.x dev log surfaced
