@@ -687,6 +687,51 @@ export class Database {
     return decoded;
   }
 
+  /**
+   * List just the ownership-identifying metadata for every certificate
+   * belonging to an account, WITHOUT attempting to decrypt the private
+   * key. The cert manager uses this to recognise a portal certificate as
+   * "SideLink-created" even when the corresponding DB row is quarantined
+   * (stale-encryption) and therefore invisible to `listCertificates`.
+   *
+   * Without this, a single undecryptable row made every portal cert look
+   * "unmanaged" and the cert manager refused to revoke any of them to
+   * make room for a new CSR, leaving the user stuck on a
+   * `ProvisioningError: Apple already has development certificates...`
+   * they had no way out of.
+   */
+  listCertificateOwnership(accountId: string): Array<{
+    id: string;
+    portalCertificateId: string;
+    serialNumber: string;
+    revokedAt: string | null;
+    expiresAt: string;
+    createdAt: string;
+  }> {
+    const rows = this.db.prepare(
+      'SELECT id, portal_certificate_id, serial_number, revoked_at, expires_at, created_at ' +
+      'FROM certificates WHERE account_id = ? ORDER BY created_at DESC',
+    ).all(accountId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      portalCertificateId: row.portal_certificate_id,
+      serialNumber: row.serial_number,
+      revokedAt: row.revoked_at,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /**
+   * Hard-delete a certificate row. Used after successful portal revocation
+   * of a quarantined (undecryptable) cert so it no longer lingers in the
+   * DB as a "revoked" row that still matches portal ownership checks on
+   * every subsequent pipeline run.
+   */
+  hardDeleteCertificate(certId: string): void {
+    this.db.prepare('DELETE FROM certificates WHERE id = ?').run(certId);
+  }
+
   getCertificateById(certId: string): CertificateRecord | null {
     const row = this.db.prepare('SELECT * FROM certificates WHERE id = ?').get(certId) as any;
     if (!row) return null;

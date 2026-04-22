@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.8.6] - 2026-04-22
+
+### Unblock install pipeline when a cert was quarantined on a previous boot
+
+Three tightly-related issues from the v0.8.5 dev-log report:
+
+**1. `ProvisioningError: Apple already has development certificates for this team that were not created by SideLink`**. After v0.8.5 quarantined the stale-encryption cert, the matching portal cert on Apple's side became invisible to the cert manager — `listCertificates` skipped the quarantined row because its private key is undecryptable, so the cert-manager's "which portal certs are ours?" filter came up empty, and the still-present portal cert was classified as "unmanaged", refusing the free-account 2-cert limit. Result: the user was stuck with no way forward.
+
+Fix: new `Database.listCertificateOwnership(accountId)` that returns just the non-sensitive metadata (id, portalCertificateId, serialNumber, revokedAt) WITHOUT attempting to decrypt. Cert manager's ensure-cert path now uses ownership rather than decoded records to decide which portal certs are ours, so quarantined certs are correctly revoked to make room for a new CSR. After portal revocation the local quarantined row is hard-deleted (not just marked revoked) so it doesn't linger as dead weight on every subsequent pipeline run.
+
+**2. Pipeline "hangs on nothingness"**. The dev terminal showed `JOB_STARTED` then silence. Root cause: step-level progress went to `logJobLine` (DB + SSE) but never to the top-level console. A stuck network call to Apple inside `provision` looked identical to a job making progress.
+
+Fix: `runStep` now emits `[INFO] [JOB_STEP] <jobId> → <step>` at start and `[INFO] [JOB_STEP] <jobId> ✓ <step> (<ms>ms)` on completion to the top-level console. Plus a new per-step timeout: 30s for validate / register, 3min for sign / install, 15min for authenticate / provision (which include the 10-min 2FA wait). When a step exceeds its budget the pipeline fails with `STEP_TIMEOUT: Step "X" timed out after Ys — likely stuck on an Apple portal call, keychain prompt, or device response`. No more silent hangs.
+
+**3. Re-auth spiral + desktop↔iOS helper 2FA collision**. The dev log showed the same account hitting `APPLE_AUTH_STARTED Re-authenticating` 7+ times in a row, each triggering a fresh 2FA push. Cause: the dashboard and the iOS helper were both POSTing `/apple/accounts/:id/reauth` as part of their auto-refresh. Apple invalidates earlier verification sessions when a new GSA round-trip starts, so when the user finally entered a code Apple had already discarded the session it was tied to → HTTP 401.
+
+Fix: `AppleAccountService.reauthenticate` now coalesces concurrent calls per accountId via an `inflightReauth` Map. The second caller awaits the first promise instead of starting a parallel GSA round-trip. The iOS helper and the desktop UI can both call reauth simultaneously and they'll share the same pending 2FA prompt instead of invalidating each other.
+
+### Verified
+- `npx tsc` clean server + client
+- 190/190 tests pass
+- Against the user's actual broken DB: `listCertificates` returns 0 (quarantined skipped), `listCertificateOwnership` returns the quarantined row with portalId/serial so cert-manager can match + revoke the Apple-side cert
+- Pipeline now logs `[JOB_STEP]` transitions at the top level
+
+No runtime behaviour changed for users whose DBs are already healthy — all three fixes activate only on the failing code paths.
+
 ## [0.8.5] - 2026-04-22
 
 ### Runtime bug fix: auto-quarantine stale-encryption cert rows
