@@ -2,12 +2,13 @@
 
 ## [0.8.3] - 2026-04-21
 
-### CI / release hotfix (pt. 3)
-- Bump Node to 22 in `ci.yml`, `docs.yml`, `release.yml`, and `.nvmrc`, and explicitly install npm 11 (`npm install -g npm@11`) on every runner before `npm ci`. Node 22 LTS still bundles npm 10.x, which has two bugs hitting us simultaneously: it demands a parallel `react@18` tree materialised for `@docsearch/react`'s `react<19` peer pin (absent from a native-npm-11 lock), and it silently skips platform-specific `optionalDependencies` (rollup, tailwindcss-oxide, esbuild binaries) during `npm ci` — which breaks `vite build` on Linux and Windows runners with `MODULE_NOT_FOUND` (npm/cli#4828). npm 11 fixes both.
-- Regenerate `package-lock.json` under npm 11 so all 96 platform-specific entries are materialised. `npm ci --dry-run` now passes cleanly.
-- Drop `--ignore-scripts` from `ci.yml`'s install step — it wasn't solving a real problem and muddied diagnostics.
+### CI / release hotfix (final)
+- All GitHub Actions workflows (`ci.yml`, `docs.yml`, `release.yml`) now invoke `npx -y npm@11 ci` instead of the runner's bundled npm. Node 22 LTS ships npm 10 and has two blocking bugs for this lockfile: it demands a parallel `react@18` tree materialised for `@docsearch/react`'s `react<19` peer pin, and it silently skips platform-specific `optionalDependencies` (rollup, tailwindcss-oxide, esbuild binaries) during `npm ci` — breaking `vite build` on Linux and Windows (npm/cli#4828). Earlier attempts to install npm 11 globally or via corepack failed because GitHub runners shadow the shim or trip npm 10's own postinstall. `npx -y npm@11 ci` sidesteps both issues.
+- Add `"overrides"` to `package.json` so `@docsearch/react`'s outdated `react<19` peer pin resolves against our top-level `react@^19.2.4` — eliminates the need for a parallel `react@18` install tree in the lock file altogether.
+- Drop the `semver` npm package (never actually in `package.json`, only referenced in code) and the `@types/semver` dev dep. Replace with an inline `compareSemver()` helper in `install.ts` + `source-service.ts`. Rationale: pulling those deps forced a fresh `npm install` which stripped the nested-tree entries `npm ci` then demanded. Inline comparator sidesteps the whole resolution mess.
+- Bump `.nvmrc` to `22` to match workflow runners.
 
-No runtime code changed between 0.8.0 / 0.8.1 / 0.8.2 / 0.8.3.
+No runtime behaviour changed between 0.8.0 / 0.8.1 / 0.8.2 / 0.8.3. This release exists solely to give all four platforms (mac-arm64, mac-x64, win, linux) a workflow-built DMG/installer.
 
 ## [0.8.2] - 2026-04-21
 
