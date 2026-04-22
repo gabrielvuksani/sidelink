@@ -649,25 +649,82 @@ export class Database {
       cert.portalCertificateId, cert.expiresAt, cert.revokedAt, cert.createdAt);
   }
 
+  /**
+   * Return the most recent unrevoked, unexpired certificate — or null if
+   * none exists. If the most recent candidate row is undecryptable (stale
+   * encryption key — a row written before a master-key rotation), the row
+   * is marked revoked in-place and we fall through to the next candidate.
+   * This guarantees the pipeline always gets either a working cert or a
+   * clean null (which triggers a fresh CSR + portal cert generation).
+   */
   getActiveCertificate(accountId: string, teamId: string): CertificateRecord | null {
-    const row = this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT * FROM certificates
       WHERE account_id = ? AND team_id = ? AND revoked_at IS NULL AND expires_at > ?
-      ORDER BY created_at DESC LIMIT 1
-    `).get(accountId, teamId, new Date().toISOString()) as any;
-    if (!row) return null;
-    return this.mapCertRow(row);
+      ORDER BY created_at DESC
+    `).all(accountId, teamId, new Date().toISOString()) as any[];
+    for (const row of rows) {
+      try {
+        return this.mapCertRow(row);
+      } catch (err) {
+        this.quarantineUndecryptableCert(row.id, err);
+      }
+    }
+    return null;
   }
 
   listCertificates(accountId: string): CertificateRecord[] {
-    return (this.db.prepare('SELECT * FROM certificates WHERE account_id = ? ORDER BY created_at DESC')
-      .all(accountId) as any[]).map(r => this.mapCertRow(r));
+    const rows = this.db.prepare('SELECT * FROM certificates WHERE account_id = ? ORDER BY created_at DESC')
+      .all(accountId) as any[];
+    const decoded: CertificateRecord[] = [];
+    for (const row of rows) {
+      try {
+        decoded.push(this.mapCertRow(row));
+      } catch (err) {
+        this.quarantineUndecryptableCert(row.id, err);
+      }
+    }
+    return decoded;
   }
 
   getCertificateById(certId: string): CertificateRecord | null {
     const row = this.db.prepare('SELECT * FROM certificates WHERE id = ?').get(certId) as any;
     if (!row) return null;
-    return this.mapCertRow(row);
+    try {
+      return this.mapCertRow(row);
+    } catch (err) {
+      this.quarantineUndecryptableCert(row.id, err);
+      return null;
+    }
+  }
+
+  /**
+   * Mark a stale-encryption certificate row as revoked so it's skipped by
+   * subsequent `getActiveCertificate` calls, letting the cert manager
+   * generate a fresh CSR + portal cert on the next pipeline run.
+   *
+   * We deliberately do NOT delete the row — keeping the portal_certificate_id
+   * present means the cert manager still knows to revoke the orphan on
+   * Apple's portal when it lists certs next, preventing silent quota
+   * exhaustion.
+   */
+  private quarantineUndecryptableCert(certId: string, err: unknown): void {
+    const revokedAt = new Date().toISOString();
+    try {
+      this.db.prepare(
+        'UPDATE certificates SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?',
+      ).run(revokedAt, certId);
+      const reason = err instanceof Error ? err.message.split('\n')[0] : String(err);
+      console.warn(
+        `[database] Quarantined undecryptable certificate id=${certId}: ${reason}. ` +
+        'A fresh CSR will be generated on the next pipeline run.',
+      );
+    } catch (quarantineErr) {
+      console.warn(
+        `[database] Could not quarantine certificate id=${certId}:`,
+        (quarantineErr as Error).message,
+      );
+    }
   }
 
   private mapCertRow(row: any): CertificateRecord {
