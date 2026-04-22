@@ -6,6 +6,7 @@
 import type { Database } from '../state/database';
 import type { LogService } from './log-service';
 import type { EncryptionProvider } from '../types';
+import { safeDecrypt } from '../utils/safe-decrypt';
 import { initiateAuth, submit2FACode, requestSMS2FA, type AuthSession } from '../apple/apple-auth';
 import { AppleDeveloperServicesClient } from '../apple/developer-services';
 import type { AppleAccount, Apple2FASubmit } from '../../shared/types';
@@ -224,7 +225,11 @@ export class AppleAccountService {
     if (!account) {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');
     }
-    const password = this.encryption.decrypt(account.passwordEncrypted ?? '');
+    const password = safeDecrypt(this.encryption, account.passwordEncrypted ?? '', {
+      kind: 'apple-account',
+      id: account.id,
+      field: 'passwordEncrypted',
+    });
     if (!password) {
       throw new AppleAuthError('APPLE_DECRYPT_FAILED', 'Unable to decrypt stored credentials');
     }
@@ -283,7 +288,11 @@ export class AppleAccountService {
     }
 
     // Decrypt stored password
-    const password = this.encryption.decrypt(account.passwordEncrypted ?? '');
+    const password = safeDecrypt(this.encryption, account.passwordEncrypted ?? '', {
+      kind: 'apple-account',
+      id: account.id,
+      field: 'passwordEncrypted',
+    });
     if (!password) {
       throw new AppleAuthError('APPLE_DECRYPT_FAILED', 'Unable to decrypt stored credentials');
     }
@@ -328,7 +337,11 @@ export class AppleAccountService {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');
     }
 
-    const password = this.encryption.decrypt(account.passwordEncrypted ?? '');
+    const password = safeDecrypt(this.encryption, account.passwordEncrypted ?? '', {
+      kind: 'apple-account',
+      id: account.id,
+      field: 'passwordEncrypted',
+    });
     if (!password) {
       throw new AppleAuthError('APPLE_DECRYPT_FAILED', 'Unable to decrypt stored credentials');
     }

@@ -399,8 +399,9 @@ export function cancelJob(db: Database, jobId: string): boolean {
   db.updateJob(job);
   notifyListeners(job);
 
-  // Auto-cleanup after 60s
-  setTimeout(() => cancelledJobs.delete(jobId), 60_000);
+  // Auto-cleanup after 60s. `.unref()` so a pending cancellation record
+  // does not keep the event loop alive past server shutdown.
+  setTimeout(() => cancelledJobs.delete(jobId), 60_000).unref();
 
   return true;
 }

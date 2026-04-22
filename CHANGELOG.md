@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.4] - 2026-04-21
+
+### Runtime bug fixes — the three issues the v0.8.x dev log surfaced
+
+- **Keychain fingerprint sentinel actually implemented.** v0.7.0 / v0.8.0 both claimed this shipped but the file was never changed. `src/server/utils/keychain.ts` now computes `SHA-256('sidelink-key-fp-v1' || keySource || masterKey)` and writes it to `<dataDir>/.master-key.fp` on first run. On every subsequent boot the hash is recomputed and compared; a mismatch throws `KeyFingerprintMismatchError` with a clear remediation playbook **before** the pipeline has a chance to try decrypting anything. Also: keytar timeout extended from 5s to 15s + single retry, and the cached key source is surfaced in error messages. This eliminates the `"Unsupported state or unable to authenticate data"` GCM error class that triggered mid-pipeline on every keychain drift.
+- **`safeDecrypt()` helper with structured error context.** New `src/server/utils/safe-decrypt.ts` wraps every decrypt call with a record-kind / id / field. A GCM auth-tag mismatch now surfaces as `Failed to decrypt certificate id=... field=privateKeyPem: ...` instead of the opaque node:crypto message. Wired into `Database.mapCertRow` and all three Apple-account password decrypts.
+- **Shutdown leak fixed — no more tsx `"Force killing..."`**. SSE keepalive `setInterval`s in `routes/system.ts` and `routes/helper.ts` are now `.unref()`'d, the pipeline cancelled-job auto-cleanup `setTimeout` is `.unref()`'d, and `closeAllSSE()` now destroys the underlying socket synchronously so `server.close()` can drain. Verified: SIGINT produces `"Shutting down gracefully..." → "Goodbye."` within ~2s.
+
+### Verified
+
+- `npx tsc` clean on server + client
+- 190/190 tests pass
+- Fresh dev-server start creates `.master-key.fp` (64-byte SHA-256 hex, mode 600)
+- Tampered fingerprint file → server refuses to start with full remediation printed
+- SIGINT shutdown completes cleanly — no force-kill
+
+### Non-fix: `npm audit`
+
+1 high + 3 moderate vulnerabilities remain, but `npm audit --production` shows **0**. All 4 are in dev-only deps: the high is Electron 36.x→41.2.2 (breaking-change major bump — deferred until a dedicated packaging validation pass), and the moderates are vitepress→vite→esbuild with no upstream fix yet.
+
 ## [0.8.3] - 2026-04-21
 
 ### CI / release hotfix (final)

@@ -555,9 +555,13 @@ export function helperRoutes(ctx: AppContext): Router {
     send('account-update', listSafeAppleAccounts(ctx));
     send('scheduler-update', ctx.scheduler.getSnapshot());
 
+    // `.unref()` so SSE clients don't pin the event loop open when the
+    // server is shutting down — otherwise tsx watch sees a live handle
+    // and force-kills before our graceful-shutdown can run.
     const keepalive = setInterval(() => {
       res.write(':keepalive\n\n');
     }, 30_000);
+    keepalive.unref();
 
     req.on('close', () => {
       unsubPipeline();
