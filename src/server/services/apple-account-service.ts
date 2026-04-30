@@ -49,18 +49,27 @@ interface CachedSession {
 const sessionCache = new Map<string, CachedSession>();
 
 /**
- * Per-account in-flight re-auth guard. If a caller starts re-auth while
- * another call for the same accountId is still waiting on GSA or 2FA,
- * the second caller waits for the first promise instead of kicking off
- * a fresh GSA round-trip — which would generate a second 2FA push and
- * invalidate the user's first verification code on Apple's side.
+ * Per-account in-flight guards for the three GSA entry points. Concurrent
+ * callers for the same accountId share the first caller's promise instead
+ * of kicking off a fresh GSA round-trip, which would generate a duplicate
+ * 2FA push and could invalidate the user's first verification code on
+ * Apple's side.
  *
- * The user's dev log showed this spiral: the dashboard and the iOS
- * helper both auto-refresh, each POST /apple/accounts/:id/reauth, and
- * Apple responded with HTTP 401 because the first verification code had
- * already been consumed by the time the second request tried to use it.
+ * Three Maps because the entry points have different return types and
+ * different short-circuit semantics:
+ *   - reauth:   user-initiated /apple/accounts/:id/reauth (returns AppleAccount)
+ *   - refresh:  pipeline `authenticate` step refreshing a session (returns AuthSession)
+ *   - twoFA:    completing a pending 2FA challenge (returns AppleAccount)
+ *
+ * Without these, the dev log showed both desktop + iOS helper hitting
+ * /reauth simultaneously, two pipeline jobs for the same account each
+ * firing GSA in parallel ("Starting GSA authentication via Python helper..."
+ * appearing twice back-to-back), and 2FA validation logged twice with
+ * matching HTTP 401 errors.
  */
 const inflightReauth = new Map<string, Promise<AppleAccount>>();
+const inflightRefresh = new Map<string, Promise<AuthSession>>();
+const inflight2FA = new Map<string, Promise<AppleAccount>>();
 
 /** Sessions are considered fresh for the configured auth session TTL. */
 const SESSION_FRESHNESS_MS = DEFAULTS.authSessionTtlHours * 60 * 60 * 1000;
@@ -232,9 +241,45 @@ export class AppleAccountService {
 
   /**
    * Complete 2FA for an account using stored credentials.
-   * Used by the pipeline when 2FA is triggered during install.
+   * Used by the pipeline when 2FA is triggered during install AND by the
+   * UI when a user re-authenticates a session-expired account.
+   *
+   * Three real-world races this needs to survive:
+   *   1. Desktop dashboard + iOS helper both POST /reauth/2fa for the
+   *      same code — both must NOT hit Apple twice with the same code,
+   *      since the second receives HTTP 401 and pollutes the log.
+   *   2. Two pipeline jobs for the same account each call this after
+   *      the user submits the 2FA code separately for each job's
+   *      `waiting_2fa` state — only the first should actually submit
+   *      to Apple; the rest must succeed by observing that the account
+   *      is already active.
+   *   3. React StrictMode / fast double-click on the Verify button.
    */
   async complete2FAForAccount(accountId: string, code: string): Promise<AppleAccount> {
+    // Short-circuit if a parallel caller already finished re-auth. The
+    // pending 2FA context on Apple's side is single-use, so a second
+    // submit2FACode would otherwise fail with "No pending 2FA session".
+    const current = this.db.getAppleAccount(accountId);
+    if (current && current.status === 'active') {
+      const cached = sessionCache.get(accountId);
+      if (cached && (Date.now() - cached.cachedAt) < SESSION_FRESHNESS_MS) {
+        return current;
+      }
+    }
+
+    const existing = inflight2FA.get(accountId);
+    if (existing) return existing;
+
+    const task = this.performComplete2FAForAccount(accountId, code);
+    inflight2FA.set(accountId, task);
+    try {
+      return await task;
+    } finally {
+      inflight2FA.delete(accountId);
+    }
+  }
+
+  private async performComplete2FAForAccount(accountId: string, code: string): Promise<AppleAccount> {
     const account = this.db.getAppleAccount(accountId);
     if (!account) {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');
@@ -278,6 +323,13 @@ export class AppleAccountService {
    * Re-authenticate an existing account (e.g., before signing).
    * Reuses a cached session if it's still fresh (< 30 min old).
    * Otherwise performs a full GSA re-auth with stored credentials.
+   *
+   * Concurrent callers for the same accountId share a single GSA round-trip
+   * via `inflightRefresh`. Without coalescing, two pipeline jobs that race
+   * into the `authenticate` step for the same account each fire GSA — the
+   * second `pending2FAContexts.set(appleId, ...)` in apple-auth.ts overwrites
+   * the first, and Apple sends two 2FA push notifications for what should
+   * be a single sign-in.
    */
   async refreshAuth(accountId: string, options?: { forceRefresh?: boolean }): Promise<AuthSession> {
     const forceRefresh = options?.forceRefresh ?? false;
@@ -287,6 +339,21 @@ export class AppleAccountService {
       return cached.session;
     }
 
+    // Coalesce concurrent refreshes so two pipeline jobs for the same
+    // account share one GSA round-trip and one 2FA push.
+    const existing = inflightRefresh.get(accountId);
+    if (existing) return existing;
+
+    const task = this.performRefreshAuth(accountId, forceRefresh);
+    inflightRefresh.set(accountId, task);
+    try {
+      return await task;
+    } finally {
+      inflightRefresh.delete(accountId);
+    }
+  }
+
+  private async performRefreshAuth(accountId: string, forceRefresh: boolean): Promise<AuthSession> {
     const account = this.db.getAppleAccount(accountId);
     if (!account) {
       throw new AppleAuthError('APPLE_ACCOUNT_NOT_FOUND', 'Account not found');

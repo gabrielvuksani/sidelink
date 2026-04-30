@@ -1,0 +1,15 @@
+{
+  "//": "IDE workspace config — hides macOS AppleDouble `._*` sidecar files that FAT/ExFAT volumes regenerate on every file write. Without these exclusions, the TypeScript language server tries to parse `._*.d.ts` / `._*.tsx` as real source files and reports a flood of spurious 'JSX.IntrinsicElements missing' / 'File is not a module' errors.",
+  "files.exclude": {
+    "**/._*": true
+  },
+  "files.watcherExclude": {
+    "**/._*": true
+  },
+  "search.exclude": {
+    "**/._*": true
+  },
+  "typescript.tsserver.watchOptions": {
+    "excludeFiles": ["**/._*"]
+  }
+}

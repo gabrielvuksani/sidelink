@@ -163,20 +163,54 @@ interface TwoFAWaiter {
   resolve: (code: string) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /**
+   * Apple account this job is authenticating against. Two pipeline jobs
+   * for the same account share an upstream GSA round-trip (see the
+   * inflightRefresh coalescing in apple-account-service.ts), so a single
+   * 2FA submission should be able to unblock every waiter for the same
+   * accountId. Without this, the user has to type the same code N times
+   * for N concurrent jobs, even though Apple only ever needed it once.
+   */
+  accountId: string;
 }
 
 const pending2FA = new Map<string, TwoFAWaiter>();
 
 /**
  * Submit a 2FA code for a waiting pipeline job.
- * Returns true if the job was waiting and the code was delivered.
+ *
+ * Returns true if the targeted job was waiting and the code was delivered.
+ * Also CASCADES to any sibling waiter for the same Apple account — the
+ * underlying refreshAuth coalescing means there is exactly one Apple-side
+ * 2FA context for a given accountId no matter how many jobs are waiting,
+ * so resolving every same-account waiter with the same code lets each
+ * job's complete2FAForAccount call short-circuit through the
+ * "account.status === 'active'" check after the first one finishes.
  */
 export function submitJobTwoFA(jobId: string, code: string): boolean {
   const waiter = pending2FA.get(jobId);
   if (!waiter) return false;
+
+  // Capture sibling waiters BEFORE we resolve the primary one — the resolve
+  // callback may schedule microtasks that mutate pending2FA before this
+  // synchronous loop runs.
+  const siblings: Array<[string, TwoFAWaiter]> = [];
+  for (const [otherJobId, otherWaiter] of pending2FA) {
+    if (otherJobId !== jobId && otherWaiter.accountId === waiter.accountId) {
+      siblings.push([otherJobId, otherWaiter]);
+    }
+  }
+
   clearTimeout(waiter.timer);
   pending2FA.delete(jobId);
   waiter.resolve(code);
+
+  for (const [otherJobId, otherWaiter] of siblings) {
+    clearTimeout(otherWaiter.timer);
+    pending2FA.delete(otherJobId);
+    otherWaiter.resolve(code);
+  }
+
   return true;
 }
 
@@ -189,16 +223,18 @@ export function isJobWaitingFor2FA(jobId: string): boolean {
 
 /**
  * Internal: create a promise that resolves when a 2FA code is submitted
- * or rejects after timeout.
+ * or rejects after timeout. The `accountId` is stored on the waiter so
+ * `submitJobTwoFA` can cascade-resolve every sibling waiter for the same
+ * Apple account on a single user-side submission.
  */
-function waitFor2FACode(jobId: string): Promise<string> {
+function waitFor2FACode(jobId: string, accountId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending2FA.delete(jobId);
       reject(new PipelineError('TWO_FA_TIMEOUT', '2FA code was not submitted within 10 minutes'));
     }, TWO_FA_TIMEOUT_MS);
 
-    pending2FA.set(jobId, { resolve, reject, timer });
+    pending2FA.set(jobId, { resolve, reject, timer, accountId });
   });
 }
 
@@ -220,7 +256,7 @@ async function pauseForTwoFactor(
     step: stepName,
   });
 
-  const code = await waitFor2FACode(job.id);
+  const code = await waitFor2FACode(job.id, job.accountId);
 
   await accounts.complete2FAForAccount(job.accountId, code);
   const account = accounts.get(job.accountId);
@@ -267,7 +303,7 @@ export async function startInstallPipeline(
     customDisplayName?: string;
   },
 ): Promise<InstallJob> {
-  const { db, logs, accounts, provisioning, devices, ipas, encryption } = deps;
+  const { db, logs } = deps;
 
   // Create job record
   const jobId = randomUUID();
@@ -409,7 +445,7 @@ export function cancelJob(db: Database, jobId: string): boolean {
 // ─── Pipeline Steps ──────────────────────────────────────────────────
 
 async function runPipeline(deps: PipelineDeps, job: InstallJob): Promise<void> {
-  const { db, logs, accounts, provisioning, devices, ipas, encryption } = deps;
+  const { db, logs, accounts, provisioning, devices, ipas } = deps;
   const release = await acquireDeviceLock(job.deviceUdid);
 
   // Signing cleanup callback — must be declared outside try/finally scope
