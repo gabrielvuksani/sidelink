@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.8.7] - 2026-04-29
+
+### Close every remaining race in the GSA flow + zero-vuln dependency baseline
+
+Five issues — the three observed in the v0.8.6 dev-log run, plus two they uncovered when fixed.
+
+**1. Concurrent pipeline auth still fired duplicate GSA round-trips for the same account.** When two install jobs entered the `authenticate` step at the same time (e.g. installing on two devices with one Apple ID), each called `refreshAuth` independently. Two `Starting GSA authentication via Python helper...` lines back-to-back. Apple sent two 2FA pushes for what should have been one sign-in, and `pending2FAContexts[appleId]` in `apple-auth.ts` was overwritten by the second call so the first job's adsid/idmsToken were lost.
+
+Fix: `AppleAccountService.refreshAuth` now coalesces concurrent calls per accountId via `inflightRefresh`, mirroring the v0.8.6 `inflightReauth` pattern but for the pipeline path. Two pipeline jobs share one GSA round-trip and one 2FA push.
+
+**2. `2FA validation error 401: HTTP 401` logged twice for the same account.** Same root cause but downstream: desktop UI + iOS helper (or React StrictMode + a fast double-click) both POSTed `/apple/accounts/:id/reauth/2fa` for the same code. The pending 2FA context on Apple's side is single-use; the second submission produced a 401 the moment Apple saw it.
+
+Fix: `complete2FAForAccount` now coalesces per accountId via `inflight2FA`, and short-circuits when `account.status === 'active'` and the session cache is fresh. The second caller either awaits the first or returns the already-active account — no second Apple round-trip.
+
+**3. Two-job 2FA required two keystrokes from the user.** With (1) and (2) fixed, two pipeline jobs for the same account share one upstream Apple challenge — but each job's `pauseForTwoFactor` still had its own `pending2FA[jobId]` waiter, so the user had to type the same code twice in the dashboard.
+
+Fix: `TwoFAWaiter` now stores `accountId`. On any `submitJobTwoFA(jobId, code)`, the function captures every sibling waiter for the same accountId and resolves them all with the same code. Each sibling's `complete2FAForAccount` then short-circuits through the active-status check from (2). One keystroke, N jobs unblocked.
+
+**4. ProvisioningError gave no actionable detail when Apple's portal had certs SideLink didn't manage.** v0.8.6 fixed the case where SideLink had quarantined-but-known certs. This run uncovered the case where the user has *unrelated* dev certs in the portal (e.g. from Xcode), some of which are already expired but still count against the free-account 2-cert quota.
+
+Fix: in `certificate-manager.ensureCertificate`, expired unmanaged portal certs are now auto-revoked through the API (they are useless for code-signing — any signature with an expired cert is rejected by iOS). Active unmanaged certs are still left alone, but the `EXTERNAL_DEV_CERT_PRESENT` error now lists each one with CN, last-8 of serial, and expiry date, plus a direct link to `https://developer.apple.com/account/resources/certificates/list` so the user can match and revoke a specific cert in seconds.
+
+**5. tsx watch force-killed the dev server before our shutdown handler finished.** Dev log: `^C ... Shutting down gracefully... [tsx] Previous process hasn't exited yet. Force killing...`. Our drain watchdog was set to 8s, but tsx watch's grace period is ~5s before SIGKILL.
+
+Fix: drain timer reduced from 8s to 3s. SSE responses are already destroyed synchronously and connections drained, so 3s is plenty for a healthy shutdown and short enough to fit inside tsx's grace window.
+
+### Dependency security baseline
+
+`npm audit` went from `5 vulnerabilities (4 moderate, 1 high)` to `found 0 vulnerabilities`:
+
+- `electron`: `^36.1.0` → `^39.8.9` — closes 5 advisories (use-after-free in offscreen window paint, use-after-free in fullscreen permission callbacks, use-after-free in PowerMonitor, use-after-free in download dialog, AppleScript injection in `moveToApplicationsFolder`, CLI switch injection, registry-path injection, second-instance OOB read, service-worker IPC spoof, iframe origin in permission handler, nodeIntegrationInWorker leakage, login-item path quoting). Desktop code uses only stable APIs (`BrowserWindow`, `ipcMain`, `webContents`, `app`) so no migration needed.
+- `better-sqlite3`: `^11.8.1` → `^12.9.0` — required because Electron 39's bundled V8 removed `v8::Context::GetIsolate()`, which `better-sqlite3@11`'s native module called. The 12.x API is backwards-compatible with our usage.
+- `uuid`: `^13.0.0` → `^14.0.0` — closes the v3/v5/v6 buffer-bounds advisory. We only use `v4`, so unexploitable, but cleans the audit.
+- `vitepress` overrides — pinned its transitive `esbuild` to `^0.25.0` and its transitive `vite` to `^6.4.2` to close two dev-server advisories (vitepress 1.6.4 still builds cleanly against these; verified via `docs:build`).
+
+Plus a few small hygiene fixes the LSP flagged when the surrounding code was touched: deleted dead `crypto` import in `certificate-manager.ts`, dead `getDefaultDataDir` import in `index.ts`, and unused destructured deps in `pipeline.ts:306` / `pipeline.ts:448`.
+
+### Verified
+
+- `npm audit`: 0 vulnerabilities (was 5: 4 moderate + 1 high)
+- `npx tsc -p tsconfig.json --noEmit`: clean
+- `npx tsc -p src/client/tsconfig.json --noEmit`: clean
+- `npm test`: 190/190 passed
+- `npm run build`: clean (clean → tsc → vite → asset copy)
+- `npm run docs:build`: clean (vitepress with new overrides)
+- `npx electron-builder install-app-deps` against Electron 39.8.9: better-sqlite3 + keytar both rebuild cleanly for arm64
+- `npm run desktop:preflight`: native dependency check passed
+- Server boot smoke test through to `initKeychain` (further boot blocked only by an unrelated keychain fingerprint mismatch on the dev machine's existing data dir)
+- iOS helper API contract preserved: `helper.ts`'s `/apple/*` routes return identical envelopes; `APIClient.swift`'s `reauthenticateAppleAccount` and `submitAppleAccountReauth2FA` continue to work without iOS-side changes.
+
 ## [0.8.6] - 2026-04-22
 
 ### Unblock install pipeline when a cert was quarantined on a previous boot

@@ -1,6 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "private": true,
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {
@@ -30,6 +30,10 @@
       "react": "$react",
       "react-dom": "$react-dom",
       "@types/react": "$@types/react"
+    },
+    "vitepress": {
+      "esbuild": "^0.25.0",
+      "vite": "^6.4.2"
     }
   },
   "main": "dist/desktop/main.js",
@@ -40,7 +44,7 @@
     "verify": "npm run lint && npm test && npm run source:generate && npm run build && npm run docs:build && npm run doctor",
     "preweb": "npm run node:preflight",
     "web": "tsx src/server/index.ts",
-    "predev": "npm run node:preflight && npm run build:client",
+    "predev": "node scripts/purge-applesidecars.cjs && npm run node:preflight && npm run build:client",
     "dev": "tsx watch src/server/index.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:ts": "tsc -p tsconfig.build.json",
@@ -81,11 +85,14 @@
     "desktop:package:win": "npm run build && npm run python:bundle && electron-builder --win --dir",
     "desktop:package:linux": "npm run build && npm run python:bundle && electron-builder --linux --dir",
     "desktop:package:all": "npm run build && npm run python:bundle && electron-builder -mwl",
-    "setup": "npm install && npm run verify"
+    "setup": "npm install && npm run verify",
+    "purge:sidecars": "node scripts/purge-applesidecars.cjs",
+    "preinstall": "node scripts/purge-applesidecars.cjs",
+    "prebuild": "node scripts/purge-applesidecars.cjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.9.0",
     "bplist-parser": "^0.3.2",
     "cookie-parser": "^1.4.7",
     "electron-updater": "^6.3.9",
@@ -95,7 +102,7 @@
     "node-forge": "^1.3.3",
     "plist": "^3.1.0",
     "qrcode.react": "^4.2.0",
-    "uuid": "^13.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -112,7 +119,7 @@
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.1.4",
-    "electron": "^36.1.0",
+    "electron": "^39.8.9",
     "electron-builder": "^26.0.12",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

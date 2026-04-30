@@ -5,7 +5,6 @@
 // For free accounts: max 1-2 active development certs, 7-day expiry.
 // For paid accounts: longer expiry, more certs allowed.
 
-import crypto from 'node:crypto';
 import forge from 'node-forge';
 import { v4 as uuid } from 'uuid';
 import type { CertificateRecord } from '../../shared/types';
@@ -95,8 +94,8 @@ export class CertificateManager {
     );
 
     // 3. Revoke only SideLink-managed certs when we need to make room.
-    // Never revoke unrelated portal certs automatically because that can
-    // break Xcode, AltStore, or other tools using the same Apple team.
+    // Never revoke active unrelated portal certs automatically — they may
+    // belong to Xcode, AltStore, or another tool using the same Apple team.
     //
     // `listCertificateOwnership` returns raw metadata WITHOUT decrypting,
     // so quarantined rows (stale-encryption, invisible to `listCertificates`)
@@ -112,6 +111,36 @@ export class CertificateManager {
     const unmanagedPortalCerts = devCerts.filter((cert) =>
       !knownByPortalId.has(cert.certificateId) && !knownBySerial.has(cert.serialNumber),
     );
+
+    // Split unmanaged certs into expired vs active. EXPIRED ones still
+    // occupy the free-account 2-cert quota in Apple's portal until the
+    // user manually deletes them, but they are useless for code-signing
+    // (any signature with an expired cert is rejected by iOS). Auto-
+    // revoking them is safe — there is nothing using them that could
+    // break — and is the only way to get a free-tier user unstuck if
+    // they previously used Xcode and let those certs expire.
+    //
+    // ACTIVE unmanaged certs are still left alone. They likely belong to
+    // a tool (Xcode, AltStore) the user actively uses, so revoking them
+    // would silently break that tool.
+    const expiredUnmanagedCerts: AppleCertificate[] = [];
+    const activeUnmanagedCerts: AppleCertificate[] = [];
+    for (const cert of unmanagedPortalCerts) {
+      const isExpired = cert.expirationDate ? isCertificateExpired(cert.expirationDate) : false;
+      if (isExpired) {
+        expiredUnmanagedCerts.push(cert);
+      } else {
+        activeUnmanagedCerts.push(cert);
+      }
+    }
+
+    for (const cert of expiredUnmanagedCerts) {
+      try {
+        await this.client.revokeCertificate(teamId, cert.serialNumber);
+      } catch {
+        // Best-effort — Apple may already have removed it.
+      }
+    }
 
     for (const cert of sidelinkManagedPortalCerts) {
       try {
@@ -161,10 +190,23 @@ export class CertificateManager {
     try {
       appleCert = await this.client.submitCSR(teamId, csrBase64, 'SideLink');
     } catch (error) {
-      if (unmanagedPortalCerts.length > 0) {
+      // Only ACTIVE unmanaged certs trigger the friendly error — expired
+      // ones were already auto-revoked above, so they cannot be the cause.
+      if (activeUnmanagedCerts.length > 0) {
+        const lines = activeUnmanagedCerts.map((cert) => {
+          const cn = cert.name || cert.machineName || 'Unnamed certificate';
+          const serialTail = (cert.serialNumber || '').slice(-8) || 'unknown';
+          const expiresAt = cert.expirationDate
+            ? cert.expirationDate.split('T')[0]
+            : 'unknown date';
+          return `  • "${cn}" — serial ending …${serialTail}, expires ${expiresAt}`;
+        }).join('\n');
         throw new ProvisioningError(
           'EXTERNAL_DEV_CERT_PRESENT',
-          'Apple already has development certificates for this team that were not created by SideLink. SideLink will not revoke unrelated certificates automatically. Remove an unused development certificate in Apple or Xcode, or sign in with a different team before trying again.',
+          'Apple already has development certificates for this team that were not created by SideLink. ' +
+          'SideLink will not revoke certificates that may belong to Xcode or another tool. ' +
+          'Sign in to https://developer.apple.com/account/resources/certificates/list and ' +
+          'revoke one of these, then try again:\n' + lines,
         );
       }
       throw error;

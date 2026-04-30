@@ -5,7 +5,7 @@ import { createAppContextAsync } from './context';
 import { createApp } from './app';
 import { recoverStalledJobs } from './pipeline';
 import { closeAllSSE } from './routes';
-import { getDefaultDataDir, getPlatformDisplayName } from './utils/paths';
+import { getPlatformDisplayName } from './utils/paths';
 import { DEFAULTS } from '../shared/constants';
 import * as net from 'node:net';
 import fs from 'node:fs';
@@ -191,11 +191,15 @@ async function main() {
       }
     }
 
-    // Force exit after 8 seconds if drain hasn't completed
+    // Force exit after 3 seconds if drain hasn't completed. tsx watch
+    // sends SIGINT and waits ~5s before SIGKILL, so an 8-second watchdog
+    // would always lose the race ("Previous process hasn't exited yet.
+    // Force killing..." in the dev log). Three seconds is enough time
+    // for SSE socket destroys + server.close drain on a healthy shutdown.
     setTimeout(() => {
       console.error('Shutdown timed out — forcing exit.');
       process.exit(1);
-    }, 8_000).unref();
+    }, 3_000).unref();
   };
 
   process.on('SIGINT', shutdown);
