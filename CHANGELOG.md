@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.8.8] - 2026-05-07
+
+### Free-tier dev-cert provisioning now actually unblocks free-tier users
+
+The friendly error in v0.8.7 (`ProvisioningError: Apple already has development certificates for this team that were not created by SideLink`) listed each unmanaged cert and told the user to revoke one at `https://developer.apple.com/account/resources/certificates/list`. That URL is **paid-only** — free Apple IDs get a 403 on that page because cert management is gated behind the Apple Developer Program. Free-tier users (i.e. the entire target audience for a sideload manager) had no way out: the link doesn't load for them, and the only other surface — Xcode → Settings → Accounts → Manage Certificates — needs Xcode plus the original private key. Two real test accounts hit this dead-end on this dev-log run with portal certs from prior Xcode use that they could not revoke.
+
+**Fix:** `CertificateManager.ensureCertificate` now takes an `accountType: 'free' | 'paid' | 'unknown'` argument and applies tier-aware policy:
+
+- **`'free'`** — auto-revoke EVERY unmanaged portal dev cert (active + expired) before submitting the new CSR. Free Apple IDs cap at 2 dev certs and have no portal to manage them, so the conservative "leave external certs alone" rule produced a permanent stuck state. AltStore and Sideloadly take the same approach.
+- **`'paid'`** — unchanged. Auto-revoke only EXPIRED unmanaged certs (still occupy quota, useless for signing). Active unmanaged certs stay refused with the existing portal-link error — paid teams have a working portal AND legitimately share certs with Xcode/AltStore.
+- **`'unknown'`** — same conservative behaviour as paid, but the error message now offers BOTH paths (Xcode for free, portal URL for paid) so users with regressed team detection can pick the right one.
+
+Each external cert revoked under free-tier policy emits a `CERT_REVOKED` log with `reason: 'free-tier-quota'` (or `'expired'`), serial, portal ID, common name, and expiry — fully visible in the dashboard log stream so users see exactly what was reclaimed and why. The friendly error path's `certsToRefuse` list is now structurally empty for free-tier accounts (everything was already revoked above), so the misleading paid-only URL can never reach a free user even via a future regression that miswires the call.
+
+Wired through both call sites: `provisioning-service.ts` (pipeline path) and `routes/apple.ts` (manual rotate-certificate endpoint) now pass `account.accountType` plus the `LogService`.
+
+Plus a tiny lint hygiene fix: the `req` parameter on the `/apple/accounts` GET handler was unused; renamed to `_req` to silence TS6133.
+
+### Verified
+
+- `npx tsc -p tsconfig.json --noEmit`: clean
+- `npx tsc -p src/client/tsconfig.json --noEmit`: clean
+- `npm run lint`: clean
+- `npm test`: 196/196 passed (190 baseline + 6 new in `tests/certificate-manager.test.ts` covering all three tiers, mixed expired/active mix, and cached-cert reuse)
+- New tests assert: free-tier revokes ALL unmanaged certs and emits `CERT_REVOKED` with `reason: 'free-tier-quota'`; paid-tier refuses with the portal-only message and never includes the Xcode hint; unknown-tier surfaces both options; paid-tier still auto-revokes expired certs even when also refusing active ones; cache hit short-circuits all portal interaction.
+
 ## [0.8.7] - 2026-04-29
 
 ### Close every remaining race in the GSA flow + zero-vuln dependency baseline

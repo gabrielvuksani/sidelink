@@ -10,7 +10,10 @@ import { v4 as uuid } from 'uuid';
 import type { CertificateRecord } from '../../shared/types';
 import type { AppleDeveloperServicesClient, AppleCertificate } from './developer-services';
 import type { Database } from '../state/database';
+import type { LogService } from '../services/log-service';
 import { ProvisioningError } from '../utils/errors';
+
+type AppleAccountTier = 'free' | 'paid' | 'unknown';
 
 /**
  * Generate an RSA 2048-bit keypair and a Certificate Signing Request.
@@ -70,15 +73,23 @@ export class CertificateManager {
   constructor(
     private db: Database,
     private client: AppleDeveloperServicesClient,
+    private logs?: LogService,
   ) {}
 
   /**
    * Get or create a valid development certificate for the account+team.
    * If no valid cert exists, creates one. If at limit, revokes oldest.
+   *
+   * `accountType` controls how aggressively SideLink reclaims unmanaged portal
+   * certs. Free Apple IDs cap at 2 dev certs and have no portal to manage
+   * them, so we auto-revoke EVERY unmanaged cert when needed. Paid teams get
+   * the conservative treatment (only expired certs auto-revoke) because they
+   * have a working portal and may legitimately share certs across tools.
    */
   async ensureCertificate(
     accountId: string,
     teamId: string,
+    accountType: AppleAccountTier = 'unknown',
   ): Promise<CertificateRecord> {
     // 1. Check for existing valid cert in our DB
     const existingCert = this.db.getActiveCertificate(accountId, teamId);
@@ -112,31 +123,53 @@ export class CertificateManager {
       !knownByPortalId.has(cert.certificateId) && !knownBySerial.has(cert.serialNumber),
     );
 
-    // Split unmanaged certs into expired vs active. EXPIRED ones still
-    // occupy the free-account 2-cert quota in Apple's portal until the
-    // user manually deletes them, but they are useless for code-signing
-    // (any signature with an expired cert is rejected by iOS). Auto-
-    // revoking them is safe — there is nothing using them that could
-    // break — and is the only way to get a free-tier user unstuck if
-    // they previously used Xcode and let those certs expire.
+    // Split unmanaged certs into "auto-revoke" vs "refuse" based on tier:
     //
-    // ACTIVE unmanaged certs are still left alone. They likely belong to
-    // a tool (Xcode, AltStore) the user actively uses, so revoking them
-    // would silently break that tool.
-    const expiredUnmanagedCerts: AppleCertificate[] = [];
-    const activeUnmanagedCerts: AppleCertificate[] = [];
+    // EXPIRED unmanaged certs are always auto-revokable — they still occupy
+    // the free-account 2-cert quota in Apple's portal until manually deleted,
+    // but are useless for signing (iOS rejects any signature with an expired
+    // cert). Revoking is safe; nothing using them could break.
+    //
+    // ACTIVE unmanaged certs are auto-revokable ONLY for free-tier accounts.
+    // Free Apple IDs cap at 2 dev certs and have NO web portal to manage them
+    // (developer.apple.com/account/resources/certificates/list returns 403
+    // for free accounts — that page is paid-only). The only other surface is
+    // Xcode → Settings → Accounts → Manage Certificates, which requires both
+    // Xcode and the original private key. If we refused to revoke for free
+    // tier, users with prior Xcode certs would be permanently stuck. AltStore
+    // and Sideloadly take the same approach.
+    //
+    // Paid/unknown accounts keep the conservative treatment — paid teams have
+    // a working portal AND legitimately share certs with Xcode/AltStore.
+    const certsToAutoRevoke: AppleCertificate[] = [];
+    const certsToRefuse: AppleCertificate[] = [];
     for (const cert of unmanagedPortalCerts) {
       const isExpired = cert.expirationDate ? isCertificateExpired(cert.expirationDate) : false;
-      if (isExpired) {
-        expiredUnmanagedCerts.push(cert);
+      if (isExpired || accountType === 'free') {
+        certsToAutoRevoke.push(cert);
       } else {
-        activeUnmanagedCerts.push(cert);
+        certsToRefuse.push(cert);
       }
     }
 
-    for (const cert of expiredUnmanagedCerts) {
+    for (const cert of certsToAutoRevoke) {
+      const isExpired = cert.expirationDate ? isCertificateExpired(cert.expirationDate) : false;
       try {
         await this.client.revokeCertificate(teamId, cert.serialNumber);
+        this.logs?.info(
+          'CERT_REVOKED',
+          `Auto-revoked external dev cert "${cert.name || cert.machineName || 'unnamed'}" ` +
+            (isExpired ? '(expired, reclaiming portal slot)' : '(free-tier quota cleanup)'),
+          {
+            accountId,
+            teamId,
+            serialNumber: cert.serialNumber,
+            portalCertificateId: cert.certificateId,
+            commonName: cert.name || cert.machineName,
+            expirationDate: cert.expirationDate,
+            reason: isExpired ? 'expired' : 'free-tier-quota',
+          },
+        );
       } catch {
         // Best-effort — Apple may already have removed it.
       }
@@ -190,10 +223,12 @@ export class CertificateManager {
     try {
       appleCert = await this.client.submitCSR(teamId, csrBase64, 'SideLink');
     } catch (error) {
-      // Only ACTIVE unmanaged certs trigger the friendly error — expired
-      // ones were already auto-revoked above, so they cannot be the cause.
-      if (activeUnmanagedCerts.length > 0) {
-        const lines = activeUnmanagedCerts.map((cert) => {
+      // The friendly error only fires when there are unmanaged certs we
+      // refused to touch. For free-tier accounts `certsToRefuse` is always
+      // empty (everything was auto-revoked above), so this branch is
+      // unreachable for them — they hit the generic submitCSR error instead.
+      if (certsToRefuse.length > 0) {
+        const lines = certsToRefuse.map((cert) => {
           const cn = cert.name || cert.machineName || 'Unnamed certificate';
           const serialTail = (cert.serialNumber || '').slice(-8) || 'unknown';
           const expiresAt = cert.expirationDate
@@ -201,12 +236,28 @@ export class CertificateManager {
             : 'unknown date';
           return `  • "${cn}" — serial ending …${serialTail}, expires ${expiresAt}`;
         }).join('\n');
+
+        // The portal URL only works for paid teams — free accounts get a 403
+        // on developer.apple.com/account/resources/certificates/list because
+        // that page is gated behind the Apple Developer Program. For tier
+        // 'unknown' (rare — happens when team detection regresses) we surface
+        // both options so the user can pick the right one.
+        const guidance = accountType === 'unknown'
+          ? '\n\nIf this is a free Apple ID, open Xcode → Settings → Accounts → ' +
+            'select your account → Manage Certificates, then delete one of these. ' +
+            '(SideLink should also detect free tier on the next sign-in and revoke ' +
+            'them automatically — try signing the account out and back in.)\n\n' +
+            'If this is a paid Apple Developer Program account, sign in to ' +
+            'https://developer.apple.com/account/resources/certificates/list and ' +
+            'revoke one of these, then try again:\n'
+          : '\nSign in to https://developer.apple.com/account/resources/certificates/list and ' +
+            'revoke one of these, then try again:\n';
+
         throw new ProvisioningError(
           'EXTERNAL_DEV_CERT_PRESENT',
           'Apple already has development certificates for this team that were not created by SideLink. ' +
-          'SideLink will not revoke certificates that may belong to Xcode or another tool. ' +
-          'Sign in to https://developer.apple.com/account/resources/certificates/list and ' +
-          'revoke one of these, then try again:\n' + lines,
+          'SideLink will not revoke certificates that may belong to Xcode or another tool.' +
+          guidance + lines,
         );
       }
       throw error;
