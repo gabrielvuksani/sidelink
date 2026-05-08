@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.8.9] - 2026-05-07
+
+### Fix two concurrency failures uncovered by the v0.8.8 dev-log run
+
+The v0.8.8 cert-tier fix worked — the previously-stuck free-tier accounts now reclaim Xcode-leftover dev certs and proceed past `provision`. But running two parallel install batches (one per device) on the same Apple account surfaced two new failure modes:
+
+**1. `ProvisioningError: Apple Developer Services: You already have a current iOS Development certificate or a pending certificate request. (code: 7460)`** — Two pipeline jobs racing the `provision` step on the same Apple account both reached `CertificateManager.ensureCertificate`. Both saw no cert in the local DB, both called `listCertificates`, both called `revokeCertificate` for the unmanaged certs (idempotent — fine), and both then called `submitCSR`. The first won; Apple rejected the second with code 7460 because there was now a fresh pending cert.
+
+Fix: module-level `inflightEnsureCert` Map keyed by `${accountId}::${teamId}` coalesces concurrent calls onto a single CSR submission. The second caller awaits the first's promise instead of starting a parallel cert flow. Mirrors the `inflightRefresh` / `inflightReauth` / `inflight2FA` pattern already in `apple-account-service.ts` and the per-(accountId, udid) inflight in `device-registrar.ts`. Module scope (rather than instance) is needed because `CertificateManager` is instantiated per-call by `ProvisioningService.provision` and `routes/apple.ts`'s manual rotate handler — instance-level state would not coalesce.
+
+The two-job-same-account test in the dev log also has the v0.8.7 2FA cascade now visible end-to-end: one Apple challenge, one keystroke, both jobs unblock. After this fix, both then race-free provision a cert.
+
+**2. `PipelineError: Step "install" timed out after 180s — likely stuck on an Apple portal call, keychain prompt, or device response.`** — Re-installing the same bundle ID on the same device that had finished a fresh install ~90 seconds earlier consistently exceeded the 3-minute install budget. Fresh installs of YouTube on either device measured 102–136s (close to the limit on the slow case). Re-installs are systematically slower because iOS does an atomic in-place replace: kill running instance, migrate the user-data container, re-validate the new code-signing payload, swap the bundle, then re-attach. Over Wi-Fi for a ~150 MB app on an older iPhone this regularly runs 3–5 minutes. The 3-minute cap was empirically too tight; SideLink reported a stuck pipeline when the device was actually still progressing.
+
+Fix: `STEP_TIMEOUT_MS.install` raised from 3 minutes (180s) to 6 minutes (360s). Other timeouts unchanged. The new value gives Wi-Fi re-installs of large apps headroom without masking actual stuck-forever bugs (`provision` and `authenticate` are 15 minutes because they include the 10-minute 2FA wait, so 6 minutes for install is consistent with the ratio of "step that legitimately blocks on user/device").
+
+### Verified
+
+- `npx tsc -p tsconfig.json --noEmit`: clean
+- `npx tsc -p src/client/tsconfig.json --noEmit`: clean
+- `npm run lint`: clean
+- `npm test`: 198/198 passed (+2 over v0.8.8: `coalesces concurrent ensureCertificate calls for the same (account, team) onto a single CSR submission` proves submitCSR is called once when two callers race; `does NOT coalesce calls for different (account, team) pairs` proves the key isolates correctly).
+- Manual: dev-log replay scenario (two jobs, same Apple account, two devices) — first ensure-cert hit Apple, second awaited; both pipelines past `provision` without code 7460. Re-install of YouTube on the device that hit 180s now completes well inside the 360s budget.
+
 ## [0.8.8] - 2026-05-07
 
 ### Free-tier dev-cert provisioning now actually unblocks free-tier users

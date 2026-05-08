@@ -15,6 +15,17 @@ import { ProvisioningError } from '../utils/errors';
 
 type AppleAccountTier = 'free' | 'paid' | 'unknown';
 
+// Module-level inflight map so concurrent pipeline jobs for the same Apple
+// account+team coalesce onto a single CSR submission. Without this, two jobs
+// that race the `provision` step both call `submitCSR` and Apple rejects the
+// second with `(code: 7460) You already have a current iOS Development
+// certificate or a pending certificate request`. CertificateManager is
+// instantiated per-call (unlike DeviceRegistrar/AppIdManager which live on
+// ProvisioningService), so instance-level state would not coalesce — module
+// scope is the right grain. Mirrors the inflightRefresh/inflightReauth/
+// inflight2FA pattern in apple-account-service.ts.
+const inflightEnsureCert = new Map<string, Promise<CertificateRecord>>();
+
 /**
  * Generate an RSA 2048-bit keypair and a Certificate Signing Request.
  * Returns PEM-encoded private key and CSR (base64 DER).
@@ -85,11 +96,35 @@ export class CertificateManager {
    * them, so we auto-revoke EVERY unmanaged cert when needed. Paid teams get
    * the conservative treatment (only expired certs auto-revoke) because they
    * have a working portal and may legitimately share certs across tools.
+   *
+   * Concurrent callers for the same (accountId, teamId) coalesce onto a single
+   * CSR submission via `inflightEnsureCert` — without this, two pipeline jobs
+   * that race the `provision` step both call `submitCSR` and Apple rejects
+   * the second with `(code: 7460) You already have a current iOS Development
+   * certificate or a pending certificate request`.
    */
   async ensureCertificate(
     accountId: string,
     teamId: string,
     accountType: AppleAccountTier = 'unknown',
+  ): Promise<CertificateRecord> {
+    const key = `${accountId}::${teamId}`;
+    const pending = inflightEnsureCert.get(key);
+    if (pending) return pending;
+
+    const task = this.ensureCertificateImpl(accountId, teamId, accountType);
+    inflightEnsureCert.set(key, task);
+    try {
+      return await task;
+    } finally {
+      inflightEnsureCert.delete(key);
+    }
+  }
+
+  private async ensureCertificateImpl(
+    accountId: string,
+    teamId: string,
+    accountType: AppleAccountTier,
   ): Promise<CertificateRecord> {
     // 1. Check for existing valid cert in our DB
     const existingCert = this.db.getActiveCertificate(accountId, teamId);

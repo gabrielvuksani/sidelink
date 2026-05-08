@@ -187,6 +187,54 @@ describe('CertificateManager.ensureCertificate — account-tier policy', () => {
     expect(client.revokeCertificate).toHaveBeenCalledWith('TEAM123', 'ACTIVE1');
   });
 
+  it('coalesces concurrent ensureCertificate calls for the same (account, team) onto a single CSR submission', async () => {
+    // Two pipeline jobs racing the provision step on the same Apple account.
+    // Without coalescing, both call submitCSR; Apple rejects the second with
+    // `(code: 7460) You already have a current iOS Development certificate or
+    // a pending certificate request`.
+    const portalCerts = [
+      makePortalCert({ serialNumber: 'AAAA1111', certificateId: 'p1', expirationDate: '2027-01-01T00:00:00.000Z' }),
+    ];
+    const { db, client, logs } = buildMocks({ portalCerts, submitCSRSucceeds: true });
+
+    // Add a small delay inside submitCSR so the second concurrent call has
+    // time to enter ensureCertificate before the first resolves.
+    const realSubmit = client.submitCSR;
+    client.submitCSR = vi.fn(async (...args: any[]) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return realSubmit(...args);
+    });
+
+    const manager = new CertificateManager(db, client, logs);
+    const [r1, r2] = await Promise.all([
+      manager.ensureCertificate('account-1', 'TEAM123', 'free'),
+      manager.ensureCertificate('account-1', 'TEAM123', 'free'),
+    ]);
+
+    // Both callers should receive the SAME cert record (same submitCSR call)
+    expect(r1.serialNumber).toBe('NEWCERT123');
+    expect(r2).toBe(r1);
+    expect(client.submitCSR).toHaveBeenCalledTimes(1);
+    expect(client.listCertificates).toHaveBeenCalledTimes(1);
+    // Each external cert revoked once, not twice
+    expect(client.revokeCertificate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT coalesce calls for different (account, team) pairs', async () => {
+    const portalCerts: AppleCertificate[] = [];
+    const { db, client, logs } = buildMocks({ portalCerts, submitCSRSucceeds: true });
+
+    const manager = new CertificateManager(db, client, logs);
+    await Promise.all([
+      manager.ensureCertificate('account-1', 'TEAM-A', 'free'),
+      manager.ensureCertificate('account-2', 'TEAM-B', 'free'),
+    ]);
+
+    // Two distinct accounts → two separate provision flows
+    expect(client.submitCSR).toHaveBeenCalledTimes(2);
+    expect(client.listCertificates).toHaveBeenCalledTimes(2);
+  });
+
   it('reuses an existing valid cached cert without touching the portal', async () => {
     const cached = {
       id: 'cert-cached',
