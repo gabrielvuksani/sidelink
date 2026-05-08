@@ -665,7 +665,16 @@ const STEP_TIMEOUT_MS: Record<PipelineStepName, number> = {
   authenticate: 15 * 60_000, // includes 2FA wait (10 min) + GSA round-trip
   provision: 15 * 60_000,    // includes 2FA wait (10 min) + Apple portal IO
   sign: 3 * 60_000,
-  install: 3 * 60_000,
+  // Install is significantly slower for RE-INSTALLS of the same bundle ID
+  // (iOS does an atomic in-place replace: kill running instance, migrate the
+  // user data container, validate the new code-signing payload, swap the
+  // bundle, then re-attach). Over Wi-Fi this regularly runs 3–5 minutes for
+  // large apps like YouTube on older iPhones; 3 minutes was empirically too
+  // tight (`Step "install" timed out after 180s` from the dev-log run on
+  // 00008140 after a successful first install of the same bundle 90 seconds
+  // earlier). 6 minutes accommodates the slow case without masking actual
+  // stuck-forever bugs.
+  install: 6 * 60_000,
   register: 30_000,
 };
 
