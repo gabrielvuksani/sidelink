@@ -106,8 +106,8 @@ export class ProvisioningService {
 
     // ── Step 3: Get or create certificate ─────────────────────────
 
-    const certManager = new CertificateManager(this.db, client);
-    const certificate = await certManager.ensureCertificate(account.id, teamId);
+    const certManager = new CertificateManager(this.db, client, this.logs);
+    const certificate = await certManager.ensureCertificate(account.id, teamId, account.accountType);
 
     // ── Step 4: Get or create provisioning profile ────────────────
 

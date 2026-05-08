@@ -81,7 +81,7 @@ export function appleRoutes(ctx: AppContext): Router {
   });
 
   // List accounts
-  router.get('/accounts', (req, res) => {
+  router.get('/accounts', (_req, res) => {
     res.json({ ok: true, data: listSafeAppleAccounts(ctx) });
   });
 
@@ -185,8 +185,8 @@ export function appleRoutes(ctx: AppContext): Router {
 
       // Create a fresh certificate (ensureCertificate handles CSR + portal submission)
       const { CertificateManager } = await import('../apple/certificate-manager');
-      const certManager = new CertificateManager(ctx.db, client);
-      const newCert = await certManager.ensureCertificate(account.id, account.teamId);
+      const certManager = new CertificateManager(ctx.db, client, ctx.logs);
+      const newCert = await certManager.ensureCertificate(account.id, account.teamId, account.accountType);
 
       ctx.logs.info('CERT_ROTATED', `Certificate rotated for ${account.appleId}`, {
         accountId: account.id,
