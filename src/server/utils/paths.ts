@@ -20,11 +20,35 @@ function resolveBundledPythonBinary(baseDir: string, binaryName: string): string
   return null;
 }
 
+/**
+ * Resolve the bundled Python binary from the per-platform optional-dependency
+ * package `sidelink-python-<platform>-<arch>`. npm only installs the package
+ * matching the host's os/cpu, so when present it is always the correct binary.
+ * The package ships the PyInstaller one-dir output under `sidelink-python/`.
+ */
+function resolveOptionalDepBundle(binaryName: string): string | null {
+  const pkgName = `sidelink-python-${process.platform}-${process.arch}`;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pkgJson = require.resolve(`${pkgName}/package.json`);
+    return resolveBundledPythonBinary(path.dirname(pkgJson), binaryName);
+  } catch {
+    // Optional dependency not installed for this platform — fall through.
+    return null;
+  }
+}
+
 function resolveAnyBundledPythonBinary(binaryName: string): string | null {
   const resourcesDir = getResourcesPath();
   const packagedBinary = resolveBundledPythonBinary(path.join(resourcesDir, 'python'), binaryName);
   if (packagedBinary) {
     return packagedBinary;
+  }
+
+  // npm/npx distribution: per-platform PyInstaller bundle as an optional dep.
+  const optionalDepBinary = resolveOptionalDepBundle(binaryName);
+  if (optionalDepBinary) {
+    return optionalDepBinary;
   }
 
   return resolveBundledPythonBinary(path.join(process.cwd(), 'python-bundle', 'dist', getPlatformArch()), binaryName);
@@ -106,6 +130,40 @@ export function getDefaultDbPath(dataDir?: string): string {
 }
 
 /**
+ * Managed runtime directory inside the data dir. Holds artifacts created
+ * after install (e.g. the Python virtualenv) that must live in a writable,
+ * stable location — never inside the npm/npx package cache, which is
+ * ephemeral and read-only-by-convention.
+ */
+export function getManagedRuntimeDir(): string {
+  return path.join(getDefaultDataDir(), 'runtime');
+}
+
+/** Managed Python virtualenv directory (created on first run when no bundle). */
+export function getManagedVenvDir(): string {
+  return path.join(getManagedRuntimeDir(), 'venv');
+}
+
+/** Absolute path to the Python interpreter inside a venv directory. */
+function venvPythonPath(venvDir: string): string {
+  return process.platform === 'win32'
+    ? path.join(venvDir, 'Scripts', 'python.exe')
+    : path.join(venvDir, 'bin', 'python3');
+}
+
+/** Absolute path to a console-script inside a venv directory (adds .exe on Windows). */
+function venvBinPath(venvDir: string, name: string): string {
+  return process.platform === 'win32'
+    ? path.join(venvDir, 'Scripts', `${name}.exe`)
+    : path.join(venvDir, 'bin', name);
+}
+
+/** Candidate venv directories, in priority order: managed (install) then dev (repo). */
+function candidateVenvDirs(): string[] {
+  return [getManagedVenvDir(), path.join(process.cwd(), '.venv')];
+}
+
+/**
  * Get the temp directory for signing work.
  * Uses os.tmpdir() which is cross-platform.
  */
@@ -150,12 +208,9 @@ export function getPythonBinaryPath(): string {
     return bundledPath;
   }
 
-  // Development fallback: venv python
-  if (process.platform !== 'win32') {
-    const venvPython = path.join(process.cwd(), '.venv', 'bin', 'python3');
-    if (fs.existsSync(venvPython)) return venvPython;
-  } else {
-    const venvPython = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+  // Managed venv (created on first run after npm install) then dev repo venv.
+  for (const venvDir of candidateVenvDirs()) {
+    const venvPython = venvPythonPath(venvDir);
     if (fs.existsSync(venvPython)) return venvPython;
   }
 
@@ -204,13 +259,13 @@ export function findPmd3Executable(): string | null {
   const isWin = process.platform === 'win32';
   const exeName = isWin ? 'pymobiledevice3.exe' : 'pymobiledevice3';
 
-  // 1. Project venv (preferred — managed by system-deps-preflight)
-  const venvBin = isWin
-    ? path.join(process.cwd(), '.venv', 'Scripts', exeName)
-    : path.join(process.cwd(), '.venv', 'bin', exeName);
-  if (fs.existsSync(venvBin)) {
-    _pmd3ExePath = venvBin;
-    return venvBin;
+  // 1. Managed venv (npm first-run) then dev repo venv.
+  for (const venvDir of candidateVenvDirs()) {
+    const venvBin = venvBinPath(venvDir, 'pymobiledevice3');
+    if (fs.existsSync(venvBin)) {
+      _pmd3ExePath = venvBin;
+      return venvBin;
+    }
   }
 
   // 2. Platform-specific user/system install locations
@@ -257,6 +312,10 @@ export function findPmd3Executable(): string | null {
  * Development: <cwd>/scripts/
  */
 export function getScriptsPath(): string {
+  // Explicit override (set by the npm `bin` launcher to the package's scripts dir).
+  const envDir = process.env.SIDELINK_SCRIPTS_DIR;
+  if (envDir && fs.existsSync(envDir)) return path.resolve(envDir);
+
   if (isPackaged()) {
     const resourcesDir = getResourcesPath();
     const bundled = path.join(resourcesDir, 'scripts');

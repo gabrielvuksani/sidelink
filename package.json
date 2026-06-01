@@ -1,7 +1,6 @@
 {
   "name": "sidelink",
-  "version": "0.8.9",
-  "private": true,
+  "version": "0.9.0",
   "description": "Cross-platform personal iOS sideload manager with desktop app, web control center, pure TypeScript signing engine, and autonomous auto-refresh.",
   "author": {
     "name": "Gabriel Vuksani",
@@ -25,6 +24,22 @@
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "sidelink": "bin/sidelink.cjs"
+  },
+  "files": [
+    "bin/",
+    "dist/server/",
+    "dist/shared/",
+    "dist/client/",
+    "scripts/gsa-auth-helper.py",
+    "scripts/anisette-helper.py",
+    "resources/helper/SidelinkHelper.ipa",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
   "overrides": {
     "@docsearch/react": {
       "react": "$react",
@@ -39,8 +54,10 @@
   "main": "dist/desktop/main.js",
   "scripts": {
     "demo": "npm run web",
-    "start": "npm run web",
-    "postinstall": "node scripts/system-deps-preflight.cjs",
+    "start": "node bin/sidelink.cjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run lint && npm test",
+    "setup:dev": "node scripts/system-deps-preflight.cjs",
     "verify": "npm run lint && npm test && npm run source:generate && npm run build && npm run docs:build && npm run doctor",
     "preweb": "npm run node:preflight",
     "web": "tsx src/server/index.ts",
@@ -87,8 +104,8 @@
     "desktop:package:all": "npm run build && npm run python:bundle && electron-builder -mwl",
     "setup": "npm install && npm run verify",
     "purge:sidecars": "node scripts/purge-applesidecars.cjs",
-    "preinstall": "node scripts/purge-applesidecars.cjs",
-    "prebuild": "node scripts/purge-applesidecars.cjs"
+    "prebuild": "node scripts/purge-applesidecars.cjs",
+    "python:package": "node scripts/build-python-package.cjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -97,12 +114,18 @@
     "cookie-parser": "^1.4.7",
     "electron-updater": "^6.3.9",
     "express": "^4.21.2",
-    "keytar": "^7.9.0",
     "multer": "^2.1.1",
     "node-forge": "^1.3.3",
     "plist": "^3.1.0",
     "qrcode.react": "^4.2.0",
     "uuid": "^14.0.0"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0",
+    "sidelink-python-darwin-arm64": "0.9.0",
+    "sidelink-python-darwin-x64": "0.9.0",
+    "sidelink-python-linux-x64": "0.9.0",
+    "sidelink-python-win32-x64": "0.9.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
