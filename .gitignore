@@ -19,6 +19,8 @@ resources/helper/
 python-bundle/dist/
 python-bundle/build/
 python-bundle/__pycache__/
+# Generated per-platform Python bundle packages (built by CI before publish)
+packages/
 scripts/__pycache__/
 helper/DerivedData/
 helper/export/

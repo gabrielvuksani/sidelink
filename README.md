@@ -77,12 +77,29 @@ SideLink is not trying to be a grab bag of scripts with a UI wrapped around them
 
 ### Requirements
 
-- Node.js 20+
-- Python 3.10+
-- macOS 11+ for full local device install support and local helper build/export
-- An Apple ID for signing
+- Node.js 20+ — the only hard requirement for `npx sidelink`
+- An Apple ID for signing (a free Apple ID works)
+- Python is fetched automatically for common platforms (Apple Silicon & Intel macOS, x64 Windows, x64 Linux); on any other platform install Python 3.10+ and SideLink sets up the rest on first run
+- Installing to a physical iPhone over USB needs an OS driver npm can't ship: macOS has it built in, Windows needs iTunes / *Apple Devices*, Linux needs `usbmuxd`
 
-### Run locally
+### Run with npx (no install)
+
+If you have Node.js 20+, run the control center instantly on macOS, Windows, or Linux — nothing to install:
+
+```bash
+npx sidelink
+```
+
+It downloads SideLink, starts the local control center, opens it in your browser, and fetches a matching Python runtime automatically. Useful commands:
+
+```bash
+npx sidelink --port 8080  # use a specific port
+npx sidelink --no-open    # don't open the browser
+npx sidelink doctor       # check what's installed / missing
+npx sidelink setup        # (re)install the Python runtime
+```
+
+### Run from source
 
 ```bash
 git clone https://github.com/gabrielvuksani/sidelink.git

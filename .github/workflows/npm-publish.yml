@@ -1,0 +1,134 @@
+# ─── Publish to npm (CLI + per-platform Python bundles) ──────────────
+# Triggered by version tags (v*). Builds the PyInstaller Python runtime on
+# each OS/arch, wraps each into an `sidelink-python-<platform>-<arch>`
+# package, then publishes those optional dependencies followed by the main
+# `sidelink` package so `npx sidelink` works with zero setup.
+#
+# Requirements:
+#   - Repository secret NPM_TOKEN — an npm "Automation" access token.
+#   - On each version bump, keep the optionalDependencies pins in
+#     package.json in sync with the new version (they are exact-pinned).
+
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # 1) Build the bundled Python runtime natively on each platform.
+  #    PyInstaller cannot cross-compile, hence the matrix of real runners.
+  bundle:
+    name: Bundle Python (${{ matrix.id }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon
+            id: darwin-arm64
+          - os: macos-13        # Intel
+            id: darwin-x64
+          - os: ubuntu-latest
+            id: linux-x64
+          - os: windows-latest
+            id: win32-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npx -y npm@11 ci
+
+      - name: Build PyInstaller bundle (native ${{ matrix.id }})
+        run: npm run python:bundle
+
+      - name: Wrap into an npm package
+        run: npm run python:package
+
+      # `npm pack` tars with correct file modes (the executable bit on the
+      # sidelink-python binary survives), unlike upload-artifact which would
+      # strip it. We upload the resulting tarball as an opaque blob.
+      - name: Pack the platform package
+        run: npm pack ./packages/sidelink-python-${{ matrix.id }} --pack-destination ./out
+
+      - name: Upload packed tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: pybundle-${{ matrix.id }}
+          path: out/*.tgz
+          retention-days: 3
+
+  # 2) Publish all platform packages, then the main package, to npm.
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: bundle
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npx -y npm@11 ci
+
+      - name: Build main package
+        run: npm run build
+
+      - name: Download platform bundle tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pybundle-*
+          path: bundles
+
+      # Publish the platform packages first so the main package's injected
+      # optionalDependencies resolve immediately for consumers.
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          shopt -s globstar nullglob
+          for tgz in bundles/**/*.tgz; do
+            echo "Publishing $tgz"
+            npm publish "$tgz" --access public || echo "  (skipped — version may already be published)"
+          done
+
+      # The per-platform bundles are kept OUT of the committed package.json so
+      # `npm ci` stays in sync (they don't exist on npm until the step above
+      # publishes them). Inject them as exact-pinned optionalDependencies into
+      # the package.json that gets published, so end users auto-install the
+      # bundle matching their os/cpu. The lockfile is not part of the tarball.
+      - name: Inject platform bundles into published package.json
+        run: |
+          node -e "const fs=require('fs');const p=require('./package.json');const v=p.version;p.optionalDependencies=p.optionalDependencies||{};for(const id of ['darwin-arm64','darwin-x64','linux-x64','win32-x64'])p.optionalDependencies['sidelink-python-'+id]=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          echo 'Injected optionalDependencies:'; node -e "console.log(require('./package.json').optionalDependencies)"
+
+      # Publish the main package last. prepack rebuilds dist/, prepublishOnly
+      # runs lint + tests as a final gate.
+      - name: Publish sidelink
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      # To enable npm provenance (supply-chain attestation), add
+      #   permissions: { id-token: write }
+      # to this job and append `--provenance` to the publish commands.

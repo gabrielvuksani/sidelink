@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.0] - 2026-05-31
+
+### npm distribution — `npx sidelink` on macOS, Windows, and Linux
+
+SideLink is now published to npm and runs with no install via `npx sidelink`.
+
+**Added**
+
+- A `bin/sidelink.cjs` launcher: resolves a writable OS data dir, verifies the native database module, bootstraps the Python runtime, parses `start` / `setup` / `doctor` (plus `--port`, `--host`, `--no-open`), spawns the compiled server, and opens the browser when it is listening.
+- A **bundled Python runtime** shipped as per-platform optional dependencies (`sidelink-python-<platform>-<arch>`) that npm selects via `os`/`cpu`, so Apple sign-in and `pymobiledevice3` work with zero setup on Apple Silicon & Intel macOS, x64 Windows, and x64 Linux. On other platforms SideLink builds a managed virtualenv from system Python on first run.
+- A GitHub Actions workflow (`.github/workflows/npm-publish.yml`) that builds the Python bundles natively on each OS and publishes the platform packages plus the main package on version tags, and `scripts/build-python-package.cjs` to wrap a PyInstaller build into a publishable package.
+
+**Changed**
+
+- IPA extract/repackage is now fully cross-platform via the pure-JS `adm-zip` library in both the native and TypeScript signers — no more system `unzip`/`zip` (absent on Windows) or `ditto` (macOS-only).
+- Removed the heavy `postinstall`/`preinstall` hooks so `npx` installs stay fast and never fail on a consumer machine; first-run setup happens in the launcher instead.
+- `keytar` is now an optional dependency (the keychain falls back to a PBKDF2-derived key), so installs succeed on Linux without `libsecret`.
+
+**Fixed**
+
+- Signing no longer fails with `Error: Command timed out after 60000ms: unzip`. The native signer (selected by default on macOS with Xcode `codesign`) shelled out to `unzip`/`zip`, which could block on an interactive overwrite prompt or exceed the 60s subprocess timeout on a slow volume. Extraction and repackaging are now in-process with `adm-zip`.
+
 ## [0.8.9] - 2026-05-07
 
 ### Fix two concurrency failures uncovered by the v0.8.8 dev-log run

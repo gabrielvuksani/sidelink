@@ -19,6 +19,8 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { v4 as uuid } from 'uuid';
 import { runCommand, runCommandStrict, commandExists } from '../utils/command';
+import AdmZip from 'adm-zip';
+import { extractIpa } from './ipa';
 import { parsePlistFile, writePlistFile, parseMobileProvision, buildPlist } from '../utils/plist';
 import { SigningError } from '../utils/errors';
 import type { SigningParams, SigningResult, CommandAuditWriter } from '../types';
@@ -78,11 +80,14 @@ export async function signIpa(
     const unpackDir = path.join(workDir, 'unpack');
     await fs.mkdir(unpackDir, { recursive: true });
 
-    const unzipResult = await runCommandStrict('unzip', {
-      args: ['-q', '-o', params.ipaPath, '-d', unpackDir],
-      timeoutMs: 60_000,
+    // Extract in-process with adm-zip — no system `unzip` (cross-platform),
+    // no interactive overwrite prompt, and no 60s subprocess timeout that a
+    // large IPA on a slow volume could exceed.
+    const extractStart = Date.now();
+    await extractIpa(params.ipaPath, unpackDir);
+    auditCmd('adm-zip:extract', [params.ipaPath, '->', unpackDir], {
+      exitCode: 0, stdout: '', stderr: '', durationMs: Date.now() - extractStart,
     });
-    auditCmd('unzip', ['-q', '-o', params.ipaPath, '-d', unpackDir], unzipResult);
 
     // ── Step 2: Find .app bundle ──────────────────────────────────
 
@@ -273,13 +278,17 @@ export async function signIpa(
 
     // ── Step 11: Repack IPA ───────────────────────────────────────
 
+    // Repack in-process with adm-zip — only the Payload/ tree, matching the
+    // previous `zip -qry signed.ipa Payload` exactly (a clean IPA with no
+    // Symbols/ or iTunesMetadata). No system `zip`, no subprocess timeout.
     const signedIpaPath = path.join(workDir, 'signed.ipa');
-    const zipResult = await runCommandStrict('zip', {
-      args: ['-qry', signedIpaPath, 'Payload'],
-      cwd: unpackDir,
-      timeoutMs: 60_000,
+    const repackStart = Date.now();
+    const outZip = new AdmZip();
+    outZip.addLocalFolder(payloadDir, 'Payload');
+    outZip.writeZip(signedIpaPath);
+    auditCmd('adm-zip:pack', ['Payload', '->', signedIpaPath], {
+      exitCode: 0, stdout: '', stderr: '', durationMs: Date.now() - repackStart,
     });
-    auditCmd('zip', ['-qry', signedIpaPath, 'Payload'], zipResult);
 
     // Cleanup sensitive files
     await fs.unlink(keyFile).catch(() => {});
