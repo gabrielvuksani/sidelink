@@ -100,8 +100,8 @@ jobs:
           pattern: pybundle-*
           path: bundles
 
-      # Publish the optional platform packages first so the main package's
-      # exact-pinned optionalDependencies resolve immediately for consumers.
+      # Publish the platform packages first so the main package's injected
+      # optionalDependencies resolve immediately for consumers.
       - name: Publish platform packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -111,6 +111,16 @@ jobs:
             echo "Publishing $tgz"
             npm publish "$tgz" --access public || echo "  (skipped — version may already be published)"
           done
+
+      # The per-platform bundles are kept OUT of the committed package.json so
+      # `npm ci` stays in sync (they don't exist on npm until the step above
+      # publishes them). Inject them as exact-pinned optionalDependencies into
+      # the package.json that gets published, so end users auto-install the
+      # bundle matching their os/cpu. The lockfile is not part of the tarball.
+      - name: Inject platform bundles into published package.json
+        run: |
+          node -e "const fs=require('fs');const p=require('./package.json');const v=p.version;p.optionalDependencies=p.optionalDependencies||{};for(const id of ['darwin-arm64','darwin-x64','linux-x64','win32-x64'])p.optionalDependencies['sidelink-python-'+id]=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          echo 'Injected optionalDependencies:'; node -e "console.log(require('./package.json').optionalDependencies)"
 
       # Publish the main package last. prepack rebuilds dist/, prepublishOnly
       # runs lint + tests as a final gate.
