@@ -166,19 +166,19 @@ struct OnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 14) {
-                    SidelinkSectionIntro(eyebrow: "Welcome", title: "Sideloading should feel deliberate", subtitle: "SideLink turns your iPhone into a premium control center for the desktop helper you already trust.")
+                    SidelinkSectionIntro(eyebrow: "Welcome", title: "Keep your apps working", subtitle: "SideLink keeps apps signed with your Apple ID working by renewing them from your Mac while this iPhone is on the same network.")
 
                     HStack(spacing: 12) {
-                        SidelinkMetricTile(label: "Home", value: "Curated")
-                        SidelinkMetricTile(label: "Sources", value: "Pinned", tint: .slAccent2)
+                        SidelinkMetricTile(label: "Free expiry", value: "7 days")
+                        SidelinkMetricTile(label: "Free limit", value: "3 apps", tint: .slAccent2)
                     }
                 }
                 .liquidPanel()
 
                 VStack(spacing: 12) {
-                    onboardingFeatureRow(icon: "sparkles", title: "Beautiful discovery", message: "A real home feed, separate search, and source-powered app discovery.")
-                    onboardingFeatureRow(icon: "arrow.triangle.2.circlepath", title: "Reliable refresh", message: "Track installed apps, expiry, and background refresh status from one place.")
-                    onboardingFeatureRow(icon: "checkmark.shield", title: "One signing identity", message: "SideLink keeps one primary Apple ID in charge by default so installs stay predictable.")
+                    onboardingFeatureRow(icon: "arrow.triangle.2.circlepath", title: "Your Mac renews them", message: "Apps signed with a free Apple ID stop opening after 7 days. SideLink on your Mac can renew them first while this iPhone is on the same network.")
+                    onboardingFeatureRow(icon: "square.stack.3d.up", title: "3 apps per free account", message: "A free Apple ID can keep 3 apps signed at once, and this SideLink app uses one of them.")
+                    onboardingFeatureRow(icon: "link", title: "Pair once", message: "Pair this iPhone with SideLink on your Mac one time. After that, Today shows when each app expires and what needs you.")
                 }
             }
             .padding(.horizontal, 24)
