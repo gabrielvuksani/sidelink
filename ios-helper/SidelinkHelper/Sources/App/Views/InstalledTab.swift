@@ -286,7 +286,7 @@ struct InstalledTab: View {
 
         if !deactivatedApps.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                SidelinkSectionIntro(eyebrow: "Archive", title: "Deactivated", subtitle: "Keep rarely used apps nearby without spending an active free-account slot.")
+                SidelinkSectionIntro(eyebrow: "Archive", title: "Deactivated", subtitle: "Saved settings let you reinstall these apps. SideLink does not back up their previous local data.")
                     .padding(.horizontal, 20)
 
                 LazyVStack(spacing: 12) {
@@ -678,6 +678,12 @@ struct InstalledTab: View {
                 }
             }
 
+            if install.renewalRepairRequired == true {
+                Text("Open Installed Apps in SideLink on your computer and choose Review renewal settings before renewing this app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 12) {
                 if (install.status ?? "active") == "deactivated" {
                     Button {
@@ -688,9 +694,9 @@ struct InstalledTab: View {
                             .font(.caption.bold())
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .sidelinkProminentButton()
                     .controlSize(.small)
-                    .tint(.slAccent)
+                    .disabled(install.renewalRepairRequired == true)
                 } else {
                     Button {
                         SidelinkHaptics.impact()
@@ -700,14 +706,20 @@ struct InstalledTab: View {
                             .font(.caption.bold())
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .sidelinkProminentButton()
                     .controlSize(.small)
-                    .tint(.slAccent)
                     .accessibilityLabel("Refresh app signing")
+                    .disabled(install.renewalRepairRequired == true)
 
                     Button {
                         SidelinkHaptics.impact(.light)
-                        Task { await model.deactivateInstalledApp(install.id) }
+                        deleteConfirmation = DestructiveConfirmation(
+                            title: "Uninstall App",
+                            message: "Uninstall \(install.appName ?? install.originalBundleId)? iOS removes the app and its local data. SideLink keeps the install settings but does not back up or restore that data.",
+                            buttonLabel: "Uninstall"
+                        ) {
+                            Task { await model.deactivateInstalledApp(install.id) }
+                        }
                     } label: {
                         Label("Deactivate", systemImage: "pause.circle")
                             .font(.caption.bold())
@@ -719,14 +731,14 @@ struct InstalledTab: View {
                 Button(role: .destructive) {
                     SidelinkHaptics.impact(.light)
                     deleteConfirmation = DestructiveConfirmation(
-                        title: "Remove App",
-                        message: "Remove \(install.appName ?? install.originalBundleId) from your installed apps? This cannot be undone.",
-                        buttonLabel: "Remove"
+                        title: "Stop Tracking App",
+                        message: "Remove the saved install and renewal settings for \(install.appName ?? install.originalBundleId)? The app stays on your device, but SideLink will no longer renew it automatically.",
+                        buttonLabel: "Stop Tracking"
                     ) {
                         Task { await model.deleteInstalledApp(install.id) }
                     }
                 } label: {
-                    Label("Remove", systemImage: "trash")
+                    Label("Stop Tracking", systemImage: "trash")
                         .font(.caption.bold())
                 }
                 .buttonStyle(.bordered)
@@ -977,7 +989,7 @@ private struct InstalledImportURLSheet: View {
                         Label("Import and Install", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .sidelinkProminentButton()
                     .disabled(model.importURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
                 }
             }

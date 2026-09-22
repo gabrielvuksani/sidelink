@@ -7,6 +7,7 @@ struct InstallProgressView: View {
     var onSubmitTwoFA: () -> Void
     var onRetry: () -> Void
     var isSubmitting: Bool
+    var commandDisabledReason: String? = nil
     var showsVerboseLogs: Bool = true
     @State private var showVerboseLogs = true
 
@@ -14,9 +15,9 @@ struct InstallProgressView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Install Progress")
+                    Text("\(job.operationKind.noun) Progress")
                         .font(.headline)
-                    Text("Live status for the current install job")
+                    Text("Live status for the current \(job.operationKind.noun.lowercased()) job")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -91,14 +92,22 @@ struct InstallProgressView: View {
                         .textContentType(.oneTimeCode)
                         .font(.system(.title3, design: .monospaced).weight(.semibold))
                         .sidelinkField()
+                        .disabled(commandDisabledReason != nil)
                     Button {
                         onSubmitTwoFA()
                     } label: {
                         Label("Submit Code", systemImage: "checkmark.circle")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(twoFACode.count != 6 || isSubmitting)
+                    .sidelinkProminentButton()
+                    .disabled(twoFACode.count != 6 || isSubmitting || commandDisabledReason != nil)
+                    .accessibilityHint(commandDisabledReason ?? "Sends this code to the paired host.")
+                    if let commandDisabledReason {
+                        Label(commandDisabledReason, systemImage: "clock.badge.exclamationmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityElement(children: .combine)
+                    }
                 }
                 .padding(16)
                 .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -119,7 +128,7 @@ struct InstallProgressView: View {
                 .padding(.vertical, 2)
             }
 
-            if job.status == "completed" {
+            if job.status == "completed", job.operationKind == .install {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Trust Developer Profile", systemImage: "person.badge.shield.checkmark")
                         .font(.subheadline.weight(.semibold))
@@ -137,7 +146,7 @@ struct InstallProgressView: View {
                 DisclosureGroup(isExpanded: $showVerboseLogs) {
                     InstallVerboseLogConsole(logs: logs, maxHeight: 210)
                 } label: {
-                    Label("Verbose Install Log", systemImage: "terminal")
+                    Label("Verbose \(job.operationKind.noun) Log", systemImage: "terminal")
                 }
                 .padding(.top, 6)
             }
@@ -193,7 +202,7 @@ struct InstallProgressView: View {
         case "queued": return "Queued"
         case "running": return "Running"
         case "waiting_2fa": return "Waiting for 2FA"
-        case "completed": return "Completed"
+        case "completed": return job.outcome == "not_needed" ? "No renewal needed" : "Completed"
         case "failed": return "Failed"
         default: return status.capitalized
         }
@@ -214,7 +223,7 @@ struct InstallProgressView: View {
         case "provision":
             return "Apple needs a fresh verification code before provisioning can continue. Approve the trusted-device prompt if it appears, then enter the 6-digit code here."
         default:
-            return "SideLink is waiting on Apple account verification. Enter the 6-digit code from your trusted device or SMS to resume the install."
+            return "SideLink is waiting on Apple account verification. Enter the 6-digit code from your trusted device or SMS to resume the \(job.operationKind.noun.lowercased())."
         }
     }
 
@@ -242,7 +251,7 @@ struct InstallVerboseLogConsole: View {
         ScrollViewReader { proxy in
             ScrollView {
                 if logs.isEmpty {
-                    Text("Waiting for live install output…")
+                    Text("Waiting for live operation output…")
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
                         .foregroundStyle(Color(red: 0.62, green: 0.67, blue: 0.74))
                         .frame(maxWidth: .infinity, alignment: .leading)
