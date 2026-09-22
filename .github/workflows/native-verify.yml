@@ -136,7 +136,7 @@ jobs:
       - name: Capture native helper screens
         env:
           SIMULATOR_ID: ${{ steps.simulator.outputs.id }}
-          EXPECTED_SCREEN_COUNT: '30'
+          EXPECTED_SCREEN_COUNT: '28'
         run: |
           set -euo pipefail
           capture_dir="$EVIDENCE_DIR/native-screens"

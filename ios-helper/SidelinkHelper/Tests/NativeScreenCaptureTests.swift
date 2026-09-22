@@ -91,14 +91,8 @@ final class NativeScreenCaptureTests: XCTestCase {
                 screen: screen
             )
         }
-        try await capture(
-            "installed-legacy-repair",
-            appearance: .light,
-            into: output,
-            fullLength: true,
-            reapply: reapply,
-            screen: screen
-        )
+        // List-backed screens render lazily, and the render server rejects
+        // very tall list windows, so they are captured at screen size only.
     }
 
     func testCapture04InstallProgressRunningAndFailed() async throws {
@@ -171,7 +165,6 @@ final class NativeScreenCaptureTests: XCTestCase {
         for appearance in CaptureAppearance.standard {
             try await capture("settings-paired", appearance: appearance, into: output, screen: pairedScreen)
         }
-        try await capture("settings-paired", appearance: .light, into: output, fullLength: true, screen: pairedScreen)
 
         let unpaired = CaptureSession(routes: [:])
         defer { unpaired.tearDown() }
