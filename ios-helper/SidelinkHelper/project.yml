@@ -59,11 +59,26 @@ targets:
         UIBackgroundModes:
           - fetch
           - processing
+  SidelinkHelperTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SidelinkHelper
 schemes:
   SidelinkHelper:
     build:
       targets:
         SidelinkHelper: all
+        SidelinkHelperTests: [test]
+    test:
+      targets:
+        - SidelinkHelperTests
     run:
       config: Debug
     archive:
