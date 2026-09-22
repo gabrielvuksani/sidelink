@@ -369,7 +369,7 @@ struct InstalledTab: View {
 
     private var installedHero: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SidelinkSectionIntro(eyebrow: "Installed", title: "A sharper view of what SideLink manages", subtitle: "Active installs, expiry risk, and your ready-to-sign library stay visible without the clutter of every unrelated device app.")
+            SidelinkSectionIntro(eyebrow: "Installed", title: "Apps SideLink keeps signed", subtitle: "Each app's expiry and renewal status, plus the IPAs saved on your Mac and ready to install.")
 
             HStack(spacing: 12) {
                 SidelinkStatusTile(label: "Active", value: "\(activeApps.count)", detail: "Managed installs", tint: .slAccent)
