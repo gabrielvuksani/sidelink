@@ -146,8 +146,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.slAccent)
+            .sidelinkProminentButton()
             .padding(.horizontal, 24)
 
             if step == .pairing && !model.isPaired {
@@ -199,7 +198,8 @@ struct OnboardingView: View {
                     icon: "bell.badge",
                     description: "Let SideLink tell you when background refresh succeeds or fails.",
                     state: permissions.notifications,
-                    tint: .slAccent
+                    tint: .slAccent,
+                    usesDefaultAccent: true
                 ) {
                     Task {
                         await permissions.requestNotificationsIfNeeded()
@@ -321,6 +321,7 @@ struct OnboardingView: View {
                                     .sidelinkInsetPanel()
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(model.isPairing)
                             }
                         }
                     }
@@ -329,18 +330,19 @@ struct OnboardingView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .sidelinkField()
+                        .disabled(model.isPairing)
 
                     PairingCodeEntryView(
                         code: $model.pairingCode,
                         onSubmit: {
                             Task {
-                                await model.pair()
-                                if model.isPaired {
+                                let didPair = await model.pair()
+                                if didPair {
                                     step = .finish
                                 }
                             }
                         },
-                        isLoading: model.isLoading,
+                        isLoading: model.isLoading || model.isPairing,
                         autoFocus: false,
                         focusTrigger: pairingFocusTrigger,
                         showsHeader: false,
@@ -370,6 +372,7 @@ struct OnboardingView: View {
                             }
                         }
                     )
+                    .disabled(model.isPairing)
                 }
                 .padding(22)
                 .liquidPanel()
@@ -384,17 +387,17 @@ struct OnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 SidelinkSectionIntro(
-                    eyebrow: model.isPaired ? "Connected" : "All Set",
-                    title: model.isPaired ? "You're connected." : "You're ready to explore.",
+                    eyebrow: model.isPaired ? "Paired" : "All Set",
+                    title: model.isPaired ? "You're paired." : "You're ready to explore.",
                     subtitle: model.isPaired
-                        ? "Home, Search, Sources, and Installed now keep your primary signing identity and target device visible while you work."
+                        ? "Today, Search, Sources, and Installed now keep host status, your signing identity, and target device visible while you work."
                         : "You can start exploring now, then return to Settings any time to pair and add signing accounts."
                 )
                 .liquidPanel()
                 .padding(.horizontal, 24)
 
                 VStack(spacing: 12) {
-                    onboardingFeatureRow(icon: "sparkles", title: "Home", message: "A featured storefront built from your source feeds and uploaded apps.")
+                    onboardingFeatureRow(icon: "sun.max.fill", title: "Today", message: "Fresh host operations, attention, expiry, and capacity in one place.")
                     onboardingFeatureRow(icon: "magnifyingglass", title: "Search", message: "Dedicated search across both library IPAs and source apps.")
                     onboardingFeatureRow(icon: "checkmark.shield", title: "Installed", message: "Import, sign, refresh, and manage the apps already on your device.")
                     onboardingFeatureRow(icon: "square.stack.3d.up", title: "Sources", message: "Manage trusted feeds and browse AltStore-compatible app catalogs.")
@@ -464,9 +467,14 @@ struct OnboardingView: View {
         description: String,
         state: SidelinkPermissionState,
         tint: Color,
+        usesDefaultAccent: Bool = false,
         action: (() -> Void)?
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let customButtonTint: Color? = usesDefaultAccent && !state.isGranted
+            ? nil
+            : (state.isGranted ? .slSuccess : tint)
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.title3)
@@ -497,8 +505,7 @@ struct OnboardingView: View {
                         action()
                     }
                 }
-                    .buttonStyle(.borderedProminent)
-                    .tint(state.isGranted ? .slSuccess : tint)
+                    .sidelinkProminentButton(customTint: customButtonTint)
                     .disabled(state == .unavailable)
             } else {
                 Text(state.actionLabel)
