@@ -27,12 +27,14 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: $(SIDELINK_TEAM_ID)
-        CURRENT_PROJECT_VERSION: 1
-        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: 1.1.1
     info:
       path: Sources/App/Info.plist
       properties:
         CFBundleDisplayName: SideLink
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLName: com.sidelink.ioshelper.sources
             CFBundleURLSchemes:
