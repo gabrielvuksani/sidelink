@@ -96,10 +96,7 @@ struct TodayAuthorityStrip: View {
                     .foregroundStyle(.secondary)
 
                 if let snapshotDate {
-                    HStack(spacing: 4) {
-                        Text("Snapshot")
-                        Text(snapshotDate, style: .relative)
-                    }
+                    (Text("Last checked ") + Text(snapshotDate, format: .relative(presentation: .named)))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                 } else {
@@ -320,33 +317,106 @@ struct TodayOperationReceiptRow: View {
     }
 }
 
-struct TodayExpiryPressureRow: View {
-    let pressure: DailyOperationsExpiryDTO
+/// One tracked app on Today: when its signature runs out and whether renewal is due.
+struct TodayAppExpiry: Identifiable {
+    enum Status {
+        case upToDate
+        case due
+        case renewing
+        case expired
+        case needsReview
+    }
+
+    let id: String
+    let appName: String
+    let deviceName: String?
+    let expiresAt: Date?
+    let status: Status
+    let target: DailyOperationsTargetDTO
+
+    /// Merges the host's installed-app inventory with the snapshot's expiry
+    /// pressure. Pressure entries win for status because the host computed
+    /// them against its renewal horizon; apps outside the horizon are up to date.
+    static func list(
+        installedApps: [InstalledAppDTO],
+        expiryPressure: [DailyOperationsExpiryDTO],
+        deviceNames: [String: String],
+        now: Date = Date()
+    ) -> [TodayAppExpiry] {
+        let pressureById = Dictionary(expiryPressure.map { ($0.installedAppId, $0) }, uniquingKeysWith: { first, _ in first })
+        let tracked = installedApps.filter { ($0.status ?? "active") == "active" }
+
+        let fromInventory = tracked.map { app -> TodayAppExpiry in
+            let pressure = pressureById[app.id]
+            let expiresAt = todayLedgerDate(from: pressure?.expiresAt ?? app.expiresAt)
+            return TodayAppExpiry(
+                id: app.id,
+                appName: app.appName ?? app.bundleId,
+                deviceName: pressure?.deviceName ?? deviceNames[app.deviceUdid],
+                expiresAt: expiresAt,
+                status: status(
+                    pressure: pressure,
+                    repairRequired: app.renewalRepairRequired == true,
+                    expired: expiresAt.map { $0 <= now } ?? false
+                ),
+                target: DailyOperationsTargetDTO(kind: "installed_app", jobId: nil, installedAppId: app.id)
+            )
+        }
+
+        let inventoryIds = Set(tracked.map(\.id))
+        let pressureOnly = expiryPressure
+            .filter { !inventoryIds.contains($0.installedAppId) }
+            .map { pressure in
+                TodayAppExpiry(
+                    id: pressure.installedAppId,
+                    appName: pressure.appName,
+                    deviceName: pressure.deviceName,
+                    expiresAt: todayLedgerDate(from: pressure.expiresAt),
+                    status: status(pressure: pressure, repairRequired: false, expired: pressure.expired),
+                    target: pressure.target
+                )
+            }
+
+        return (fromInventory + pressureOnly).sorted { lhs, rhs in
+            (lhs.expiresAt ?? .distantFuture) < (rhs.expiresAt ?? .distantFuture)
+        }
+    }
+
+    private static func status(
+        pressure: DailyOperationsExpiryDTO?,
+        repairRequired: Bool,
+        expired: Bool
+    ) -> Status {
+        if pressure?.recoveryInFlight == true { return .renewing }
+        if repairRequired { return .needsReview }
+        if pressure?.expired == true || expired { return .expired }
+        if pressure != nil { return .due }
+        return .upToDate
+    }
+}
+
+struct TodayAppExpiryRow: View {
+    let app: TodayAppExpiry
     let onOpen: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: pressure.expired ? "exclamationmark.octagon.fill" : "clock")
+                Image(systemName: icon)
                     .foregroundStyle(tone.color)
                     .frame(minWidth: 24, minHeight: 24, alignment: .top)
                     .accessibilityHidden(true)
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 10) {
-                        expiryIdentity
-                        Text(statusLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(tone.color)
-                            .multilineTextAlignment(.trailing)
+                        identity
+                        TodayStatusBadge(label: statusLabel, tone: tone)
                     }
                     .fixedSize(horizontal: true, vertical: false)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        expiryIdentity
-                        Text(statusLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(tone.color)
+                        identity
+                        TodayStatusBadge(label: statusLabel, tone: tone)
                     }
                 }
 
@@ -356,29 +426,123 @@ struct TodayExpiryPressureRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
         .accessibilityHint("Opens the installed app.")
     }
 
-    private var expiryIdentity: some View {
+    private var identity: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(pressure.appName)
+            Text(app.appName)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-            Text(pressure.deviceName)
+            expiryText
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
 
+    private var expiryText: Text {
+        let device = app.deviceName.map { " · \($0)" } ?? ""
+        guard let expiresAt = app.expiresAt else {
+            return Text("Expiry date unavailable\(device)")
+        }
+        let prefix = app.status == .expired ? "Expired" : "Expires"
+        return Text("\(prefix) ") + Text(expiresAt, format: .relative(presentation: .named)) + Text(device)
+    }
+
     private var tone: TodayLedgerTone {
-        if pressure.recoveryInFlight { return .accent }
-        return pressure.expired ? .danger : .warning
+        switch app.status {
+        case .upToDate: return .success
+        case .due: return .warning
+        case .renewing: return .accent
+        case .expired, .needsReview: return .danger
+        }
+    }
+
+    private var icon: String {
+        switch app.status {
+        case .upToDate: return "checkmark.circle.fill"
+        case .due: return "clock"
+        case .renewing: return "arrow.triangle.2.circlepath"
+        case .expired: return "exclamationmark.octagon.fill"
+        case .needsReview: return "exclamationmark.triangle.fill"
+        }
     }
 
     private var statusLabel: String {
-        if pressure.recoveryInFlight { return "Recovering" }
-        if pressure.expired { return "Expired" }
-        return "\(pressure.daysRemaining)d remaining"
+        switch app.status {
+        case .upToDate: return "Up to date"
+        case .due: return "Renewal due"
+        case .renewing: return "Renewing"
+        case .expired: return "Expired"
+        case .needsReview: return "Needs review"
+        }
+    }
+}
+
+/// The newest terminal receipt, phrased as what happened to the app.
+struct TodayLatestOutcome: View {
+    let operation: DailyOperationDTO
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tone.color)
+                .frame(minWidth: 24, minHeight: 24, alignment: .top)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sentence)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                if let updatedAt = todayLedgerDate(from: operation.updatedAt) {
+                    (Text(detailPrefix) + Text(updatedAt, format: .relative(presentation: .named)))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var isNotNeeded: Bool {
+        operation.status == "completed" && operation.outcome == "not_needed"
+    }
+
+    private var sentence: String {
+        let app = operation.appName
+        switch operation.status {
+        case "completed":
+            if isNotNeeded { return "\(app): no renewal needed yet" }
+            switch operation.operation {
+            case "refresh", "reactivation": return "\(app) renewed"
+            case "repair": return "\(app) repaired"
+            default: return "\(app) installed"
+            }
+        case "failed":
+            return operation.operation == "refresh" ? "\(app) renewal failed" : "\(operation.title) failed"
+        default:
+            return operation.title
+        }
+    }
+
+    private var detailPrefix: String {
+        if isNotNeeded { return "Checked by your Mac " }
+        return operation.status == "failed" ? "Stopped " : "Finished "
+    }
+
+    private var tone: TodayLedgerTone {
+        if operation.status == "failed" { return .danger }
+        return isNotNeeded ? .neutral : .success
+    }
+
+    private var icon: String {
+        if operation.status == "failed" { return "xmark.octagon.fill" }
+        return isNotNeeded ? "calendar.badge.checkmark" : "checkmark.seal.fill"
     }
 }
 

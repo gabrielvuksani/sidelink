@@ -35,16 +35,19 @@ struct TodayTab: View {
 
                 if let snapshot = model.dailyOperations {
                     actionSection(snapshot)
+                    appsSection(snapshot)
+                    if !snapshot.operations.isEmpty {
+                        operationsSection(snapshot)
+                    }
                     hostCommandSection
-                    operationsSection(snapshot)
-                    pressureSection(snapshot)
-                    environmentSection(snapshot)
                     recentSection(snapshot)
+                    activitySection
+                    connectionSection(snapshot)
                 } else {
                     unavailableSection
+                    activitySection
+                    connectionOnlySection
                 }
-
-                activitySection
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.visible)
@@ -72,24 +75,73 @@ struct TodayTab: View {
     private var overviewSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
-                if !dynamicTypeSize.isAccessibilitySize {
-                    Text("OPERATIONS LEDGER")
-                        .font(.caption2.weight(.semibold))
-                        .tracking(1.0)
-                        .foregroundStyle(.secondary)
-                }
-                Text(model.dailyOperations?.headline ?? "Your SideLink day")
+                Text(model.dailyOperations.map(statusHeadline) ?? "Your apps")
                     .font(dynamicTypeSize.isAccessibilitySize ? .headline.bold() : .title2.bold())
                     .foregroundStyle(.primary)
-                Text(model.dailyOperations?.summary ?? "Pair with a host to see current operations, pressure, and outcomes.")
+                Text(model.dailyOperations.map(statusSummary)
+                    ?? "Pair this iPhone with SideLink on your Mac to see when your apps expire.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if model.dailyOperations != nil, !commandsEnabled {
+                    Label(lastKnownNotice, systemImage: "clock.badge.exclamationmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.slWarning)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
 
-            authorityStrip
+            if let latest = model.dailyOperations?.recentOutcomes.first {
+                TodayLatestOutcome(operation: latest)
+            }
         }
+    }
+
+    private var lastKnownNotice: String {
+        if let generatedAt = model.dailyOperations.flatMap({ todayLedgerDate(from: $0.generatedAt) }) {
+            return "Last known status from \(generatedAt.formatted(.relative(presentation: .named))). Your Mac hasn't confirmed it since."
+        }
+        return "Last known status. Your Mac hasn't confirmed it since."
+    }
+
+    /// Plain answer to "will my apps keep working?", derived only from the snapshot.
+    private func statusHeadline(_ snapshot: DailyOperationsSnapshotDTO) -> String {
+        let actions = snapshot.actions.count
+        if actions > 0 {
+            return actions == 1 ? "1 thing needs you" : "\(actions) things need you"
+        }
+        let expired = snapshot.expiryPressure.filter { $0.expired && !$0.recoveryInFlight }.count
+        if expired > 0 {
+            return expired == 1 ? "1 app has expired" : "\(expired) apps have expired"
+        }
+        if !snapshot.operations.isEmpty {
+            let count = snapshot.operations.count
+            return count == 1 ? "Your Mac is working on 1 app" : "Your Mac is working on \(count) apps"
+        }
+        let due = snapshot.expiryPressure.count
+        if due > 0 {
+            return due == 1 ? "1 app is due for renewal" : "\(due) apps are due for renewal"
+        }
+        return snapshot.fleet.apps.active == 0 ? "No apps to keep signed yet" : "All apps are up to date"
+    }
+
+    private func statusSummary(_ snapshot: DailyOperationsSnapshotDTO) -> String {
+        if !snapshot.actions.isEmpty {
+            return "Renewals that depend on these wait until you respond."
+        }
+        if snapshot.expiryPressure.contains(where: { $0.expired && !$0.recoveryInFlight }) {
+            return "Expired apps won't open until your Mac renews them."
+        }
+        if !snapshot.operations.isEmpty {
+            return "You can follow progress below. Nothing is needed from you."
+        }
+        if !snapshot.expiryPressure.isEmpty {
+            return "Your Mac can renew them while this iPhone is on the same network. Tap Renew now to start."
+        }
+        if snapshot.fleet.apps.active == 0 {
+            return "Apps you install through SideLink on your Mac will show up here."
+        }
+        return "None expires in the next \(snapshot.expiryHorizonDays) days."
     }
 
     private var authorityStrip: some View {
@@ -98,7 +150,7 @@ struct TodayTab: View {
             title: authorityTitle(hasSnapshot: hasSnapshot),
             detail: authorityDetail(hasSnapshot: hasSnapshot),
             snapshotDate: model.dailyOperations.flatMap { todayLedgerDate(from: $0.generatedAt) },
-            snapshotFallback: hasSnapshot ? "Snapshot age unavailable" : "No snapshot received",
+            snapshotFallback: hasSnapshot ? "Last check time unavailable" : "Not checked yet",
             tone: authorityTone(hasSnapshot: hasSnapshot),
             systemImage: authorityIcon(hasSnapshot: hasSnapshot),
             badge: authorityBadge(hasSnapshot: hasSnapshot)
@@ -106,24 +158,24 @@ struct TodayTab: View {
     }
 
     private func authorityTitle(hasSnapshot: Bool) -> String {
-        if commandsEnabled { return "Host reachable" }
-        if hasSnapshot { return "Last known host state" }
-        if !model.hasPairingCredential { return "No paired host" }
-        return "Host state unavailable"
+        if commandsEnabled { return "Mac connected" }
+        if hasSnapshot { return "Showing last known status" }
+        if !model.hasPairingCredential { return "Not paired with a Mac" }
+        return "Can't reach your Mac"
     }
 
     private func authorityDetail(hasSnapshot: Bool) -> String {
         if commandsEnabled {
-            return "This host snapshot is current and can authorize command requests."
+            return "Your Mac answered and can renew apps when you ask."
         }
         if hasSnapshot {
             return commandDisabledReason
-                ?? "Cached ledger data remains visible, but commands require a fresh host response."
+                ?? "You can still look around, but renewing waits until your Mac answers again."
         }
         if !model.hasPairingCredential {
-            return "Pair in Settings before SideLink can read or change host state."
+            return "Pair in Settings so SideLink can check your apps."
         }
-        return "Refresh when the paired host is reachable. No command can run without current host state."
+        return "Pull to refresh when your Mac is on and on the same network. Nothing changes until it answers."
     }
 
     private func authorityTone(hasSnapshot: Bool) -> TodayLedgerTone {
@@ -139,7 +191,7 @@ struct TodayTab: View {
 
     private func authorityBadge(hasSnapshot: Bool) -> String? {
         if commandsEnabled { return nil }
-        return hasSnapshot ? "Stale" : "No snapshot"
+        return hasSnapshot ? "Out of date" : "Not checked"
     }
 
     private func updateFailureSection(_ message: String) -> some View {
@@ -166,9 +218,9 @@ struct TodayTab: View {
             if snapshot.actions.isEmpty {
                 Label {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Nothing needs a response")
+                        Text("Nothing needs you")
                             .font(.subheadline.weight(.semibold))
-                        Text("The snapshot contains no confirmed decision, credential, or recovery request.")
+                        Text("No decision, sign-in, or repair is waiting.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -188,14 +240,14 @@ struct TodayTab: View {
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Action required",
+                title: "Needs you",
                 detail: snapshot.actions.isEmpty
-                    ? "No confirmed intervention in this snapshot."
-                    : "\(snapshot.actions.count) confirmed item\(snapshot.actions.count == 1 ? "" : "s"), ordered by consequence."
+                    ? "You're all caught up."
+                    : "\(snapshot.actions.count) item\(snapshot.actions.count == 1 ? "" : "s"), most important first."
             )
         } footer: {
             if !commandsEnabled {
-                Text("These last-known items remain inspectable. Host-changing commands stay disabled until authority is fresh.")
+                Text("You can still open these. Changes wait until your Mac answers again.")
             }
         }
     }
@@ -203,7 +255,7 @@ struct TodayTab: View {
     private var hostCommandSection: some View {
         Section {
             if model.devices.count > 1 {
-                Picker("Target for new commands", selection: $model.selectedDeviceUdid) {
+                Picker("Device to renew", selection: $model.selectedDeviceUdid) {
                     ForEach(model.devices) { device in
                         Text(device.name).tag(device.id)
                     }
@@ -216,9 +268,9 @@ struct TodayTab: View {
             } label: {
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Request refreshes")
+                        Text("Renew now")
                             .font(.headline)
-                        Text("Runs on the paired host")
+                        Text("Your Mac does the work")
                             .font(.caption)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -238,52 +290,44 @@ struct TodayTab: View {
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Host command",
-                detail: "Requests are admitted by the paired desktop, never executed by this phone."
+                title: "Renew",
+                detail: "Your Mac signs and reinstalls apps that are due. This iPhone only sends the request."
             )
         } footer: {
             if model.devices.count > 1 {
-                Text("The selected target applies to new commands only; ledger counts remain fleet-wide.")
+                Text("The selected device applies to new requests only; the lists above cover every device.")
             }
         }
     }
 
     private func operationsSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
         Section {
-            if snapshot.operations.isEmpty {
-                Label("No queued, running, or 2FA-blocked operations", systemImage: "tray")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(snapshot.operations) { operation in
-                    TodayOperationReceiptRow(
-                        operation: operation,
-                        recent: false,
-                        canInspect: interactionPolicy.canInspectOperation,
-                        canCancel: versionedJobCommandsEnabled && !model.isLoading,
-                        commandDisabledReason: jobCommandDisabledReason,
-                        onOpen: {
-                            Task { await model.openDailyOperation(jobId: operation.jobId) }
-                        },
-                        onCancel: {
-                            Task {
-                                await model.cancelDailyOperation(
-                                    jobId: operation.jobId,
-                                    expectedRevision: operation.revision,
-                                    expectedUpdatedAt: operation.updatedAt
-                                )
-                            }
+            ForEach(snapshot.operations) { operation in
+                TodayOperationReceiptRow(
+                    operation: operation,
+                    recent: false,
+                    canInspect: interactionPolicy.canInspectOperation,
+                    canCancel: versionedJobCommandsEnabled && !model.isLoading,
+                    commandDisabledReason: jobCommandDisabledReason,
+                    onOpen: {
+                        Task { await model.openDailyOperation(jobId: operation.jobId) }
+                    },
+                    onCancel: {
+                        Task {
+                            await model.cancelDailyOperation(
+                                jobId: operation.jobId,
+                                expectedRevision: operation.revision,
+                                expectedUpdatedAt: operation.updatedAt
+                            )
                         }
-                    )
-                }
+                    }
+                )
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Active operations",
-                detail: "Durable host receipts show the app, device, pipeline step, and update age."
+                title: "In progress",
+                detail: "What your Mac is doing right now. Tap one to follow along."
             )
-        } footer: {
-            Text("Opening a receipt preserves the existing operation console and live progress flow.")
         }
     }
 
@@ -296,7 +340,7 @@ struct TodayTab: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("View all activity")
                             .font(.subheadline.weight(.semibold))
-                        Text("Open the expanded host receipt history without replacing the install console.")
+                        Text("Every renewal and install your Mac has run.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -310,60 +354,48 @@ struct TodayTab: View {
         }
     }
 
-    private func pressureSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
-        Section {
-            Label("Installed apps", systemImage: "clock.badge.exclamationmark")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            if snapshot.expiryPressure.isEmpty {
-                Text("No active app is inside the \(snapshot.expiryHorizonDays)-day refresh horizon.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(snapshot.expiryPressure) { pressure in
-                    TodayExpiryPressureRow(
-                        pressure: pressure,
-                        onOpen: { perform(target: pressure.target) }
-                    )
+    private func appsSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
+        let apps = TodayAppExpiry.list(
+            installedApps: model.installedApps,
+            expiryPressure: snapshot.expiryPressure,
+            deviceNames: Dictionary(model.devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        )
+        return Section {
+            if apps.isEmpty {
+                Label {
+                    Text(snapshot.fleet.apps.active == 0
+                        ? "No apps are being kept signed yet."
+                        : "\(snapshot.fleet.apps.active) app\(snapshot.fleet.apps.active == 1 ? "" : "s") tracked. None expires in the next \(snapshot.expiryHorizonDays) days.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(snapshot.fleet.apps.active == 0 ? Color.secondary : Color.slSuccess)
                 }
-            }
-
-            Label("Weekly App IDs", systemImage: "gauge.with.dots.needle.33percent")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            if snapshot.quotaAvailability == "unknown" {
-                Text("Quota data is not present in this snapshot.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else if snapshot.quotaPressure.isEmpty {
-                Text("No free-account quota applies to the current accounts.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             } else {
-                ForEach(snapshot.quotaPressure) { quota in
-                    TodayQuotaPressureRow(
-                        quota: quota,
-                        onOpen: { perform(target: quota.target) }
-                    )
+                ForEach(apps) { app in
+                    TodayAppExpiryRow(app: app, onOpen: { perform(target: app.target) })
                 }
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Coming next",
-                detail: "Expiry pressure first, then the current weekly App ID window."
+                title: "Your apps",
+                detail: "Verified expiry from your Mac. Renewal is due inside \(snapshot.expiryHorizonDays) days."
             )
         }
     }
 
-    private func environmentSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
+    private func connectionSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
         Section {
+            authorityStrip
+
+            quotaRows(snapshot)
+
             LabeledContent("Signing accounts", value: "\(snapshot.fleet.accounts.active) active · \(snapshot.fleet.accounts.total) total")
             LabeledContent("Devices", value: "\(snapshot.fleet.devices.online) online · \(snapshot.fleet.devices.detected) detected")
             LabeledContent("Managed", value: "\(snapshot.fleet.devices.managed) managed · \(snapshot.fleet.devices.paired) paired")
             LabeledContent("Apps", value: "\(snapshot.fleet.apps.active) active · \(snapshot.fleet.apps.total) tracked")
-            LabeledContent("Library", value: "\(snapshot.fleet.library.total) artifacts")
+            LabeledContent("Library", value: "\(snapshot.fleet.library.total) saved IPAs")
 
             readinessSummary(snapshot)
 
@@ -386,9 +418,36 @@ struct TodayTab: View {
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Environment and readiness",
-                detail: "Compact inventory and measured host checks from this snapshot."
+                title: "Your Mac",
+                detail: "Connection, Apple ID limits, and setup details."
             )
+        }
+    }
+
+    private var connectionOnlySection: some View {
+        Section {
+            authorityStrip
+        } header: {
+            TodayLedgerSectionHeader(
+                title: "Your Mac",
+                detail: "Connection to SideLink on your Mac."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func quotaRows(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
+        if snapshot.quotaAvailability == "unknown" {
+            LabeledContent("Weekly App IDs", value: "Not reported")
+        } else if snapshot.quotaPressure.isEmpty {
+            LabeledContent("Weekly App IDs", value: "No free-account limit")
+        } else {
+            ForEach(snapshot.quotaPressure) { quota in
+                TodayQuotaPressureRow(
+                    quota: quota,
+                    onOpen: { perform(target: quota.target) }
+                )
+            }
         }
     }
 
@@ -412,17 +471,17 @@ struct TodayTab: View {
 
     private func backgroundAttemptReceipt(_ attempt: BackgroundRefreshAttemptSummary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Last background request", systemImage: "clock.arrow.circlepath")
+            Label("Last background check", systemImage: "clock.arrow.circlepath")
                 .font(.subheadline.weight(.semibold))
-            Text("Requested \(attempt.requested) of \(attempt.candidates) on the paired host; \(attempt.failed) failed\(attempt.cancelled ? "; request cancelled" : "").")
+            Text("Asked your Mac to renew \(attempt.requested) of \(attempt.candidates) apps; \(attempt.failed) failed\(attempt.cancelled ? "; request cancelled" : "").")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let attemptedAt = todayLedgerDate(from: attempt.attemptedAt) {
-                Text("\(attemptedAt, style: .relative) · Request receipt only, not completion confirmation.")
+                Text("\(attemptedAt, style: .relative) ago · Confirms the request, not the renewal.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Time unavailable · Request receipt only, not completion confirmation.")
+                Text("Time unavailable · Confirms the request, not the renewal.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -434,7 +493,7 @@ struct TodayTab: View {
     private func recentSection(_ snapshot: DailyOperationsSnapshotDTO) -> some View {
         Section {
             if snapshot.recentOutcomes.isEmpty {
-                Text("Completed and failed operation receipts will appear here.")
+                Text("Finished renewals and installs will appear here.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -454,8 +513,8 @@ struct TodayTab: View {
             }
         } header: {
             TodayLedgerSectionHeader(
-                title: "Recent outcomes",
-                detail: "Terminal host receipts, newest first."
+                title: "Recent activity",
+                detail: "Newest first."
             )
         }
     }
@@ -464,11 +523,11 @@ struct TodayTab: View {
         Section {
             Label {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.hasPairingCredential ? "Waiting for the host" : "Pair a host to begin")
+                    Text(model.hasPairingCredential ? "Waiting for your Mac" : "Pair with your Mac to begin")
                         .font(.headline)
                     Text(model.hasPairingCredential
-                        ? "Refresh when the paired desktop is reachable. No cached operations ledger is available yet."
-                        : "Open Settings and enter the pairing code shown by SideLink on your desktop.")
+                        ? "Pull to refresh when your Mac is on and on the same network. Nothing has been received yet."
+                        : "Open Settings and enter the pairing code shown by SideLink on your Mac.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -482,19 +541,19 @@ struct TodayTab: View {
 
     private var commandDisabledReason: String? {
         if !model.hasPairingCredential {
-            return "Commands are disabled because no paired-host credential is available. Pair again in Settings."
+            return "Renewing is off because this iPhone isn't paired with a Mac. Pair again in Settings."
         }
         if model.dailyOperations == nil {
-            return "Commands are disabled because no current host snapshot is available. Refresh when the host is reachable."
+            return "Renewing is off until your Mac sends its status. Pull to refresh when your Mac is reachable."
         }
         if !model.hostReachable {
-            return "Commands are disabled because the paired host is unavailable. Last-known ledger data remains inspectable."
+            return "Renewing is off because your Mac isn't reachable. The last known status stays visible."
         }
         if model.dailyOperationsAreStale {
-            return "Commands are disabled because the host snapshot is stale. Refresh successfully before making changes."
+            return "Renewing is off because this status is out of date. Pull to refresh first."
         }
         if model.isLoading {
-            return "Commands are temporarily disabled while another host request is in progress."
+            return "Renewing is paused while another request to your Mac finishes."
         }
         return nil
     }
@@ -504,24 +563,24 @@ struct TodayTab: View {
             return commandDisabledReason
         }
         if !model.supportsExactJobCommandPreconditions {
-            return "Update SideLink on the paired Mac before sending receipt commands. This host has not confirmed exact-version enforcement."
+            return "Update SideLink on your Mac to cancel from this iPhone. This version can't confirm it is cancelling the right run."
         }
         return nil
     }
 
     private func readinessPresentation(_ status: String) -> (title: String, icon: String, tone: TodayLedgerTone) {
         switch status {
-        case "ready": return ("Ready", "checkmark.circle.fill", .success)
-        case "attention": return ("Readiness needs attention", "exclamationmark.triangle.fill", .warning)
-        default: return ("Not fully measured", "questionmark.circle", .neutral)
+        case "ready": return ("Setup looks good", "checkmark.circle.fill", .success)
+        case "attention": return ("Setup needs attention", "exclamationmark.triangle.fill", .warning)
+        default: return ("Setup not fully checked", "questionmark.circle", .neutral)
         }
     }
 
     private func readinessDetail(_ helperPairing: String) -> String {
         switch helperPairing {
-        case "paired": return "Helper pairing is reported as paired."
-        case "unpaired": return "Helper pairing is reported as unpaired."
-        default: return "Helper pairing has not been measured."
+        case "paired": return "Your Mac lists this iPhone as paired."
+        case "unpaired": return "Your Mac doesn't list this iPhone as paired."
+        default: return "Your Mac hasn't reported this iPhone's pairing."
         }
     }
 
