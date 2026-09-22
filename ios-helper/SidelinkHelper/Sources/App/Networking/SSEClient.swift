@@ -1,5 +1,22 @@
 import Foundation
 
+protocol SSEStreaming: AnyObject, Sendable {
+    var onEvent: (@Sendable (UUID, String, String) -> Void)? { get set }
+    var onFailure: (@Sendable (UUID, Error) -> Void)? { get set }
+
+    @discardableResult
+    func connect(url: URL, headers: [String: String]) -> UUID
+    func disconnect()
+}
+
+enum SSEStreamingError: LocalizedError, Sendable {
+    case closed
+
+    var errorDescription: String? {
+        "The event stream closed."
+    }
+}
+
 /// Server-Sent-Events client that serialises all mutable state on a single
 /// private dispatch queue so the URLSession delegate callbacks — which run off
 /// the main actor — never race with `connect()` / `disconnect()` calls from a
@@ -10,22 +27,26 @@ import Foundation
 /// Callbacks are typed `@Sendable`: they usually hop back to the main actor on
 /// the receiving side (e.g. `Task { @MainActor in … }`), but the closure
 /// capture itself must be safe to cross isolation boundaries.
-final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class SSEClient: NSObject, SSEStreaming, URLSessionDataDelegate, @unchecked Sendable {
     private let maxBufferBytes = 64 * 1024
 
     // All access to these properties is serialised on `stateQueue`.
     private let stateQueue = DispatchQueue(label: "com.sidelink.ioshelper.sse", qos: .utility)
     private var session: URLSession?
     private var task: URLSessionDataTask?
+    private var connectionID: UUID?
     private var buffer = ""
 
-    var onEvent: (@Sendable (String, String) -> Void)?
-    var onFailure: (@Sendable (Error) -> Void)?
+    var onEvent: (@Sendable (UUID, String, String) -> Void)?
+    var onFailure: (@Sendable (UUID, Error) -> Void)?
 
-    func connect(url: URL, headers: [String: String] = [:]) {
+    @discardableResult
+    func connect(url: URL, headers: [String: String] = [:]) -> UUID {
+        let connectionID = UUID()
         stateQueue.async { [weak self] in
             guard let self else { return }
             self.disconnectLocked()
+            self.connectionID = connectionID
 
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 60
@@ -52,6 +73,7 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             self.task = task
             task.resume()
         }
+        return connectionID
     }
 
     func disconnect() {
@@ -66,12 +88,18 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         task = nil
         session?.invalidateAndCancel()
         session = nil
+        connectionID = nil
         buffer = ""
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         // Delegate queue is `stateQueue`, so direct access is safe here.
-        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else {
+        guard self.session === session,
+              task === dataTask,
+              let connectionID,
+              let chunk = String(data: data, encoding: .utf8),
+              !chunk.isEmpty
+        else {
             return
         }
         buffer.append(chunk)
@@ -81,12 +109,19 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         let events = buffer.components(separatedBy: "\n\n")
         for raw in events.dropLast() {
-            parseEvent(raw)
+            parseEvent(raw, connectionID: connectionID)
         }
         buffer = events.last ?? ""
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard self.session === session,
+              task === dataTask,
+              let connectionID
+        else {
+            completionHandler(.cancel)
+            return
+        }
         guard let http = response as? HTTPURLResponse else {
             completionHandler(.allow)
             return
@@ -94,13 +129,13 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
         if http.statusCode == 401 {
             completionHandler(.cancel)
-            onFailure?(HelperAPIError.unauthorized)
+            onFailure?(connectionID, HelperAPIError.unauthorized)
             return
         }
 
         if !(200 ... 299).contains(http.statusCode) {
             completionHandler(.cancel)
-            onFailure?(HelperAPIError.server("Install event stream failed (\(http.statusCode))"))
+            onFailure?(connectionID, HelperAPIError.server("Install event stream failed (\(http.statusCode))"))
             return
         }
 
@@ -108,15 +143,19 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error {
-            if let urlError = error as? URLError, urlError.code == .cancelled {
-                return
-            }
-            onFailure?(error)
+        guard self.session === session,
+              self.task === task,
+              let connectionID
+        else {
+            return
         }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return
+        }
+        onFailure?(connectionID, error ?? SSEStreamingError.closed)
     }
 
-    private func parseEvent(_ block: String) {
+    private func parseEvent(_ block: String, connectionID: UUID) {
         var eventName = "message"
         var dataLines: [String] = []
 
@@ -129,6 +168,6 @@ final class SSEClient: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             }
         }
 
-        onEvent?(eventName, dataLines.joined(separator: "\n"))
+        onEvent?(connectionID, eventName, dataLines.joined(separator: "\n"))
     }
 }
