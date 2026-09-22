@@ -5,8 +5,22 @@ import UIKit
 
 // MARK: - Color Palette
 extension Color {
-    static let slAccent = Color(red: 0.05, green: 0.42, blue: 0.74)
-    static let slAccent2 = Color(red: 0.05, green: 0.70, blue: 0.68)
+    static let slAccent = Color(uiColor: UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return traits.accessibilityContrast == .high
+                ? UIColor(red: 0.42, green: 0.94, blue: 0.88, alpha: 1)
+                : UIColor(red: 0.30, green: 0.82, blue: 0.77, alpha: 1)
+        }
+        return traits.accessibilityContrast == .high
+            ? UIColor(red: 0.00, green: 0.33, blue: 0.32, alpha: 1)
+            : UIColor(red: 0.00, green: 0.43, blue: 0.41, alpha: 1)
+    })
+    static let slOnAccent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .black : .white
+    })
+    // Compatibility alias for screens that have not yet migrated to the
+    // single-accent system.
+    static let slAccent2 = slAccent
     static let slSuccess = Color(red: 0.11, green: 0.62, blue: 0.35)
     static let slWarning = Color(red: 0.92, green: 0.47, blue: 0.09)
     static let slDanger = Color(red: 0.82, green: 0.19, blue: 0.24)
@@ -16,7 +30,7 @@ extension Color {
     static let slStatusSuccess = Color(red: 0.13, green: 0.68, blue: 0.38)
     static let slStatusWarning = Color(red: 0.95, green: 0.62, blue: 0.07)
     static let slStatusError = Color(red: 0.86, green: 0.21, blue: 0.27)
-    static let slStatusInfo = Color(red: 0.20, green: 0.52, blue: 0.89)
+    static let slStatusInfo = slAccent
 
     /// Initialize a Color from a hex string like "#6366f1" or "6366f1"
     init?(hex: String?) {
@@ -661,7 +675,7 @@ struct SidelinkButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.bold())
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.slOnAccent)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(tint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -674,6 +688,24 @@ struct SidelinkButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == SidelinkButtonStyle {
     static var sidelink: SidelinkButtonStyle { SidelinkButtonStyle() }
     static func sidelink(tint: Color) -> SidelinkButtonStyle { SidelinkButtonStyle(tint: tint) }
+}
+
+extension View {
+    func sidelinkProminentButton() -> some View {
+        buttonStyle(.borderedProminent)
+            .tint(.slAccent)
+            .foregroundStyle(Color.slOnAccent)
+    }
+
+    @ViewBuilder
+    func sidelinkProminentButton(customTint: Color?) -> some View {
+        if let customTint {
+            buttonStyle(.borderedProminent)
+                .tint(customTint)
+        } else {
+            sidelinkProminentButton()
+        }
+    }
 }
 
 // MARK: - Safe base64 image decoder
@@ -843,7 +875,7 @@ struct EmptyStateView: View {
                 Button(action: action) {
                     Text(actionTitle)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.slOnAccent)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
                         .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
