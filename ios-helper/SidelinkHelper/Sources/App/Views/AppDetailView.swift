@@ -323,8 +323,7 @@ struct AppDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.slAccent)
+                .sidelinkProminentButton()
                 .disabled(!model.canStartInstall)
                 .accessibilityLabel(isInstalled ? "Reinstall app" : "Install app")
             }
