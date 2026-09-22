@@ -1,0 +1,148 @@
+name: Native Verification
+
+on:
+  push:
+    branches: ['verify/renewal-native']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: Unsigned iOS Build and Simulator Tests
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      EVIDENCE_DIR: ${{ github.workspace }}/tmp/native-verification
+      SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-5
+
+    steps:
+      - name: Checkout the triggering commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup the project Node.js version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Verify Xcode, SDKs, and simulator availability
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          git rev-parse HEAD > "$EVIDENCE_DIR/commit.txt"
+          sw_vers > "$EVIDENCE_DIR/macos.txt"
+          xcodebuild -version | tee "$EVIDENCE_DIR/xcode.txt"
+          test "$(xcodebuild -version)" = $'Xcode 26.6\nBuild version 17F113'
+          xcodebuild -showsdks > "$EVIDENCE_DIR/sdks.txt"
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = '26.5'
+          test "$(xcrun --sdk iphonesimulator --show-sdk-version)" = '26.5'
+          xcrun swift --version > "$EVIDENCE_DIR/swift.txt"
+          xcrun simctl list runtimes --json > "$EVIDENCE_DIR/simulator-runtimes.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { runtimes } = JSON.parse(fs.readFileSync(
+            path.join(process.env.EVIDENCE_DIR, 'simulator-runtimes.json'), 'utf8',
+          ));
+          if (!runtimes.some(runtime =>
+            runtime.identifier === process.env.SIMULATOR_RUNTIME && runtime.isAvailable === true
+          )) throw new Error('The required iOS 26.5 simulator runtime is unavailable.');
+          NODE
+
+      - name: Install verified XcodeGen 2.46.0
+        env:
+          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+          XCODEGEN_URL: https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/xcodegen.zip"
+          install_dir="$RUNNER_TEMP/xcodegen"
+          curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 "$XCODEGEN_URL" --output "$archive"
+          printf '%s  %s\n' "$XCODEGEN_SHA256" "$archive" | shasum -a 256 -c -
+          mkdir -p "$install_dir"
+          /usr/bin/unzip -q "$archive" -d "$install_dir"
+          "$install_dir/xcodegen/bin/xcodegen" --version | tee "$EVIDENCE_DIR/xcodegen.txt"
+          echo "$install_dir/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Install locked artifact tooling without lifecycle scripts
+        run: |
+          set -euo pipefail
+          npx --yes --package=npm@11.17.0 -c 'npm ci --ignore-scripts' 2>&1 | tee "$EVIDENCE_DIR/npm-ci.log"
+
+      - name: Build and verify the unsigned helper artifact
+        id: helper
+        run: |
+          set -euo pipefail
+          node scripts/build-helper-artifact.cjs 2>&1 | tee "$EVIDENCE_DIR/helper-build.log"
+          node scripts/write-helper-provenance.cjs --verify helper/SidelinkHelper.ipa unsigned-resignable 2>&1 | tee "$EVIDENCE_DIR/helper-provenance.log"
+          mkdir -p "$EVIDENCE_DIR/helper"
+          cp helper/SidelinkHelper.ipa helper/SidelinkHelper.provenance.json "$EVIDENCE_DIR/helper/"
+
+      - name: Create and boot an isolated iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl create SideLink-Native-Verification com.apple.CoreSimulator.SimDeviceType.iPhone-17 "$SIMULATOR_RUNTIME")"
+          echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$simulator_id" > "$EVIDENCE_DIR/simulator-id.txt"
+          xcrun simctl boot "$simulator_id"
+          xcrun simctl bootstatus "$simulator_id" -b 2>&1 | tee "$EVIDENCE_DIR/simulator-boot.log"
+
+      - name: Run the complete iOS XCTest target
+        env:
+          SIMULATOR_ID: ${{ steps.simulator.outputs.id }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj \
+            -scheme SidelinkHelper \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -destination-timeout 120 \
+            -derivedDataPath "$RUNNER_TEMP/sidelink-simulator-derived-data" \
+            -resultBundlePath "$EVIDENCE_DIR/SidelinkHelperTests.xcresult" \
+            -parallel-testing-enabled NO \
+            -only-testing:SidelinkHelperTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test 2>&1 | tee "$EVIDENCE_DIR/simulator-tests.log"
+          xcrun xcresulttool get test-results summary \
+            --path "$EVIDENCE_DIR/SidelinkHelperTests.xcresult" \
+            > "$EVIDENCE_DIR/test-summary.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const summary = JSON.parse(fs.readFileSync(
+            path.join(process.env.EVIDENCE_DIR, 'test-summary.json'), 'utf8',
+          ));
+          if (!(summary.totalTestCount > 0) || !(summary.passedTests > 0) || summary.failedTests !== 0) {
+            throw new Error('The result bundle does not prove a nonempty passing XCTest run.');
+          }
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Shut down the owned simulator
+        if: always() && steps.simulator.outputs.id != ''
+        env:
+          SIMULATOR_ID: ${{ steps.simulator.outputs.id }}
+        run: xcrun simctl shutdown "$SIMULATOR_ID"
+
+      - name: Upload native verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sidelink-native-verification-${{ github.sha }}
+          path: ${{ env.EVIDENCE_DIR }}/
+          retention-days: 7
+          if-no-files-found: error
