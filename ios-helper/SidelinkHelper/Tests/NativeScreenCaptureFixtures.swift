@@ -89,8 +89,8 @@ enum TodayCaptureScenario: CaseIterable {
                 actions: [
                     CaptureFixture.action(
                         id: "recent-failures",
-                        title: "1 recent operation failed",
-                        detail: "Review the durable operation record for the failed pipeline step.",
+                        title: "Refresh Field Notes failed",
+                        detail: "Failed during authentication. Open it to see what to do next.",
                         action: "Review operation",
                         tone: "warning",
                         target: CaptureFixture.target("job", jobId: CaptureFixture.failedJobID)
@@ -132,16 +132,16 @@ enum TodayCaptureScenario: CaseIterable {
         case .legacyRepair:
             // Legacy apps without an install recipe are rejected at admission
             // (INSTALL_REPAIR_REQUIRED), so Today shows expiry pressure and the
-            // expired-app action rather than a failed job receipt.
+            // renewal-review action rather than a failed job receipt.
             return CaptureFixture.todaySnapshot(
                 now: now,
                 headline: "1 critical action needs you",
                 summary: "SideLink has paused where a decision or credential is required.",
                 actions: [
                     CaptureFixture.action(
-                        id: "expired-apps",
-                        title: "1 installed app has expired",
-                        detail: "Refresh or reactivate the affected app on the paired host.",
+                        id: "renewal-repair",
+                        title: "Trail Log needs its renewal settings reviewed",
+                        detail: "Automatic renewal is paused until you confirm the original IPA and extensions on the paired computer.",
                         action: "Open Apps",
                         tone: "critical",
                         target: CaptureFixture.target("installed_app", installedAppId: CaptureFixture.trailLogInstallID)
