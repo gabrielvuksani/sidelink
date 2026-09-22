@@ -3,6 +3,8 @@ import Foundation
 enum HelperAPIError: LocalizedError {
     case invalidURL
     case unauthorized
+    case notFound(String)
+    case commandRejected(statusCode: Int, code: String?, message: String)
     case server(String)
     case decoding
 
@@ -12,6 +14,10 @@ enum HelperAPIError: LocalizedError {
             return "Invalid backend URL"
         case .unauthorized:
             return "Unauthorized. Check helper token."
+        case .notFound(let message):
+            return message
+        case .commandRejected(_, _, let message):
+            return message
         case .server(let message):
             return message
         case .decoding:
@@ -20,38 +26,161 @@ enum HelperAPIError: LocalizedError {
     }
 }
 
-struct APIClient {
-    private let requestTimeout: TimeInterval = 30
-    private let maxRetries = 3
-    private let session: URLSession
+struct HelperCommandErrorEnvelope: Decodable {
+    let ok: Bool
+    let code: String?
+    let error: String?
+}
 
-    init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = requestTimeout
-        config.timeoutIntervalForResource = 300
-        config.waitsForConnectivity = true
-        session = URLSession(configuration: config)
+struct InstallJobCommandVersionBody: Encodable {
+    let expectedRevision: Int
+    let expectedUpdatedAt: String
+}
+
+struct InstallJobTwoFABody: Encodable {
+    let code: String
+    let expectedRevision: Int
+    let expectedUpdatedAt: String
+}
+
+struct APIClient: Sendable {
+    enum RequestPolicy: Sendable {
+        case resilient
+        case foregroundLiveness
     }
 
-    private func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    private struct RequestOutput: @unchecked Sendable {
+        let data: Data
+        let response: URLResponse
+    }
+
+    private static let defaultForegroundDeadline: TimeInterval = 8
+    private let resilientTransport: Transport
+    private let foregroundTransport: Transport
+    private let foregroundDeadline: TimeInterval
+
+    init() {
+        let resilientConfiguration = URLSessionConfiguration.default
+        resilientConfiguration.timeoutIntervalForRequest = 30
+        resilientConfiguration.timeoutIntervalForResource = 300
+        resilientConfiguration.waitsForConnectivity = true
+        let resilientSession = URLSession(configuration: resilientConfiguration)
+
+        let foregroundConfiguration = URLSessionConfiguration.default
+        foregroundConfiguration.timeoutIntervalForRequest = Self.defaultForegroundDeadline
+        foregroundConfiguration.timeoutIntervalForResource = Self.defaultForegroundDeadline
+        foregroundConfiguration.waitsForConnectivity = false
+        let foregroundSession = URLSession(configuration: foregroundConfiguration)
+
+        resilientTransport = { request in
+            try await resilientSession.data(for: request)
+        }
+        foregroundTransport = { request in
+            try await foregroundSession.data(for: request)
+        }
+        foregroundDeadline = Self.defaultForegroundDeadline
+    }
+
+    init(
+        transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse),
+        foregroundDeadline: TimeInterval = Self.defaultForegroundDeadline
+    ) {
+        resilientTransport = transport
+        foregroundTransport = transport
+        self.foregroundDeadline = foregroundDeadline
+    }
+
+    func perform(
+        _ request: URLRequest,
+        policy: RequestPolicy = .resilient
+    ) async throws -> (Data, URLResponse) {
+        let output: RequestOutput
+        switch policy {
+        case .resilient:
+            output = try await performAttempts(
+                request,
+                policy: policy,
+                transport: resilientTransport
+            )
+        case .foregroundLiveness:
+            output = try await performWithForegroundDeadline(request)
+        }
+        return (output.data, output.response)
+    }
+
+    private func performWithForegroundDeadline(_ request: URLRequest) async throws -> RequestOutput {
+        try await withThrowingTaskGroup(of: RequestOutput.self) { group in
+            group.addTask {
+                try await performAttempts(
+                    request,
+                    policy: .foregroundLiveness,
+                    transport: foregroundTransport
+                )
+            }
+            group.addTask {
+                let nanoseconds = UInt64(max(0, foregroundDeadline) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: nanoseconds)
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let output = try await group.next() else {
+                throw URLError(.timedOut)
+            }
+            return output
+        }
+    }
+
+    private func performAttempts(
+        _ request: URLRequest,
+        policy: RequestPolicy,
+        transport: Transport
+    ) async throws -> RequestOutput {
         var attempts = 1
         var lastError: Error?
+        let method = (request.httpMethod ?? "GET").uppercased()
+        let mayRetry: Bool
+        let maxAttempts: Int
+        switch policy {
+        case .resilient:
+            let retryableMethods = ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]
+            mayRetry = retryableMethods.contains(method)
+                || request.value(forHTTPHeaderField: "Idempotency-Key") != nil
+            maxAttempts = mayRetry ? 3 : 1
+        case .foregroundLiveness:
+            mayRetry = method == "GET"
+            maxAttempts = mayRetry ? 2 : 1
+        }
 
-        while attempts <= maxRetries {
+        while attempts <= maxAttempts {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
             do {
-                let (data, response) = try await session.data(for: request)
-                if let http = response as? HTTPURLResponse, shouldRetry(statusCode: http.statusCode), attempts < maxRetries {
-                    try? await Task.sleep(nanoseconds: retryDelayNs(forAttempt: attempts))
+                let (data, response) = try await transport(request)
+                if mayRetry,
+                   let http = response as? HTTPURLResponse,
+                   shouldRetry(statusCode: http.statusCode),
+                   attempts < maxAttempts {
+                    try await Task.sleep(
+                        nanoseconds: retryDelayNs(forAttempt: attempts, policy: policy)
+                    )
                     attempts += 1
                     continue
                 }
-                return (data, response)
+                return RequestOutput(data: data, response: response)
             } catch {
                 lastError = error
-                if !isTransientNetworkError(error) || attempts >= maxRetries {
+                if Task.isCancelled {
+                    throw error
+                }
+                if !mayRetry || !isTransientNetworkError(error) || attempts >= maxAttempts {
                     break
                 }
-                try? await Task.sleep(nanoseconds: retryDelayNs(forAttempt: attempts))
+                try await Task.sleep(
+                    nanoseconds: retryDelayNs(forAttempt: attempts, policy: policy)
+                )
                 attempts += 1
             }
         }
@@ -85,13 +214,17 @@ struct APIClient {
         }
     }
 
-    private func retryDelayNs(forAttempt attempt: Int) -> UInt64 {
-        // Exponential backoff: 1s, 2s, 4s.
-        let seconds = min(pow(2.0, Double(attempt - 1)), 4)
-        return UInt64(seconds * 1_000_000_000)
+    private func retryDelayNs(forAttempt attempt: Int, policy: RequestPolicy) -> UInt64 {
+        switch policy {
+        case .resilient:
+            let seconds = min(pow(2.0, Double(attempt - 1)), 4)
+            return UInt64(seconds * 1_000_000_000)
+        case .foregroundLiveness:
+            return 250_000_000
+        }
     }
 
-    private func decodeEnvelope<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    func decodeEnvelope<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         let envelope = try JSONDecoder().decode(APIEnvelope<T>.self, from: data)
         if let value = envelope.data {
             return value
@@ -99,7 +232,20 @@ struct APIClient {
         throw HelperAPIError.server(envelope.error ?? "Request failed")
     }
 
-    private func helperURL(
+    func commandRejection(
+        statusCode: Int,
+        data: Data,
+        fallbackMessage: String
+    ) -> HelperAPIError {
+        let envelope = try? JSONDecoder().decode(HelperCommandErrorEnvelope.self, from: data)
+        return .commandRejected(
+            statusCode: statusCode,
+            code: envelope?.code,
+            message: envelope?.error ?? fallbackMessage
+        )
+    }
+
+    func helperURL(
         baseURL: String,
         pathComponents: [String],
         queryItems: [URLQueryItem] = []
@@ -150,7 +296,12 @@ struct APIClient {
         }
     }
 
-    func triggerRefresh(baseURL: String, token: String, installId: String) async throws {
+    func triggerRefresh(
+        baseURL: String,
+        token: String,
+        installId: String,
+        idempotencyKey: String
+    ) async throws -> RefreshJobReceiptDTO {
         guard let url = URL(string: baseURL + "/api/helper/refresh") else {
             throw HelperAPIError.invalidURL
         }
@@ -159,6 +310,7 @@ struct APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         request.httpBody = try JSONEncoder().encode(["installId": installId])
 
         let (data, response) = try await perform(request)
@@ -169,10 +321,29 @@ struct APIClient {
         if http.statusCode == 401 {
             throw HelperAPIError.unauthorized
         }
+        if http.statusCode == 404 {
+            throw HelperAPIError.notFound("This operation is no longer available on the desktop.")
+        }
 
         guard (200 ... 299).contains(http.statusCode) else {
             throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Refresh failed")
         }
+
+        let decoder = JSONDecoder()
+        if let envelope = try? decoder.decode(APIEnvelope<RefreshJobReceiptDTO>.self, from: data) {
+            if let receipt = envelope.data {
+                return receipt
+            }
+            if !envelope.ok {
+                throw HelperAPIError.server(envelope.error ?? "Refresh failed")
+            }
+        }
+
+        if let legacy = try? decoder.decode(LegacyRefreshAcceptanceDTO.self, from: data), legacy.ok {
+            return RefreshJobReceiptDTO(disposition: "accepted", job: nil)
+        }
+
+        throw HelperAPIError.decoding
     }
 
     func refreshAll(baseURL: String, token: String) async throws -> RefreshAllResponseDTO {
@@ -208,13 +379,26 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["code": code])
 
-        let (data, response) = try await perform(request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await perform(request, policy: .foregroundLiveness)
+        } catch let error as URLError where error.code == .timedOut {
+            throw HelperAPIError.server(
+                "Pairing could not be confirmed. Generate a fresh pairing code on your desktop, then try again."
+            )
+        }
         guard let http = response as? HTTPURLResponse else {
             throw HelperAPIError.server("Invalid response")
         }
 
         guard (200 ... 299).contains(http.statusCode) else {
-            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Pairing failed")
+            if let envelope = try? JSONDecoder().decode(APIEnvelope<PairResponse>.self, from: data),
+               let message = envelope.error?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !message.isEmpty {
+                throw HelperAPIError.server(message)
+            }
+            throw HelperAPIError.server("Pairing failed")
         }
 
         return try decodeEnvelope(PairResponse.self, from: data)
@@ -325,14 +509,18 @@ struct APIClient {
         return try decodeEnvelope([IpaArtifactDTO].self, from: data)
     }
 
-    func listInstallJobs(baseURL: String, token: String) async throws -> [InstallJobDetailDTO] {
+    func listInstallJobs(
+        baseURL: String,
+        token: String,
+        policy: RequestPolicy = .resilient
+    ) async throws -> [InstallJobDetailDTO] {
         guard let url = URL(string: baseURL + "/api/helper/jobs") else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
 
-        let (data, response) = try await perform(request)
+        let (data, response) = try await perform(request, policy: policy)
         guard let http = response as? HTTPURLResponse else {
             throw HelperAPIError.server("Invalid response")
         }
@@ -346,19 +534,27 @@ struct APIClient {
         return try decodeEnvelope([InstallJobDetailDTO].self, from: data)
     }
 
-    func getInstallJob(baseURL: String, token: String, jobId: String) async throws -> InstallJobDetailDTO {
+    func getInstallJob(
+        baseURL: String,
+        token: String,
+        jobId: String,
+        policy: RequestPolicy = .resilient
+    ) async throws -> InstallJobDetailDTO {
         guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId]) else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
 
-        let (data, response) = try await perform(request)
+        let (data, response) = try await perform(request, policy: policy)
         guard let http = response as? HTTPURLResponse else {
             throw HelperAPIError.server("Invalid response")
         }
         if http.statusCode == 401 {
             throw HelperAPIError.unauthorized
+        }
+        if http.statusCode == 404 {
+            throw HelperAPIError.notFound("This operation is no longer available on the desktop.")
         }
         guard (200 ... 299).contains(http.statusCode) else {
             throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "Job request failed")
@@ -367,14 +563,19 @@ struct APIClient {
         return try decodeEnvelope(InstallJobDetailDTO.self, from: data)
     }
 
-    func getInstallJobLogs(baseURL: String, token: String, jobId: String) async throws -> [InstallJobLogDTO] {
+    func getInstallJobLogs(
+        baseURL: String,
+        token: String,
+        jobId: String,
+        policy: RequestPolicy = .resilient
+    ) async throws -> [InstallJobLogDTO] {
         guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId, "logs"]) else {
             throw HelperAPIError.invalidURL
         }
         var request = URLRequest(url: url)
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
 
-        let (data, response) = try await perform(request)
+        let (data, response) = try await perform(request, policy: policy)
         guard let http = response as? HTTPURLResponse else {
             throw HelperAPIError.server("Invalid response")
         }
@@ -388,8 +589,18 @@ struct APIClient {
         return try decodeEnvelope([InstallJobLogDTO].self, from: data)
     }
 
-    func submitInstallJob2FA(baseURL: String, token: String, jobId: String, code: String) async throws {
-        guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "jobs", jobId, "2fa"]) else {
+    func submitInstallJob2FA(
+        baseURL: String,
+        token: String,
+        jobId: String,
+        code: String,
+        expectedRevision: Int,
+        expectedUpdatedAt: String
+    ) async throws {
+        guard let url = helperURL(
+            baseURL: baseURL,
+            pathComponents: ["api", "helper", "jobs", jobId, "commands", "2fa"]
+        ) else {
             throw HelperAPIError.invalidURL
         }
 
@@ -397,9 +608,13 @@ struct APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
-        request.httpBody = try JSONEncoder().encode(["code": code])
+        request.httpBody = try JSONEncoder().encode(InstallJobTwoFABody(
+            code: code,
+            expectedRevision: expectedRevision,
+            expectedUpdatedAt: expectedUpdatedAt
+        ))
 
-        let (data, response) = try await perform(request)
+        let (data, response) = try await perform(request, policy: .foregroundLiveness)
         guard let http = response as? HTTPURLResponse else {
             throw HelperAPIError.server("Invalid response")
         }
@@ -407,7 +622,24 @@ struct APIClient {
             throw HelperAPIError.unauthorized
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            throw HelperAPIError.server(String(data: data, encoding: .utf8) ?? "2FA submission failed")
+            if (400 ... 499).contains(http.statusCode) {
+                throw commandRejection(
+                    statusCode: http.statusCode,
+                    data: data,
+                    fallbackMessage: "The host rejected this verification request"
+                )
+            }
+            throw HelperAPIError.server("The host could not confirm this verification request")
+        }
+        guard let envelope = try? JSONDecoder().decode(HelperCommandErrorEnvelope.self, from: data) else {
+            throw HelperAPIError.server("The host response did not confirm this verification request")
+        }
+        if !envelope.ok {
+            throw commandRejection(
+                statusCode: http.statusCode,
+                data: data,
+                fallbackMessage: "The host rejected this verification request"
+            )
         }
     }
 
@@ -483,7 +715,12 @@ struct APIClient {
         return try decodeEnvelope(InstalledAppDTO.self, from: data)
     }
 
-    func reactivateInstalledApp(baseURL: String, token: String, appId: String) async throws -> InstallJobDTO {
+    func reactivateInstalledApp(
+        baseURL: String,
+        token: String,
+        appId: String,
+        idempotencyKey: String
+    ) async throws -> InstallJobDTO {
         guard let url = helperURL(baseURL: baseURL, pathComponents: ["api", "helper", "apps", appId, "reactivate"]) else {
             throw HelperAPIError.invalidURL
         }
@@ -491,6 +728,7 @@ struct APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
 
         let (data, response) = try await perform(request)
         guard let http = response as? HTTPURLResponse else {
@@ -772,7 +1010,14 @@ struct APIClient {
         return try decodeEnvelope(IpaArtifactDTO.self, from: data)
     }
 
-    func startInstall(baseURL: String, token: String, ipaId: String, accountId: String, deviceUdid: String) async throws -> InstallJobDTO {
+    func startInstall(
+        baseURL: String,
+        token: String,
+        ipaId: String,
+        accountId: String,
+        deviceUdid: String,
+        idempotencyKey: String
+    ) async throws -> InstallJobDTO {
         guard let url = URL(string: baseURL + "/api/helper/install") else {
             throw HelperAPIError.invalidURL
         }
@@ -781,6 +1026,7 @@ struct APIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "x-sidelink-helper-token")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         request.httpBody = try JSONEncoder().encode([
             "ipaId": ipaId,
             "accountId": accountId,
