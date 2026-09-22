@@ -4,7 +4,7 @@ struct SidelinkAppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     enum RootTab: Hashable {
-        case browse
+        case today
         case search
         case installed
         case sources
@@ -14,14 +14,14 @@ struct SidelinkAppRootView: View {
     @StateObject private var model = HelperViewModel()
     @StateObject private var permissions = PermissionCoordinator.shared
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
-    @State private var selectedTab: RootTab = .browse
+    @State private var selectedTab: RootTab = .today
     @State private var pendingSourceImport: PendingSourceImport?
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            BrowseTab(model: model)
-                .tag(RootTab.browse)
-                .tabItem { Label("Home", systemImage: "sparkles") }
+            TodayTab(model: model, onNavigate: navigateFromToday)
+                .tag(RootTab.today)
+                .tabItem { Label("Today", systemImage: "sun.max.fill") }
             SearchTab(model: model)
                 .tag(RootTab.search)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
@@ -69,6 +69,7 @@ struct SidelinkAppRootView: View {
             pendingSourceImport = PendingSourceImport(url: sanitizedURL)
         }
         .task {
+            _ = model.reconcilePairingAuthority()
             await model.refreshAll()
             await permissions.refreshStatuses()
             // Only auto-request all permissions when onboarding is done.
@@ -81,6 +82,7 @@ struct SidelinkAppRootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task {
+                    _ = model.reconcilePairingAuthority()
                     await model.refreshAllSilently()
                     await permissions.refreshStatuses()
                     if didCompleteOnboarding {
@@ -140,6 +142,19 @@ struct SidelinkAppRootView: View {
             Text(model.toastMessage ?? "")
         }
     }
+
+    private func navigateFromToday(_ target: DailyOperationsTargetDTO) {
+        switch target.kind {
+        case "installed_apps", "installed_app":
+            selectedTab = .installed
+        case "library":
+            selectedTab = .search
+        case "accounts", "devices", "settings":
+            selectedTab = .settings
+        default:
+            break
+        }
+    }
 }
 
 private struct InstallConsoleSheet: View {
@@ -157,36 +172,52 @@ private struct InstallConsoleSheet: View {
                         heroCard
 
                         if let error = model.errorMessage {
-                            issueCard(title: "Install blocked", message: error, tint: .slDanger, systemImage: "xmark.octagon.fill")
+                            issueCard(
+                                title: "\(operationKind.noun) blocked",
+                                message: error,
+                                tint: .slDanger,
+                                systemImage: "xmark.octagon.fill"
+                            )
                         }
 
                         if let readiness = model.installReadinessMessage,
-                           model.activeInstallJob == nil,
+                           model.presentedInstallJob == nil,
                            !model.isLoading,
                            model.errorMessage == nil {
                             issueCard(title: "Before you install", message: readiness, tint: .slWarning, systemImage: "info.circle.fill")
                         }
 
-                        if model.isLoading && model.activeInstallJob == nil {
+                        if model.isLoading && model.presentedInstallJob == nil {
                             preparingCard
                         }
 
-                        if let job = model.activeInstallJob {
+                        if let job = model.presentedInstallJob {
                             InstallProgressView(
                                 job: job,
-                                logs: model.activeInstallLogs,
+                                logs: model.presentedInstallLogs,
                                 twoFACode: $model.activeInstall2FACode,
                                 onSubmitTwoFA: {
-                                    Task { await model.submitActiveInstall2FA() }
+                                    Task { await model.submitActiveInstall2FA(renderedJob: job) }
                                 },
                                 onRetry: {
                                     Task { await model.retryLastInstallRequest() }
                                 },
                                 isSubmitting: model.isLoading,
+                                commandDisabledReason: model.presentedActivityCommandDisabledReason,
                                 showsVerboseLogs: false
                             )
                         } else if !model.isLoading && model.errorMessage == nil {
                             idleCard
+                        }
+
+                        if let reason = activityInspectOnlyReason,
+                           model.presentedInstallJob?.status != "waiting_2fa" {
+                            issueCard(
+                                title: "Receipt is inspect-only",
+                                message: reason,
+                                tint: .slWarning,
+                                systemImage: "clock.badge.exclamationmark"
+                            )
                         }
 
                         actionBar
@@ -195,7 +226,7 @@ private struct InstallConsoleSheet: View {
                     .padding(.vertical, 20)
                 }
             }
-            .navigationTitle("Install Console")
+            .navigationTitle("\(operationKind.noun) Console")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -211,7 +242,7 @@ private struct InstallConsoleSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Live installation")
+                    Text("Live \(operationKind.noun.lowercased())")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(model.installConsoleResolvedTitle)
@@ -232,8 +263,8 @@ private struct InstallConsoleSheet: View {
                     .foregroundStyle(.secondary)
                 ProgressView(value: model.activeInstallProgressFraction)
                     .tint(.slAccent)
-                if model.activeInstallJob != nil {
-                    InstallVerboseLogConsole(logs: model.activeInstallLogs, maxHeight: 168)
+                if model.presentedInstallJob != nil {
+                    InstallVerboseLogConsole(logs: model.presentedInstallLogs, maxHeight: 168)
                 }
             }
         }
@@ -266,16 +297,41 @@ private struct InstallConsoleSheet: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            if model.errorMessage != nil || model.activeInstallJob?.status == "failed" {
+            if let job = model.presentedInstallJob, model.isInstallJobInFlight(job) {
+                Button(role: .destructive) {
+                    Task { await model.cancelPresentedInstallJob(renderedJob: job) }
+                } label: {
+                    Label("Request cancel", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isLoading || model.presentedActivityCommandDisabledReason != nil)
+                .accessibilityHint(
+                    model.presentedActivityCommandDisabledReason
+                        ?? "Requests cancellation from the paired host."
+                )
+            }
+
+            if model.errorMessage != nil || model.presentedInstallJob?.status == "failed" {
                 Button {
                     Task { await model.retryLastInstallRequest() }
                 } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                    Label(operationKind.retryLabel, systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.sidelinkQuickAction)
+                .disabled(model.presentedActivityRetryDisabledReason != nil)
+                .accessibilityHint(
+                    model.presentedActivityRetryDisabledReason
+                        ?? "Retries the most recent install request."
+                )
             }
         }
+    }
+
+    private var activityInspectOnlyReason: String? {
+        model.presentedActivityCommandDisabledReason
+            ?? model.presentedActivityRetryDisabledReason
     }
 
     private var statusChip: some View {
@@ -287,8 +343,15 @@ private struct InstallConsoleSheet: View {
             .background(statusColor.opacity(0.12), in: Capsule())
     }
 
+    private var operationKind: InstallOperationKind {
+        model.presentedInstallJob?.operationKind ?? .install
+    }
+
     private var statusText: String {
-        if let job = model.activeInstallJob {
+        if let job = model.presentedInstallJob {
+            if job.status == "completed", job.outcome == "not_needed" {
+                return "No renewal needed"
+            }
             return job.status.replacingOccurrences(of: "_", with: " ").capitalized
         }
         if model.isLoading {
@@ -301,7 +364,7 @@ private struct InstallConsoleSheet: View {
     }
 
     private var statusColor: Color {
-        if let job = model.activeInstallJob {
+        if let job = model.presentedInstallJob {
             switch job.status {
             case "completed": return .green
             case "failed": return .red
@@ -427,7 +490,7 @@ private struct ImportSourceSheet: View {
                         Label("Import Source", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .sidelinkProminentButton()
                 }
             }
             .navigationTitle("Import Source")
