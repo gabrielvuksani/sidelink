@@ -56,14 +56,13 @@ if ! command -v xcodebuild >/dev/null 2>&1; then
   exit 2
 fi
 
-if command -v xcodegen >/dev/null 2>&1 && [[ -f "$HELPER_DIR/project.yml" ]]; then
-  echo "[sidelink-helper] Regenerating Xcode project via xcodegen..."
-  (cd "$HELPER_DIR" && xcodegen generate)
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "[sidelink-helper] xcodegen is required so the exported IPA is built from the reviewed project.yml." >&2
+  exit 3
 fi
 
-if [[ ! -d "$PROJECT_FILE" ]]; then
-  echo "[sidelink-helper] Missing $PROJECT_FILE" >&2
-  echo "[sidelink-helper] Install xcodegen and run: (cd ios-helper/SidelinkHelper && xcodegen generate)" >&2
+if [[ ! -f "$HELPER_DIR/project.yml" ]]; then
+  echo "[sidelink-helper] Missing $HELPER_DIR/project.yml" >&2
   exit 3
 fi
 
@@ -72,6 +71,18 @@ if [[ ! -f "$EXPORT_OPTIONS_PLIST" ]]; then
   exit 4
 fi
 
+HELPER_SOURCE_HASH="$(node -e "process.stdout.write(require('./scripts/write-build-manifest.cjs').computeHelperSourceHash(process.cwd(), { projectDir: process.argv[1], exportOptionsPath: process.argv[2] }))" "$HELPER_DIR" "$EXPORT_OPTIONS_PLIST")"
+
+echo "[sidelink-helper] Regenerating Xcode project via xcodegen..."
+(cd "$HELPER_DIR" && xcodegen generate)
+
+if [[ ! -d "$PROJECT_FILE" ]]; then
+  echo "[sidelink-helper] xcodegen did not produce $PROJECT_FILE" >&2
+  exit 3
+fi
+
+rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR"
+rm -f "$OUTPUT_IPA" "${OUTPUT_IPA%.ipa}.provenance.json"
 mkdir -p "$ROOT_DIR/tmp/helper" "$EXPORT_DIR"
 
 if [[ -z "${SIDELINK_TEAM_ID:-}" ]]; then
@@ -140,13 +151,19 @@ xcodebuild -exportArchive \
   -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
   -allowProvisioningUpdates
 
-IPA_CANDIDATE="$(find "$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -n 1 || true)"
-if [[ -z "$IPA_CANDIDATE" ]]; then
-  echo "[sidelink-helper] Export completed but no IPA file was generated." >&2
+shopt -s nullglob
+IPA_CANDIDATES=("$EXPORT_DIR"/*.ipa)
+shopt -u nullglob
+if [[ ${#IPA_CANDIDATES[@]} -ne 1 ]]; then
+  echo "[sidelink-helper] Export must generate exactly one fresh IPA; found ${#IPA_CANDIDATES[@]}." >&2
   exit 5
 fi
+IPA_CANDIDATE="${IPA_CANDIDATES[0]}"
 
 mkdir -p "$(dirname "$OUTPUT_IPA")"
-cp "$IPA_CANDIDATE" "$OUTPUT_IPA"
+if [[ "$IPA_CANDIDATE" != "$OUTPUT_IPA" ]]; then
+  cp "$IPA_CANDIDATE" "$OUTPUT_IPA"
+fi
+node "$ROOT_DIR/scripts/write-helper-provenance.cjs" "$OUTPUT_IPA" development-signed "$HELPER_SOURCE_HASH"
 
 echo "[sidelink-helper] IPA ready at: $OUTPUT_IPA"
