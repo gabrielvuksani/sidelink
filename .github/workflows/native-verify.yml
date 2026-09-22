@@ -114,6 +114,7 @@ jobs:
             -resultBundlePath "$EVIDENCE_DIR/SidelinkHelperTests.xcresult" \
             -parallel-testing-enabled NO \
             -only-testing:SidelinkHelperTests \
+            -skip-testing:SidelinkHelperTests/NativeScreenCaptureTests \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test 2>&1 | tee "$EVIDENCE_DIR/simulator-tests.log"
@@ -131,6 +132,36 @@ jobs:
           }
           console.log(JSON.stringify(summary, null, 2));
           NODE
+
+      - name: Capture native helper screens
+        env:
+          SIMULATOR_ID: ${{ steps.simulator.outputs.id }}
+          EXPECTED_SCREEN_COUNT: '30'
+        run: |
+          set -euo pipefail
+          capture_dir="$EVIDENCE_DIR/native-screens"
+          rm -rf "$capture_dir"
+          mkdir -p "$capture_dir"
+          TEST_RUNNER_SIDELINK_CAPTURE_DIR="$capture_dir" xcodebuild \
+            -project ios-helper/SidelinkHelper/SidelinkHelper.xcodeproj \
+            -scheme SidelinkHelper \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -destination-timeout 120 \
+            -derivedDataPath "$RUNNER_TEMP/sidelink-simulator-derived-data" \
+            -resultBundlePath "$EVIDENCE_DIR/NativeScreenCapture.xcresult" \
+            -parallel-testing-enabled NO \
+            -only-testing:SidelinkHelperTests/NativeScreenCaptureTests \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test 2>&1 | tee "$EVIDENCE_DIR/native-screen-capture.log"
+          screen_count="$(find "$capture_dir" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')"
+          find "$capture_dir" -maxdepth 1 -type f -name '*.png' -exec basename {} \; | sort | tee "$EVIDENCE_DIR/native-screens.txt"
+          echo "Captured $screen_count of $EXPECTED_SCREEN_COUNT expected screens."
+          if [ "$screen_count" -lt "$EXPECTED_SCREEN_COUNT" ]; then
+            echo "::error::Expected at least $EXPECTED_SCREEN_COUNT native screen PNGs but found $screen_count."
+            exit 1
+          fi
 
       - name: Shut down the owned simulator
         if: always() && steps.simulator.outputs.id != ''
