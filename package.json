@@ -23,8 +23,9 @@
     "cross-platform"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12 <23"
   },
+  "packageManager": "npm@11.17.0",
   "overrides": {
     "@docsearch/react": {
       "react": "$react",
@@ -34,6 +35,9 @@
     "vitepress": {
       "esbuild": "^0.25.0",
       "vite": "^6.4.2"
+    },
+    "plist": {
+      "@xmldom/xmldom": "0.8.15"
     }
   },
   "main": "dist/desktop/main.js",
@@ -72,6 +76,7 @@
     "logs": "tail -f tmp/desktop/sidelink.log",
     "helper:build": "bash scripts/helper-build.sh",
     "helper:export": "bash scripts/helper-export.sh",
+    "helper:artifact": "node scripts/build-helper-artifact.cjs",
     "python:bundle": "node scripts/build-python-bundle.cjs",
     "icon:generate": "python3 scripts/generate-icon-assets.py",
     "source:generate": "node scripts/generate-source.cjs",
@@ -91,7 +96,7 @@
     "prebuild": "node scripts/purge-applesidecars.cjs"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "0.6.1",
     "better-sqlite3": "^12.9.0",
     "bplist-parser": "^0.3.2",
     "cookie-parser": "^1.4.7",
@@ -105,6 +110,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@tailwindcss/vite": "^4.2.1",
     "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
