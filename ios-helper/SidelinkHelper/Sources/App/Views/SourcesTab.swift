@@ -182,7 +182,7 @@ struct SourcesTab: View {
                         Label("Import Source", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .sidelinkProminentButton()
                     .disabled(!canSubmitSource)
                 }
             }
@@ -510,7 +510,11 @@ private struct SourceAppDetailView: View {
     }
 
     private var tint: Color {
-        Color(hex: app.tintColor) ?? Color(hex: catalog.manifest.tintColor) ?? .slAccent
+        customTint ?? .slAccent
+    }
+
+    private var customTint: Color? {
+        Color(hex: app.tintColor) ?? Color(hex: catalog.manifest.tintColor)
     }
 
     private var installLabel: String {
@@ -748,8 +752,7 @@ private struct SourceAppDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(tint)
+                .sidelinkProminentButton(customTint: customTint)
                 .disabled(model.installReadinessMessage != nil || app.primaryDownloadURL.isEmpty)
             }
             .padding(.horizontal, 20)

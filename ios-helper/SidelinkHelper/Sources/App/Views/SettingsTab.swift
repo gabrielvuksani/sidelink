@@ -89,7 +89,7 @@ struct SettingsTab: View {
             HStack(spacing: 12) {
                 SidelinkMetricTile(label: "Accounts", value: "\(model.accounts.count)")
                 SidelinkMetricTile(label: "Devices", value: "\(model.devices.count)", tint: .slAccent2)
-                SidelinkMetricTile(label: "Status", value: model.isPaired ? "Connected" : "Unpaired", tint: model.isPaired ? .slSuccess : .slWarning)
+                SidelinkMetricTile(label: "Host", value: model.hostConnectionLabel, tint: model.hostReachable ? .slSuccess : .slWarning)
             }
         }
         .liquidPanel()
@@ -98,14 +98,14 @@ struct SettingsTab: View {
 
     private var helperCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Connected helper" : "Pair your helper", subtitle: model.isPaired ? "Your iPhone is linked to \(model.serverName.isEmpty ? "SideLink" : model.serverName)." : "Use the desktop code first, or open the QR scanner only when it is the faster route.")
+            SidelinkSectionIntro(eyebrow: "Helper", title: model.isPaired ? "Paired helper" : "Pair your helper", subtitle: model.isPaired ? "This iPhone has a pairing credential for \(model.serverName.isEmpty ? "SideLink" : model.serverName); reachability is checked separately." : "Use the desktop code first, or open the QR scanner only when it is the faster route.")
 
             HStack(spacing: 12) {
                 SidelinkStatusTile(
-                    label: "Connection",
-                    value: model.sseConnected ? "Live" : (model.isPaired ? "Polling" : "Offline"),
+                    label: "Reachability",
+                    value: model.sseConnected ? "Connected" : model.hostConnectionLabel,
                     detail: model.serverName.isEmpty ? "Desktop helper" : model.serverName,
-                    tint: model.isPaired ? .slSuccess : .slWarning
+                    tint: model.hostReachable ? .slSuccess : .slWarning
                 )
                 SidelinkStatusTile(
                     label: "Version",
@@ -493,6 +493,7 @@ struct SettingsTab: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.sidelinkQuickAction(tint: .slDanger))
+            .disabled(model.isPairing)
         }
         .liquidPanel()
         .padding(.horizontal, 20)
@@ -790,6 +791,13 @@ private struct PairingSheet: View {
                                 .autocorrectionDisabled()
                                 .textInputAutocapitalization(.never)
                                 .sidelinkField()
+                                .disabled(model.isPairing)
+
+                            if model.isPaired {
+                                Text("This address is only a pairing draft. Your current helper stays connected until a new code is accepted.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
                             if !model.discoveredBackends.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -822,6 +830,7 @@ private struct PairingSheet: View {
                                         }
                                         .buttonStyle(.plain)
                                         .sidelinkInsetPanel()
+                                        .disabled(model.isPairing)
                                     }
                                 }
                             }
@@ -829,14 +838,14 @@ private struct PairingSheet: View {
                             PairingCodeEntryView(code: $model.pairingCode, onSubmit: {
                                 Task {
                                     localError = nil
-                                    await model.pair()
-                                    if model.isPaired {
+                                    let didPair = await model.pair()
+                                    if didPair {
                                         dismiss()
                                     } else {
                                         localError = model.errorMessage
                                     }
                                 }
-                            }, isLoading: model.isLoading, autoFocus: false, focusTrigger: pairingFocusTrigger, showsHeader: false, buttonTitle: "Pair helper")
+                            }, isLoading: model.isLoading || model.isPairing, autoFocus: false, focusTrigger: pairingFocusTrigger, showsHeader: false, buttonTitle: "Pair helper")
                         }
                         .liquidPanel()
 
@@ -855,6 +864,7 @@ private struct PairingSheet: View {
                             }
                         }
                         .liquidPanel()
+                        .disabled(model.isPairing)
 
                         if let error = localError {
                             Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -960,7 +970,7 @@ private struct AppleAccountSheet: View {
                             Label("Verify Apple ID", systemImage: "checkmark.shield")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .sidelinkProminentButton()
                         .disabled(twoFACode.trimmingCharacters(in: .whitespacesAndNewlines).count != 6 || model.isLoading)
                     }
                 } else if case .reauth(let accountId) = mode {
@@ -988,7 +998,7 @@ private struct AppleAccountSheet: View {
                                 Label("Request Verification Code", systemImage: "arrow.clockwise")
                                     .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .sidelinkProminentButton()
                         }
                     }
                 } else {
@@ -1015,7 +1025,7 @@ private struct AppleAccountSheet: View {
                             Label("Sign In", systemImage: "person.badge.key")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .sidelinkProminentButton()
                         .disabled(appleId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty || model.isLoading)
                     }
                 }
