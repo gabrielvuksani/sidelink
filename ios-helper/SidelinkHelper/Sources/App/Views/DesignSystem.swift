@@ -175,13 +175,18 @@ struct SidelinkMetricTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Single-line text scales down instead of breaking inside a word.
             Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
                 .tracking(1.0)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Text(value)
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Capsule()
                 .fill(tint.opacity(0.22))
                 .frame(width: 34, height: 5)

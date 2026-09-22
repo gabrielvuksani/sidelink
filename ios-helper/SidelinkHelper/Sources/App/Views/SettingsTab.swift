@@ -86,14 +86,45 @@ struct SettingsTab: View {
         VStack(alignment: .leading, spacing: 18) {
             SidelinkSectionIntro(eyebrow: "Settings", title: "Control center", subtitle: "Pairing, Apple ID health, helper diagnostics, and refresh behavior all live in one calmer place.")
 
-            HStack(spacing: 12) {
-                SidelinkMetricTile(label: "Accounts", value: "\(model.accounts.count)")
-                SidelinkMetricTile(label: "Devices", value: "\(model.devices.count)", tint: .slAccent2)
-                SidelinkMetricTile(label: "Host", value: model.hostConnectionLabel, tint: model.hostReachable ? .slSuccess : .slWarning)
+            // Three tiles in a row when they fit at their natural width; otherwise
+            // counts share a row and the connection tile gets its own, and at
+            // the largest text sizes every tile stacks.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    accountsTile
+                    devicesTile
+                    hostTile
+                }
+
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        accountsTile
+                        devicesTile
+                    }
+                    hostTile
+                }
+
+                VStack(spacing: 12) {
+                    accountsTile
+                    devicesTile
+                    hostTile
+                }
             }
         }
         .liquidPanel()
         .padding(.horizontal, 20)
+    }
+
+    private var accountsTile: some View {
+        SidelinkMetricTile(label: "Accounts", value: "\(model.accounts.count)")
+    }
+
+    private var devicesTile: some View {
+        SidelinkMetricTile(label: "Devices", value: "\(model.devices.count)", tint: .slAccent2)
+    }
+
+    private var hostTile: some View {
+        SidelinkMetricTile(label: "Host", value: model.hostConnectionLabel, tint: model.hostReachable ? .slSuccess : .slWarning)
     }
 
     private var helperCard: some View {
