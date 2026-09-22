@@ -185,47 +185,6 @@ struct AnyCodable: Decodable {
     }
 }
 
-struct InstallJobDTO: Decodable, Identifiable {
-    let id: String
-    let status: String
-    let currentStep: String?
-    let error: String?
-}
-
-struct PipelineStepDTO: Decodable, Identifiable {
-    let name: String
-    let status: String
-    let startedAt: String?
-    let completedAt: String?
-    let error: String?
-
-    var id: String { name }
-}
-
-struct InstallJobDetailDTO: Decodable, Identifiable {
-    let id: String
-    let ipaId: String
-    let deviceUdid: String
-    let accountId: String
-    let includeExtensions: Bool
-    let status: String
-    let currentStep: String?
-    let steps: [PipelineStepDTO]
-    let error: String?
-    let createdAt: String
-    let updatedAt: String
-}
-
-struct InstallJobLogDTO: Decodable, Identifiable {
-    let id: String
-    let jobId: String
-    let step: String?
-    let level: String
-    let message: String
-    let meta: [String: AnyCodable]?
-    let at: String
-}
-
 struct SchedulerSnapshotDTO: Decodable {
     let running: Bool
     let simulatedNow: String
@@ -257,6 +216,7 @@ struct InstalledAppDTO: Decodable, Identifiable {
     let expiresAt: String
     let refreshCount: Int
     let lastRefreshAt: String?
+    var renewalRepairRequired: Bool? = nil
 }
 
 struct HelperLogEntryDTO: Decodable, Identifiable {
@@ -271,7 +231,6 @@ struct HelperAppIdDTO: Decodable, Identifiable {
     let id: String
     let accountId: String
     let teamId: String
-    let portalAppIdId: String
     let bundleId: String
     let name: String
     let originalBundleId: String
@@ -327,6 +286,7 @@ struct DeviceAppInventoryDTO: Decodable {
 
 struct RefreshAllResponseDTO: Decodable {
     let triggered: Int
+    let alreadyRunning: Int?
     let skipped: Int
     let errors: [String]
 }
@@ -385,11 +345,6 @@ struct DeviceDTO: Decodable, Identifiable {
 struct HelperArtifactDTO: Decodable {
     let available: Bool
     let message: String?
-}
-
-struct HelperRefreshResponse: Decodable {
-    let ok: Bool
-    let install: InstallCardDTO
 }
 
 struct DiscoveryBroadcastDTO: Decodable {
